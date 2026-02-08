@@ -1,0 +1,82 @@
+# ビルドディレクトリ
+build/
+cmake-build-*/
+
+# 実行ファイル
+*.exe
+*.out
+*.app
+
+# オブジェクトファイル
+*.o
+*.obj
+*.cu.obj
+
+# ライブラリ
+*.lib
+*.a
+*.so
+*.dylib
+*.dll
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+*.cmake
+!CMakeLists.txt
+
+# Visual Studio
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.suo
+*.user
+*.aps
+*.pch
+*.vspscc
+*.vssscc
+*.ncb
+*.sdf
+*.opensdf
+*.opendb
+*.cachefile
+*.VC.db
+*.VC.VC.opendb
+
+# CUDA
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
+
+# 結果ファイル
+*.csv
+results*.txt
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 外部ライブラリ（ダウンロードしたもの）
+external/eigen-3.4.0/
+external/*.tar.gz
+external/*.zip
+
+# テンポラリファイル
+*.log
+*.tmp
+*.temp

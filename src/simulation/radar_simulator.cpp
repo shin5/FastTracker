@@ -1,0 +1,232 @@
+#include "simulation/radar_simulator.hpp"
+#include <cmath>
+#include <algorithm>
+#include <iostream>
+
+namespace fasttracker {
+
+RadarSimulator::RadarSimulator(const TargetGenerator& target_gen,
+                               const RadarParameters& params,
+                               int sensor_id)
+    : target_gen_(target_gen),
+      params_(params),
+      sensor_id_(sensor_id),
+      rng_(std::random_device{}()),
+      uniform_dist_(0.0f, 1.0f),
+      normal_dist_(0.0f, 1.0f),
+      poisson_dist_(10),
+      total_targets_(0),
+      total_detections_(0),
+      total_clutter_(0),
+      total_missed_(0)
+{
+    std::cout << "RadarSimulator initialized" << std::endl;
+    std::cout << "  Detection probability: " << params_.detection_probability << std::endl;
+    std::cout << "  False alarm rate: " << params_.false_alarm_rate << std::endl;
+    std::cout << "  Max range: " << params_.max_range << " m" << std::endl;
+}
+
+std::vector<Measurement> RadarSimulator::generate(double time) {
+    std::vector<Measurement> measurements;
+    true_associations_.clear();
+
+    // 真の目標状態を取得
+    std::vector<StateVector> true_states = target_gen_.generateStates(time);
+    total_targets_ += static_cast<int>(true_states.size());
+
+    // 各目標からの観測を生成
+    for (size_t i = 0; i < true_states.size(); i++) {
+        const auto& state = true_states[i];
+
+        // 視野内チェック
+        if (!isInFieldOfView(state)) continue;
+
+        // 検出判定
+        if (!isDetected(state)) {
+            total_missed_++;
+            continue;
+        }
+
+        // 観測生成
+        Measurement meas = stateToMeasurement(state);
+        addNoise(meas);
+        meas.timestamp = time;
+        meas.sensor_id = sensor_id_;
+
+        measurements.push_back(meas);
+        true_associations_.push_back(static_cast<int>(i));
+        total_detections_++;
+    }
+
+    // クラッタ生成
+    auto clutter = generateClutter(time);
+    for (const auto& c : clutter) {
+        measurements.push_back(c);
+        true_associations_.push_back(-1);  // -1 = クラッタ
+    }
+    total_clutter_ += static_cast<int>(clutter.size());
+
+    // シャッフル（観測順序をランダム化）
+    std::vector<int> indices(measurements.size());
+    for (size_t i = 0; i < indices.size(); i++) indices[i] = static_cast<int>(i);
+    std::shuffle(indices.begin(), indices.end(), rng_);
+
+    std::vector<Measurement> shuffled_meas;
+    std::vector<int> shuffled_assoc;
+    for (int idx : indices) {
+        shuffled_meas.push_back(measurements[idx]);
+        shuffled_assoc.push_back(true_associations_[idx]);
+    }
+
+    measurements = shuffled_meas;
+    true_associations_ = shuffled_assoc;
+
+    return measurements;
+}
+
+std::vector<StateVector> RadarSimulator::getTrueStates(double time) const {
+    return target_gen_.generateStates(time);
+}
+
+Measurement RadarSimulator::stateToMeasurement(const StateVector& state) const {
+    Measurement meas;
+
+    float x = state(0);
+    float y = state(1);
+    float vx = state(2);
+    float vy = state(3);
+
+    // Range
+    meas.range = std::sqrt(x * x + y * y);
+
+    // Azimuth
+    meas.azimuth = std::atan2(y, x);
+
+    // Elevation（2D追尾では0）
+    meas.elevation = 0.0f;
+
+    // Doppler
+    if (meas.range > 1e-6f) {
+        meas.doppler = (x * vx + y * vy) / meas.range;
+    } else {
+        meas.doppler = 0.0f;
+    }
+
+    return meas;
+}
+
+void RadarSimulator::addNoise(Measurement& meas) {
+    meas.range += normal_dist_(rng_) * params_.meas_noise.range_noise;
+    meas.azimuth += normal_dist_(rng_) * params_.meas_noise.azimuth_noise;
+    meas.elevation += normal_dist_(rng_) * params_.meas_noise.elevation_noise;
+    meas.doppler += normal_dist_(rng_) * params_.meas_noise.doppler_noise;
+
+    // Range は正の値に制限
+    if (meas.range < 0.0f) meas.range = 0.0f;
+
+    // Azimuth を -π ~ π に正規化
+    while (meas.azimuth > M_PI) meas.azimuth -= 2.0f * M_PI;
+    while (meas.azimuth < -M_PI) meas.azimuth += 2.0f * M_PI;
+}
+
+std::vector<Measurement> RadarSimulator::generateClutter(double time) {
+    std::vector<Measurement> clutter;
+
+    // 監視領域の面積
+    float surveillance_area = M_PI * params_.max_range * params_.max_range;
+
+    // クラッタ数の期待値
+    float lambda = params_.false_alarm_rate * surveillance_area;
+
+    // ポアソン分布でクラッタ数を決定
+    poisson_dist_ = std::poisson_distribution<int>(lambda);
+    int num_clutter = poisson_dist_(rng_);
+
+    for (int i = 0; i < num_clutter; i++) {
+        Measurement meas;
+
+        // ランダムな位置にクラッタを生成
+        float r = params_.max_range * std::sqrt(uniform_dist_(rng_));
+        float theta = (uniform_dist_(rng_) - 0.5f) * params_.field_of_view;
+
+        meas.range = r;
+        meas.azimuth = theta;
+        meas.elevation = 0.0f;
+        meas.doppler = (uniform_dist_(rng_) - 0.5f) * 200.0f;  // -100~100 m/s
+
+        // ノイズ付加
+        addNoise(meas);
+
+        meas.timestamp = time;
+        meas.sensor_id = sensor_id_;
+
+        clutter.push_back(meas);
+    }
+
+    return clutter;
+}
+
+bool RadarSimulator::isDetected(const StateVector& state) const {
+    // 簡易検出モデル: 一定確率で検出
+    // 実際のレーダーではSNRに依存するが、ここでは単純化
+
+    float detection_prob = params_.detection_probability;
+
+    // 距離による減衰を考慮（オプション）
+    float x = state(0);
+    float y = state(1);
+    float range = std::sqrt(x * x + y * y);
+
+    if (range > params_.max_range) {
+        return false;
+    }
+
+    // レーダー方程式の簡易版（距離の4乗に反比例）
+    float range_factor = std::pow(params_.max_range / std::max(range, 100.0f), 4.0f);
+    detection_prob = std::min(detection_prob * range_factor, 1.0f);
+
+    return uniform_dist_(rng_) < detection_prob;
+}
+
+bool RadarSimulator::isInFieldOfView(const StateVector& state) const {
+    float x = state(0);
+    float y = state(1);
+
+    float range = std::sqrt(x * x + y * y);
+    if (range > params_.max_range) return false;
+
+    float azimuth = std::atan2(y, x);
+    float half_fov = params_.field_of_view / 2.0f;
+
+    return (azimuth >= -half_fov && azimuth <= half_fov);
+}
+
+void RadarSimulator::resetStatistics() {
+    total_targets_ = 0;
+    total_detections_ = 0;
+    total_clutter_ = 0;
+    total_missed_ = 0;
+}
+
+void RadarSimulator::printStatistics() const {
+    std::cout << "=== Radar Simulator Statistics ===" << std::endl;
+    std::cout << "Total targets: " << total_targets_ << std::endl;
+    std::cout << "Detections: " << total_detections_ << std::endl;
+    std::cout << "Missed: " << total_missed_ << std::endl;
+    std::cout << "Clutter: " << total_clutter_ << std::endl;
+
+    if (total_targets_ > 0) {
+        float detection_rate = static_cast<float>(total_detections_) / total_targets_;
+        std::cout << "Detection rate: " << (detection_rate * 100.0f) << "%" << std::endl;
+    }
+
+    if (total_detections_ + total_clutter_ > 0) {
+        float clutter_ratio = static_cast<float>(total_clutter_) /
+                             (total_detections_ + total_clutter_);
+        std::cout << "Clutter ratio: " << (clutter_ratio * 100.0f) << "%" << std::endl;
+    }
+
+    std::cout << "===================================" << std::endl;
+}
+
+} // namespace fasttracker
