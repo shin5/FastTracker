@@ -5,6 +5,8 @@
 #include <memory>
 #include "utils/types.hpp"
 #include "ukf/ukf.cuh"
+#include "ukf/imm_ukf.hpp"
+#include "ukf/imm_ukf.cuh"
 #include "tracker/track_manager.hpp"
 #include "tracker/data_association.cuh"
 
@@ -25,13 +27,15 @@ public:
      * @param assoc_params アソシエーションパラメータ
      * @param process_noise プロセスノイズ
      * @param meas_noise 観測ノイズ
+     * @param use_imm IMMフィルタを使用するか（デフォルト: true）
      */
     MultiTargetTracker(
         int max_targets = 2000,
         const UKFParams& ukf_params = UKFParams(),
         const AssociationParams& assoc_params = AssociationParams(),
         const ProcessNoise& process_noise = ProcessNoise(),
-        const MeasurementNoise& meas_noise = MeasurementNoise()
+        const MeasurementNoise& meas_noise = MeasurementNoise(),
+        bool use_imm = true
     );
 
     ~MultiTargetTracker();
@@ -97,6 +101,8 @@ public:
 private:
     // コンポーネント
     std::unique_ptr<UKF> ukf_;
+    std::unique_ptr<IMMFilterGPU> imm_gpu_;  // GPU版IMM
+    std::unique_ptr<IMMFilter> imm_cpu_;     // CPU版IMM
     std::unique_ptr<TrackManager> track_manager_;
     std::unique_ptr<DataAssociation> data_association_;
 
@@ -110,6 +116,8 @@ private:
     // 状態
     double last_update_time_;
     bool first_update_;
+    bool use_imm_;  // IMMフィルタを使用するか
+    int imm_gpu_threshold_;  // GPU IMM使用の閾値トラック数（デフォルト: 200）
 
     // パフォーマンス統計
     PerformanceStats last_perf_stats_;

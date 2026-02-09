@@ -112,6 +112,13 @@ Measurement RadarSimulator::stateToMeasurement(const StateVector& state) const {
         meas.doppler = 0.0f;
     }
 
+    // SN比の計算（簡易レーダー方程式）
+    // SNR = SNR_ref * (R_ref / R)^4
+    float snr_ref = params_.snr_ref;  // 基準SN比 [dB] @ 1km
+    float r_ref = 1000.0f;             // 基準距離 [m]
+    float range_ratio = r_ref / std::max(meas.range, 100.0f);
+    meas.snr = snr_ref + 40.0f * std::log10(range_ratio);  // R^4則
+
     return meas;
 }
 
@@ -120,6 +127,9 @@ void RadarSimulator::addNoise(Measurement& meas) {
     meas.azimuth += normal_dist_(rng_) * params_.meas_noise.azimuth_noise;
     meas.elevation += normal_dist_(rng_) * params_.meas_noise.elevation_noise;
     meas.doppler += normal_dist_(rng_) * params_.meas_noise.doppler_noise;
+
+    // SN比にノイズを付加（±2dB程度のばらつき）
+    meas.snr += normal_dist_(rng_) * 2.0f;
 
     // Range は正の値に制限
     if (meas.range < 0.0f) meas.range = 0.0f;
@@ -153,6 +163,9 @@ std::vector<Measurement> RadarSimulator::generateClutter(double time) {
         meas.azimuth = theta;
         meas.elevation = 0.0f;
         meas.doppler = (uniform_dist_(rng_) - 0.5f) * 200.0f;  // -100~100 m/s
+
+        // クラッタは低SN比（0-15 dB程度）
+        meas.snr = uniform_dist_(rng_) * 15.0f;
 
         // ノイズ付加
         addNoise(meas);

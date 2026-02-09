@@ -9,7 +9,8 @@ MultiTargetTracker::MultiTargetTracker(
     const UKFParams& ukf_params,
     const AssociationParams& assoc_params,
     const ProcessNoise& process_noise,
-    const MeasurementNoise& meas_noise)
+    const MeasurementNoise& meas_noise,
+    bool use_imm)
     : max_targets_(max_targets),
       ukf_params_(ukf_params),
       assoc_params_(assoc_params),
@@ -17,12 +18,20 @@ MultiTargetTracker::MultiTargetTracker(
       meas_noise_(meas_noise),
       last_update_time_(0.0),
       first_update_(true),
+      use_imm_(use_imm),
+      imm_gpu_threshold_(200),  // トラック数200以下はCPU、200超過はGPU
       total_updates_(0),
       total_processing_time_(0.0),
       total_measurements_processed_(0)
 {
     // UKF初期化
     ukf_ = std::make_unique<UKF>(max_targets, ukf_params, process_noise, meas_noise);
+
+    // IMMフィルタ初期化（ハイブリッド: CPU版とGPU版の両方）
+    if (use_imm_) {
+        imm_cpu_ = std::make_unique<IMMFilter>(3, max_targets);
+        imm_gpu_ = std::make_unique<IMMFilterGPU>(3, max_targets);
+    }
 
     // トラック管理初期化
     track_manager_ = std::make_unique<TrackManager>(assoc_params);
@@ -32,6 +41,12 @@ MultiTargetTracker::MultiTargetTracker(
 
     std::cout << "MultiTargetTracker initialized" << std::endl;
     std::cout << "  Max targets: " << max_targets << std::endl;
+    if (use_imm_) {
+        std::cout << "  IMM filter: enabled (Hybrid CPU/GPU mode)" << std::endl;
+        std::cout << "  GPU threshold: " << imm_gpu_threshold_ << " tracks" << std::endl;
+    } else {
+        std::cout << "  IMM filter: disabled" << std::endl;
+    }
 }
 
 MultiTargetTracker::~MultiTargetTracker() {
@@ -46,8 +61,12 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
         last_update_time_ = current_time;
         first_update_ = false;
 
-        // 初期トラックを作成
+        // 初期トラックを作成（SNRフィルタリング）
         for (const auto& meas : measurements) {
+            // 低SNRの観測（クラッタ）を除外
+            if (meas.snr < 15.0f) {
+                continue;
+            }
             track_manager_->initializeTrack(meas);
         }
 
@@ -88,6 +107,15 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
 
             // ここでは簡易的にトラック管理のみ更新
             track_manager_->updateTrack(tracks[i].id, state, cov, current_time);
+
+            // 高品質トラックの確定促進（SNR > 35dB の場合、ヒット数を増やす）
+            if (meas.snr > 35.0f) {
+                Track& track = track_manager_->getTrackMutable(tracks[i].id);
+                if (track.track_state == TrackState::TENTATIVE) {
+                    // 高SNRの場合、確定に必要なヒット数を満たす
+                    track.hits = std::max(track.hits, assoc_params_.confirm_hits);
+                }
+            }
         } else {
             // 観測が割り当てられなかった場合: 予測のみ
             track_manager_->predictOnlyTrack(tracks[i].id,
@@ -128,30 +156,91 @@ void MultiTargetTracker::predictTracks(double dt) {
     std::vector<Track> tracks = track_manager_->getAllTracks();
     if (tracks.empty()) return;
 
+    // トラック数がmax_targetsを超える場合は制限
+    if (tracks.size() > static_cast<size_t>(max_targets_)) {
+        std::cerr << "Warning: Track count (" << tracks.size()
+                  << ") exceeds max_targets (" << max_targets_
+                  << "). Limiting to max_targets." << std::endl;
+        tracks.resize(max_targets_);
+    }
+
     // GPU用に状態と共分散を準備
     std::vector<StateVector> states;
     std::vector<StateCov> covariances;
+    std::vector<float> model_probs;
 
     for (const auto& track : tracks) {
         states.push_back(track.state);
         covariances.push_back(track.covariance);
+
+        // モデル確率を抽出（IMMフィルタ用）
+        if (use_imm_ && track.model_probs.size() == 3) {
+            for (float prob : track.model_probs) {
+                model_probs.push_back(prob);
+            }
+        } else if (use_imm_) {
+            // デフォルト均等確率
+            model_probs.push_back(1.0f / 3.0f);
+            model_probs.push_back(1.0f / 3.0f);
+            model_probs.push_back(1.0f / 3.0f);
+        }
     }
 
-    // UKFで予測（GPU）
-    ukf_->copyToDevice(states, covariances);
+    if (use_imm_ && static_cast<int>(tracks.size()) < imm_gpu_threshold_) {
+        // ========================================
+        // 少数トラック: CPU版IMMで高速処理
+        // ========================================
+        std::vector<StateVector> predicted_states;
+        std::vector<StateCov> predicted_covs;
+        std::vector<float> updated_probs;
 
-    // 予測実行（デバイスメモリ上で直接操作）
-    ukf_->predict(ukf_->getDeviceStates(), ukf_->getDeviceCovariances(),
-                  static_cast<int>(tracks.size()), static_cast<float>(dt));
+        imm_cpu_->predict(states, covariances, model_probs,
+                         predicted_states, predicted_covs, updated_probs,
+                         static_cast<int>(tracks.size()), static_cast<float>(dt));
 
-    // 結果を取得
-    ukf_->copyToHost(states, covariances, static_cast<int>(tracks.size()));
+        // トラックマネージャに反映
+        for (size_t i = 0; i < tracks.size(); i++) {
+            Track& track = track_manager_->getTrackMutable(tracks[i].id);
+            track.state = predicted_states[i];
+            track.covariance = predicted_covs[i];
 
-    // トラックマネージャに反映
-    for (size_t i = 0; i < tracks.size(); i++) {
-        Track& track = track_manager_->getTrackMutable(tracks[i].id);
-        track.state = states[i];
-        track.covariance = covariances[i];
+            // モデル確率を更新
+            if (updated_probs.size() >= (i + 1) * 3) {
+                track.model_probs.clear();
+                track.model_probs.push_back(updated_probs[i * 3]);
+                track.model_probs.push_back(updated_probs[i * 3 + 1]);
+                track.model_probs.push_back(updated_probs[i * 3 + 2]);
+            }
+        }
+    } else if (use_imm_ && static_cast<int>(tracks.size()) >= imm_gpu_threshold_) {
+        // ========================================
+        // 大量トラック: 標準GPU UKF（IMMなし）で超高速処理
+        // GPU IMMはオーバーヘッドが大きいため、大量トラック時は標準UKFが最適
+        // ========================================
+        ukf_->copyToDevice(states, covariances);
+        ukf_->predict(ukf_->getDeviceStates(), ukf_->getDeviceCovariances(),
+                      static_cast<int>(tracks.size()), static_cast<float>(dt));
+        ukf_->copyToHost(states, covariances, static_cast<int>(tracks.size()));
+
+        for (size_t i = 0; i < tracks.size(); i++) {
+            Track& track = track_manager_->getTrackMutable(tracks[i].id);
+            track.state = states[i];
+            track.covariance = covariances[i];
+        }
+    } else {
+        // ========================================
+        // IMMなし: 標準GPU UKF
+        // ========================================
+        ukf_->copyToDevice(states, covariances);
+        ukf_->predict(ukf_->getDeviceStates(), ukf_->getDeviceCovariances(),
+                      static_cast<int>(tracks.size()), static_cast<float>(dt));
+        ukf_->copyToHost(states, covariances, static_cast<int>(tracks.size()));
+
+        for (size_t i = 0; i < tracks.size(); i++) {
+            Track& track = track_manager_->getTrackMutable(tracks[i].id);
+            track.state = states[i];
+            track.covariance = covariances[i];
+        }
     }
 }
 
@@ -160,7 +249,19 @@ void MultiTargetTracker::initializeNewTracks(
     const std::vector<Measurement>& measurements)
 {
     for (int idx : unassigned_measurements) {
-        track_manager_->initializeTrack(measurements[idx]);
+        // トラック数の上限チェック
+        if (track_manager_->getNumTracks() >= max_targets_) {
+            break;  // これ以上トラックを生成しない
+        }
+
+        const auto& meas = measurements[idx];
+
+        // SNRベースのフィルタリング：低品質観測（クラッタ）を除外
+        if (meas.snr < assoc_params_.min_snr_for_init) {
+            continue;  // クラッタと判断して新規トラック生成をスキップ
+        }
+
+        track_manager_->initializeTrack(meas);
     }
 }
 

@@ -16,13 +16,15 @@ struct RadarParameters {
     float false_alarm_rate;         // 誤警報率（クラッタ密度） [1/m²]
     float max_range;                // 最大探知距離 [m]
     float field_of_view;            // 視野角 [rad]
+    float snr_ref;                  // 基準SN比 [dB] @ 1km
     MeasurementNoise meas_noise;    // 観測ノイズ
 
     RadarParameters()
         : detection_probability(0.95f),
           false_alarm_rate(1e-8f),      // より現実的なクラッタ密度
-          max_range(20000.0f),            // 20km監視範囲
-          field_of_view(M_PI) {}  // 180度
+          max_range(20000.0f),          // 20km監視範囲（通常レーダー）
+          field_of_view(M_PI),          // 180度
+          snr_ref(60.0f) {}             // 監視レーダー想定
 };
 
 /**

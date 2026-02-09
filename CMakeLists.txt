@@ -58,6 +58,8 @@ set(UTILS_SOURCES
 set(UKF_SOURCES
     src/ukf/ukf.cu
     src/ukf/ukf_kernels.cu
+    src/ukf/imm_ukf.cpp
+    src/ukf/imm_ukf.cu
 )
 
 set(TRACKER_SOURCES
@@ -71,12 +73,17 @@ set(SIMULATION_SOURCES
     src/simulation/target_generator.cpp
 )
 
+set(EVALUATION_SOURCES
+    src/evaluation/tracking_evaluator.cpp
+)
+
 # FastTrackerライブラリ
 add_library(fasttracker_lib STATIC
     ${UTILS_SOURCES}
     ${UKF_SOURCES}
     ${TRACKER_SOURCES}
     ${SIMULATION_SOURCES}
+    ${EVALUATION_SOURCES}
 )
 
 target_link_libraries(fasttracker_lib

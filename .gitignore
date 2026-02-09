@@ -80,3 +80,24 @@ external/*.zip
 *.log
 *.tmp
 *.temp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 可視化出力ファイル
+dashboard*.png
+quality_report*.png
+quality_report*.txt
+imm_analysis*.png
+imm_stats*.txt
+trajectory_3d*.html
+nul

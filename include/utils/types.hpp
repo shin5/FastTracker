@@ -42,11 +42,12 @@ struct Measurement {
     float azimuth;      // 方位角 [rad]
     float elevation;    // 仰角 [rad]
     float doppler;      // ドップラー速度 [m/s]
+    float snr;          // SN比 [dB]
     double timestamp;   // タイムスタンプ [s]
     int sensor_id;      // センサーID
 
     Measurement() : range(0.0f), azimuth(0.0f), elevation(0.0f),
-                    doppler(0.0f), timestamp(0.0), sensor_id(0) {}
+                    doppler(0.0f), snr(0.0f), timestamp(0.0), sensor_id(0) {}
 };
 
 // トラック状態
@@ -65,11 +66,13 @@ struct Track {
     int hits;                   // 観測ヒット数
     int misses;                 // 観測ミス数
     double last_update_time;    // 最終更新時刻
+    std::vector<float> model_probs;  // IMMモデル確率（3モデル用）
 
     Track() : id(-1), hits(0), misses(0), last_update_time(0.0),
               track_state(TrackState::TENTATIVE) {
         state.setZero();
         covariance.setIdentity();
+        model_probs = {1.0f/3.0f, 1.0f/3.0f, 1.0f/3.0f};  // 初期均等確率
     }
 };
 
@@ -92,13 +95,15 @@ struct AssociationParams {
     int confirm_hits;           // トラック確定に必要なヒット数
     int confirm_window;         // トラック確定判定ウィンドウ
     int delete_misses;          // トラック削除閾値
+    float min_snr_for_init;     // トラック生成に必要な最小SNR [dB]
 
     AssociationParams()
         : gate_threshold(9.488f),  // χ²(4) 95%信頼区間
           max_distance(3.0f),       // 3σ
           confirm_hits(3),
           confirm_window(5),
-          delete_misses(5) {}
+          delete_misses(5),
+          min_snr_for_init(15.0f) {}  // デフォルト15dB
 };
 
 // プロセスノイズ
