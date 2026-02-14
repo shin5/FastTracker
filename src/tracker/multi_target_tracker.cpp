@@ -20,6 +20,8 @@ MultiTargetTracker::MultiTargetTracker(
       first_update_(true),
       use_imm_(use_imm),
       imm_gpu_threshold_(200),  // トラック数200以下はCPU、200超過はGPU
+      sensor_x_(0.0f),
+      sensor_y_(0.0f),
       total_updates_(0),
       total_processing_time_(0.0),
       total_measurements_processed_(0)
@@ -64,7 +66,7 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
         // 初期トラックを作成（SNRフィルタリング）
         for (const auto& meas : measurements) {
             // 低SNRの観測（クラッタ）を除外
-            if (meas.snr < 15.0f) {
+            if (meas.snr < assoc_params_.min_snr_for_init) {
                 continue;
             }
             track_manager_->initializeTrack(meas);
@@ -92,37 +94,76 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
     // === 更新ステップ ===
     auto update_start = std::chrono::high_resolution_clock::now();
 
-    // 割り当てられたトラックを更新
+    // 割り当て結果に基づいてトラックを分類
+    std::vector<int> associated_track_indices;
+    std::vector<int> associated_meas_indices;
+    std::vector<int> unassociated_track_indices;
+
     for (size_t i = 0; i < tracks.size(); i++) {
         int meas_idx = assoc_result.track_to_meas[i];
-
         if (meas_idx >= 0) {
-            // 観測が割り当てられた場合: UKF更新
-            const auto& meas = measurements[meas_idx];
-
-            // UKFで更新（簡易版：直接状態を取得）
-            // 実際にはGPUでバッチ処理すべき
-            StateVector state = tracks[i].state;
-            StateCov cov = tracks[i].covariance;
-
-            // ここでは簡易的にトラック管理のみ更新
-            track_manager_->updateTrack(tracks[i].id, state, cov, current_time);
-
-            // 高品質トラックの確定促進（SNR > 35dB の場合、ヒット数を増やす）
-            if (meas.snr > 35.0f) {
-                Track& track = track_manager_->getTrackMutable(tracks[i].id);
-                if (track.track_state == TrackState::TENTATIVE) {
-                    // 高SNRの場合、確定に必要なヒット数を満たす
-                    track.hits = std::max(track.hits, assoc_params_.confirm_hits);
-                }
-            }
+            associated_track_indices.push_back(static_cast<int>(i));
+            associated_meas_indices.push_back(meas_idx);
         } else {
-            // 観測が割り当てられなかった場合: 予測のみ
-            track_manager_->predictOnlyTrack(tracks[i].id,
-                                            tracks[i].state,
-                                            tracks[i].covariance,
-                                            current_time);
+            unassociated_track_indices.push_back(static_cast<int>(i));
         }
+    }
+
+    // === UKF測定更新（バッチ処理） ===
+    if (!associated_track_indices.empty()) {
+        int num_assoc = static_cast<int>(associated_track_indices.size());
+
+        // 関連付けられたトラックの状態・共分散・測定値を収集
+        std::vector<StateVector> assoc_states(num_assoc);
+        std::vector<StateCov> assoc_covs(num_assoc);
+        std::vector<float> assoc_meas(num_assoc * MEAS_DIM);
+
+        for (int j = 0; j < num_assoc; j++) {
+            int ti = associated_track_indices[j];
+            int mi = associated_meas_indices[j];
+            assoc_states[j] = tracks[ti].state;
+            assoc_covs[j] = tracks[ti].covariance;
+
+            // Measurement構造体をfloat配列に変換
+            assoc_meas[j * MEAS_DIM + 0] = measurements[mi].range;
+            assoc_meas[j * MEAS_DIM + 1] = measurements[mi].azimuth;
+            assoc_meas[j * MEAS_DIM + 2] = measurements[mi].elevation;
+            assoc_meas[j * MEAS_DIM + 3] = measurements[mi].doppler;
+        }
+
+        // GPU UKF測定更新
+        ukf_->copyToDevice(assoc_states, assoc_covs);
+
+        // 測定値をデバイスにコピー
+        float* d_meas = nullptr;
+        cudaMalloc(&d_meas, num_assoc * MEAS_DIM * sizeof(float));
+        cudaMemcpy(d_meas, assoc_meas.data(),
+                   num_assoc * MEAS_DIM * sizeof(float),
+                   cudaMemcpyHostToDevice);
+
+        // UKF更新ステップ実行（センサー位置を渡す）
+        ukf_->update(ukf_->getDeviceStates(), ukf_->getDeviceCovariances(),
+                     d_meas, num_assoc, sensor_x_, sensor_y_);
+
+        // 結果をホストに戻す
+        ukf_->copyToHost(assoc_states, assoc_covs, num_assoc);
+        cudaFree(d_meas);
+
+        // トラックマネージャに反映
+        for (int j = 0; j < num_assoc; j++) {
+            int ti = associated_track_indices[j];
+            track_manager_->updateTrack(tracks[ti].id,
+                                        assoc_states[j], assoc_covs[j],
+                                        current_time);
+        }
+    }
+
+    // 観測が割り当てられなかったトラック: 予測のみ
+    for (int ti : unassociated_track_indices) {
+        track_manager_->predictOnlyTrack(tracks[ti].id,
+                                         tracks[ti].state,
+                                         tracks[ti].covariance,
+                                         current_time);
     }
 
     // 新規トラック初期化

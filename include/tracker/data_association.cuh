@@ -51,6 +51,11 @@ public:
                                  const std::vector<Measurement>& measurements);
 
     /**
+     * @brief センサー位置を設定
+     */
+    void setSensorPosition(float x, float y) { sensor_x_ = x; sensor_y_ = y; }
+
+    /**
      * @brief Mahalanobis距離を計算（CPU版、デバッグ用）
      * @param track トラック
      * @param meas 観測
@@ -63,6 +68,8 @@ private:
     int max_tracks_;
     int max_measurements_;
     AssociationParams params_;
+    float sensor_x_ = 0.0f;
+    float sensor_y_ = 0.0f;
 
     // デバイスメモリ
     cuda::DeviceMemory<float> d_track_states_;      // [max_tracks * STATE_DIM]
@@ -108,7 +115,9 @@ namespace cuda {
 __global__ void predictMeasurements(
     const float* track_states,
     float* pred_measurements,
-    int num_tracks
+    int num_tracks,
+    float sensor_x = 0.0f,
+    float sensor_y = 0.0f
 );
 
 /**
@@ -127,7 +136,7 @@ __global__ void computeInnovationCovs(
 __global__ void computeMahalanobisCostMatrix(
     const float* pred_measurements,
     const float* measurements,
-    const float* innovation_covs,
+    const float* meas_noise_stds,
     float* cost_matrix,
     int num_tracks,
     int num_measurements,

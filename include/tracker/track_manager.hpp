@@ -97,6 +97,11 @@ public:
      */
     void printStatistics() const;
 
+    /**
+     * @brief センサー位置を設定
+     */
+    void setSensorPosition(float x, float y) { sensor_x_ = x; sensor_y_ = y; }
+
 private:
     AssociationParams params_;
     std::map<int, Track> tracks_;  // track_id -> Track
@@ -107,15 +112,18 @@ private:
     int total_tracks_confirmed_;
     int total_tracks_deleted_;
 
+    float sensor_x_ = 0.0f;
+    float sensor_y_ = 0.0f;
+
     /**
      * @brief 観測から初期状態を推定
      */
     StateVector measurementToState(const Measurement& meas) const;
 
     /**
-     * @brief 初期共分散を設定
+     * @brief 初期共分散を設定（レンジに基づくスケーリング）
      */
-    StateCov getInitialCovariance() const;
+    StateCov getInitialCovariance(float range) const;
 
     /**
      * @brief トラック状態を更新

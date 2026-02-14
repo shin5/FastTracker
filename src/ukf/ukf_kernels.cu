@@ -95,7 +95,9 @@ __global__ void predictSigmaPoints(
 __global__ void measurementModel(
     const float* sigma_points,
     float* meas_sigma_points,
-    int num_targets)
+    int num_targets,
+    float sensor_x,
+    float sensor_y)
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_points = num_targets * SIGMA_POINTS;
@@ -107,20 +109,21 @@ __global__ void measurementModel(
     float* meas = &meas_sigma_points[tid * m];
 
     // 状態: [x, y, vx, vy, ax, ay]
-    float x = sp[0];
-    float y = sp[1];
+    // センサーからの相対座標で観測量を計算
+    float dx = sp[0] - sensor_x;
+    float dy = sp[1] - sensor_y;
     float vx = sp[2];
     float vy = sp[3];
 
-    // レーダー観測モデル
-    float range = sqrtf(x * x + y * y);
-    float azimuth = atan2f(y, x);
+    // レーダー観測モデル（センサー位置基準）
+    float range = sqrtf(dx * dx + dy * dy);
+    float azimuth = atan2f(dy, dx);
     float elevation = 0.0f;  // 2D追尾では0
 
-    // ドップラー速度: (x*vx + y*vy) / range
+    // ドップラー速度: 視線方向の速度成分
     float doppler = 0.0f;
     if (range > 1e-6f) {
-        doppler = (x * vx + y * vy) / range;
+        doppler = (dx * vx + dy * vy) / range;
     }
 
     meas[0] = range;

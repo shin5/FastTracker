@@ -83,6 +83,15 @@ public:
     void printStatistics() const;
 
     /**
+     * @brief センサー位置を設定
+     */
+    void setSensorPosition(float x, float y) {
+        sensor_x_ = x; sensor_y_ = y;
+        if (data_association_) data_association_->setSensorPosition(x, y);
+        if (track_manager_) track_manager_->setSensorPosition(x, y);
+    }
+
+    /**
      * @brief パフォーマンス統計を取得
      */
     struct PerformanceStats {
@@ -118,6 +127,8 @@ private:
     bool first_update_;
     bool use_imm_;  // IMMフィルタを使用するか
     int imm_gpu_threshold_;  // GPU IMM使用の閾値トラック数（デフォルト: 200）
+    float sensor_x_;  // センサーX座標 [m]
+    float sensor_y_;  // センサーY座標 [m]
 
     // パフォーマンス統計
     PerformanceStats last_perf_stats_;

@@ -161,7 +161,8 @@ void UKF::predict(float* states, float* covariances, int num_targets, float dt) 
 }
 
 void UKF::update(float* states, float* covariances,
-                 const float* measurements, int num_targets) {
+                 const float* measurements, int num_targets,
+                 float sensor_x, float sensor_y) {
     if (num_targets > max_targets_) {
         throw std::runtime_error("Number of targets exceeds maximum");
     }
@@ -179,7 +180,8 @@ void UKF::update(float* states, float* covariances,
     int sigma_block_size = 256;
     int sigma_grid_size = (num_targets * SIGMA_POINTS + sigma_block_size - 1) / sigma_block_size;
     cuda::measurementModel<<<sigma_grid_size, sigma_block_size, 0, stream_update_.get()>>>(
-        d_sigma_points_.get(), d_pred_measurements_.get(), num_targets
+        d_sigma_points_.get(), d_pred_measurements_.get(), num_targets,
+        sensor_x, sensor_y
     );
 
     // 3. 予測観測の平均計算

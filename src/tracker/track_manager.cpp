@@ -17,7 +17,7 @@ int TrackManager::initializeTrack(const Measurement& measurement) {
     Track track;
     track.id = next_track_id_++;
     track.state = measurementToState(measurement);
-    track.covariance = getInitialCovariance();
+    track.covariance = getInitialCovariance(measurement.range);
     track.track_state = TrackState::TENTATIVE;
     track.hits = 1;
     track.misses = 0;
@@ -148,12 +148,12 @@ int TrackManager::getNumConfirmedTracks() const {
 StateVector TrackManager::measurementToState(const Measurement& meas) const {
     StateVector state;
 
-    // レーダー観測を直交座標に変換
+    // レーダー観測を直交座標に変換（センサー位置オフセットを加算）
     float r = meas.range;
     float az = meas.azimuth;
 
-    float x = r * std::cos(az);
-    float y = r * std::sin(az);
+    float x = r * std::cos(az) + sensor_x_;
+    float y = r * std::sin(az) + sensor_y_;
 
     // 速度はドップラーから推定（視線方向のみ）
     float vx = meas.doppler * std::cos(az);
@@ -167,21 +167,31 @@ StateVector TrackManager::measurementToState(const Measurement& meas) const {
     return state;
 }
 
-StateCov TrackManager::getInitialCovariance() const {
+StateCov TrackManager::getInitialCovariance(float range) const {
     StateCov cov;
     cov.setZero();
 
-    // 位置の不確かさ（レーダー精度に基づく）
-    cov(0, 0) = 100.0f * 100.0f;  // x: 100m std
-    cov(1, 1) = 100.0f * 100.0f;  // y: 100m std
+    // レンジに基づく位置不確かさのスケーリング
+    // 方位角誤差0.01radでレンジrの場合、横方向誤差 = r * 0.01
+    float azimuth_noise = 0.01f;
+    float range_noise = 10.0f;
+    float pos_std = std::sqrt(range_noise * range_noise +
+                              (range * azimuth_noise) * (range * azimuth_noise));
+    pos_std = std::max(pos_std, 100.0f);  // 最低100m
 
-    // 速度の不確かさ（大きめに設定）
-    cov(2, 2) = 50.0f * 50.0f;    // vx: 50 m/s std
-    cov(3, 3) = 50.0f * 50.0f;    // vy: 50 m/s std
+    // 速度: ドップラーは視線方向のみなので横方向速度は不明
+    // レンジが大きいほど速度不確かさも大きい
+    float vel_std = std::max(50.0f, range * 0.001f);  // レンジの0.1% or 最低50m/s
 
-    // 加速度の不確かさ
-    cov(4, 4) = 10.0f * 10.0f;    // ax: 10 m/s² std
-    cov(5, 5) = 10.0f * 10.0f;    // ay: 10 m/s² std
+    // 加速度: 弾道ミサイルでは大きな加速度が期待される
+    float accel_std = 30.0f;
+
+    cov(0, 0) = pos_std * pos_std;
+    cov(1, 1) = pos_std * pos_std;
+    cov(2, 2) = vel_std * vel_std;
+    cov(3, 3) = vel_std * vel_std;
+    cov(4, 4) = accel_std * accel_std;
+    cov(5, 5) = accel_std * accel_std;
 
     return cov;
 }

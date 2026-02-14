@@ -71,6 +71,7 @@ set(TRACKER_SOURCES
 set(SIMULATION_SOURCES
     src/simulation/radar_simulator.cpp
     src/simulation/target_generator.cpp
+    src/simulation/target_generator_missiles.cpp
 )
 
 set(EVALUATION_SOURCES

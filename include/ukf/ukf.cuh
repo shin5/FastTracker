@@ -52,7 +52,8 @@ public:
      * @param num_targets 目標数
      */
     void update(float* states, float* covariances,
-                const float* measurements, int num_targets);
+                const float* measurements, int num_targets,
+                float sensor_x = 0.0f, float sensor_y = 0.0f);
 
     /**
      * @brief 予測+更新を一度に実行（最適化版）

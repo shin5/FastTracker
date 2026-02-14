@@ -102,7 +102,7 @@ void TrackingEvaluator::assignTracksToTruth(
     // 貪欲法で割り当て（簡易版）
     std::vector<bool> track_assigned(n_tracks, false);
     std::vector<bool> truth_assigned(n_truth, false);
-    float threshold = 50.0f;  // 50m以内なら同一目標とみなす
+    float threshold = 5000.0f;  // 5km以内なら同一目標とみなす（長距離追尾対応）
 
     // 距離が近い順にマッチング
     for (int iter = 0; iter < std::min(n_tracks, n_truth); iter++) {

@@ -91,23 +91,24 @@ std::vector<StateVector> RadarSimulator::getTrueStates(double time) const {
 Measurement RadarSimulator::stateToMeasurement(const StateVector& state) const {
     Measurement meas;
 
-    float x = state(0);
-    float y = state(1);
+    // センサーからの相対座標
+    float dx = state(0) - params_.sensor_x;
+    float dy = state(1) - params_.sensor_y;
     float vx = state(2);
     float vy = state(3);
 
-    // Range
-    meas.range = std::sqrt(x * x + y * y);
+    // Range（センサーからの距離）
+    meas.range = std::sqrt(dx * dx + dy * dy);
 
-    // Azimuth
-    meas.azimuth = std::atan2(y, x);
+    // Azimuth（センサーから見た方位）
+    meas.azimuth = std::atan2(dy, dx);
 
     // Elevation（2D追尾では0）
     meas.elevation = 0.0f;
 
-    // Doppler
+    // Doppler（視線方向の速度成分）
     if (meas.range > 1e-6f) {
-        meas.doppler = (x * vx + y * vy) / meas.range;
+        meas.doppler = (dx * vx + dy * vy) / meas.range;
     } else {
         meas.doppler = 0.0f;
     }
@@ -180,15 +181,12 @@ std::vector<Measurement> RadarSimulator::generateClutter(double time) {
 }
 
 bool RadarSimulator::isDetected(const StateVector& state) const {
-    // 簡易検出モデル: 一定確率で検出
-    // 実際のレーダーではSNRに依存するが、ここでは単純化
-
     float detection_prob = params_.detection_probability;
 
-    // 距離による減衰を考慮（オプション）
-    float x = state(0);
-    float y = state(1);
-    float range = std::sqrt(x * x + y * y);
+    // センサーからの相対距離
+    float dx = state(0) - params_.sensor_x;
+    float dy = state(1) - params_.sensor_y;
+    float range = std::sqrt(dx * dx + dy * dy);
 
     if (range > params_.max_range) {
         return false;
@@ -202,13 +200,14 @@ bool RadarSimulator::isDetected(const StateVector& state) const {
 }
 
 bool RadarSimulator::isInFieldOfView(const StateVector& state) const {
-    float x = state(0);
-    float y = state(1);
+    // センサーからの相対座標
+    float dx = state(0) - params_.sensor_x;
+    float dy = state(1) - params_.sensor_y;
 
-    float range = std::sqrt(x * x + y * y);
+    float range = std::sqrt(dx * dx + dy * dy);
     if (range > params_.max_range) return false;
 
-    float azimuth = std::atan2(y, x);
+    float azimuth = std::atan2(dy, dx);
     float half_fov = params_.field_of_view / 2.0f;
 
     return (azimuth >= -half_fov && azimuth <= half_fov);

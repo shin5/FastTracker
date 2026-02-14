@@ -61,7 +61,9 @@ __global__ void predictSigmaPoints(
 __global__ void measurementModel(
     const float* sigma_points,
     float* meas_sigma_points,
-    int num_targets
+    int num_targets,
+    float sensor_x = 0.0f,
+    float sensor_y = 0.0f
 );
 
 /**

@@ -101,32 +101,38 @@ void DataAssociation::computeCostMatrix(int num_tracks, int num_measurements) {
     int block_size = 256;
     int grid_size;
 
-    // 予測観測を計算
+    // 予測観測を計算（センサー位置基準）
     grid_size = (num_tracks + block_size - 1) / block_size;
     cuda::predictMeasurements<<<grid_size, block_size>>>(
-        d_track_states_.get(), d_pred_meas_.get(), num_tracks
+        d_track_states_.get(), d_pred_meas_.get(), num_tracks,
+        sensor_x_, sensor_y_
     );
 
-    // 観測ノイズ共分散行列を設定
+    // 観測ノイズ標準偏差をデバイスに渡す（正規化距離計算用）
     MeasurementNoise meas_noise;  // デフォルト値を使用
-    Eigen::Matrix<float, MEAS_DIM, MEAS_DIM> R;
-    R.setZero();
-    R(0, 0) = meas_noise.range_noise * meas_noise.range_noise;
-    R(1, 1) = meas_noise.azimuth_noise * meas_noise.azimuth_noise;
-    R(2, 2) = meas_noise.elevation_noise * meas_noise.elevation_noise;
-    R(3, 3) = meas_noise.doppler_noise * meas_noise.doppler_noise;
+    float meas_noise_stds[MEAS_DIM] = {
+        meas_noise.range_noise,
+        meas_noise.azimuth_noise,
+        meas_noise.elevation_noise,
+        meas_noise.doppler_noise
+    };
+    float* d_meas_noise_stds = nullptr;
+    cudaMalloc(&d_meas_noise_stds, MEAS_DIM * sizeof(float));
+    cudaMemcpy(d_meas_noise_stds, meas_noise_stds, MEAS_DIM * sizeof(float), cudaMemcpyHostToDevice);
 
     // コスト行列を計算
     grid_size = (num_tracks * num_measurements + block_size - 1) / block_size;
     cuda::computeMahalanobisCostMatrix<<<grid_size, block_size>>>(
         d_pred_meas_.get(),
         d_measurements_.get(),
-        d_innovation_covs_.get(),
+        d_meas_noise_stds,
         d_cost_matrix_.get(),
         num_tracks,
         num_measurements,
         params_.gate_threshold
     );
+
+    cudaFree(d_meas_noise_stds);
 
     CUDA_CHECK_KERNEL();
 }
@@ -219,7 +225,9 @@ namespace cuda {
 __global__ void predictMeasurements(
     const float* track_states,
     float* pred_measurements,
-    int num_tracks)
+    int num_tracks,
+    float sensor_x,
+    float sensor_y)
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= num_tracks) return;
@@ -227,15 +235,16 @@ __global__ void predictMeasurements(
     const float* state = &track_states[tid * STATE_DIM];
     float* pred_meas = &pred_measurements[tid * MEAS_DIM];
 
-    float x = state[0];
-    float y = state[1];
+    // センサーからの相対座標
+    float dx = state[0] - sensor_x;
+    float dy = state[1] - sensor_y;
     float vx = state[2];
     float vy = state[3];
 
-    float range = sqrtf(x * x + y * y);
-    float azimuth = atan2f(y, x);
+    float range = sqrtf(dx * dx + dy * dy);
+    float azimuth = atan2f(dy, dx);
     float elevation = 0.0f;
-    float doppler = (range > 1e-6f) ? ((x * vx + y * vy) / range) : 0.0f;
+    float doppler = (range > 1e-6f) ? ((dx * vx + dy * vy) / range) : 0.0f;
 
     pred_meas[0] = range;
     pred_meas[1] = azimuth;
@@ -246,7 +255,7 @@ __global__ void predictMeasurements(
 __global__ void computeMahalanobisCostMatrix(
     const float* pred_measurements,
     const float* measurements,
-    const float* innovation_covs,
+    const float* meas_noise_stds,
     float* cost_matrix,
     int num_tracks,
     int num_measurements,
@@ -272,17 +281,18 @@ __global__ void computeMahalanobisCostMatrix(
     if (innovation[1] > M_PI) innovation[1] -= 2.0f * M_PI;
     if (innovation[1] < -M_PI) innovation[1] += 2.0f * M_PI;
 
-    // 簡易Mahalanobis距離（単位共分散を仮定）
+    // 正規化距離（各次元を観測ノイズ標準偏差で割る）
     float distance_sq = 0.0f;
     for (int i = 0; i < MEAS_DIM; i++) {
-        distance_sq += innovation[i] * innovation[i];
+        float normalized = innovation[i] / meas_noise_stds[i];
+        distance_sq += normalized * normalized;
     }
 
     float distance = sqrtf(distance_sq);
 
-    // ゲーティング
+    // ゲーティング（正規化距離でのゲート）
     if (distance > gate_threshold) {
-        cost_matrix[tid] = 1e10f;  // 大きなコスト
+        cost_matrix[tid] = 1e10f;
     } else {
         cost_matrix[tid] = distance;
     }

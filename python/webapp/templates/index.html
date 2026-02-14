@@ -1,0 +1,1499 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastTracker Web GUI</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #16213e, #0f3460);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #e94560;
+        }
+        .header h1 {
+            font-size: 20px;
+            color: #e94560;
+            letter-spacing: 2px;
+        }
+        .header .status {
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        /* Main layout */
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 8px;
+            padding: 8px;
+            height: calc(100vh - 50px);
+        }
+
+        /* Panels */
+        .panel {
+            background: #16213e;
+            border-radius: 8px;
+            border: 1px solid #333;
+            overflow: hidden;
+        }
+        .panel-header {
+            background: #0f3460;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #e94560;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Map panel */
+        #map-panel {
+            grid-row: 1;
+            grid-column: 1;
+        }
+        #map {
+            width: 100%;
+            height: calc(100% - 32px);
+        }
+
+        /* 3D panel */
+        #viz-panel {
+            grid-row: 1;
+            grid-column: 2;
+        }
+        #plot3d {
+            width: 100%;
+            height: calc(100% - 32px);
+        }
+
+        /* Control panel */
+        #control-panel {
+            grid-row: 2;
+            grid-column: 1 / -1;
+            max-height: 280px;
+            overflow-y: auto;
+        }
+        .controls-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 12px;
+            padding: 12px;
+        }
+
+        /* Control sections */
+        .control-section h3 {
+            color: #e94560;
+            font-size: 12px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+            gap: 8px;
+        }
+        .control-row label {
+            font-size: 12px;
+            min-width: 100px;
+            color: #aaa;
+        }
+        .control-row input, .control-row select {
+            background: #0f3460;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            width: 100px;
+        }
+        .control-row input:focus {
+            border-color: #e94560;
+            outline: none;
+        }
+        .coord-display {
+            font-size: 11px;
+            color: #7ec8e3;
+            margin-bottom: 4px;
+            font-family: monospace;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            transition: all 0.2s;
+            margin-right: 8px;
+        }
+        .btn-primary {
+            background: #e94560;
+            color: white;
+        }
+        .btn-primary:hover { background: #ff6b81; }
+        .btn-primary:disabled { background: #555; cursor: not-allowed; }
+        .btn-secondary {
+            background: #0f3460;
+            color: #7ec8e3;
+            border: 1px solid #7ec8e3;
+        }
+        .btn-secondary:hover { background: #16213e; }
+        .btn-secondary:disabled { background: #333; color: #555; border-color: #555; cursor: not-allowed; }
+
+        .button-row {
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-top: 1px solid #333;
+        }
+
+        /* Evaluation display */
+        .eval-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px;
+        }
+        .eval-item {
+            font-size: 11px;
+            padding: 2px 0;
+        }
+        .eval-item .label { color: #aaa; }
+        .eval-item .value {
+            color: #7ec8e3;
+            font-family: monospace;
+            font-weight: bold;
+        }
+
+        /* Loading overlay */
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        .loading.active { display: flex; }
+        .loading .spinner {
+            width: 50px; height: 50px;
+            border: 4px solid #333;
+            border-top: 4px solid #e94560;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .loading .text {
+            margin-top: 16px;
+            font-size: 16px;
+            color: #e94560;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Map instructions */
+        .map-instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>FASTTRACKER WEB GUI</h1>
+    <div class="status" id="status-text">Ready - Click on map to set launch/target points</div>
+</div>
+
+<div class="main-container">
+    <!-- Map Panel -->
+    <div class="panel" id="map-panel">
+        <div class="panel-header">
+            <span>Map - Launch & Target Selection</span>
+            <span id="map-mode-label" style="color: #ff6b81;">Click: Set Launch Point</span>
+        </div>
+        <div id="map" style="position: relative;">
+            <div class="map-instructions" id="map-hint">
+                Left: Launch / Right: Target / Middle: Sensor
+            </div>
+        </div>
+    </div>
+
+    <!-- 3D Visualization Panel -->
+    <div class="panel" id="viz-panel">
+        <div class="panel-header">
+            <span>3D Trajectory Visualization</span>
+            <span id="viz-info" style="color: #7ec8e3; font-weight: normal;"></span>
+        </div>
+        <div id="plot3d"></div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="panel" id="control-panel">
+        <div class="panel-header">
+            <span>Parameters & Control</span>
+        </div>
+        <div class="controls-content" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr;">
+            <!-- Coordinates -->
+            <div class="control-section">
+                <h3>Coordinates</h3>
+                <div class="coord-display">
+                    Launch: <span id="launch-coord">Not set</span>
+                </div>
+                <div class="coord-display">
+                    Target: <span id="target-coord">Not set</span>
+                </div>
+                <div class="coord-display">
+                    Range: <span id="range-display">-</span>
+                </div>
+                <div style="margin-top: 8px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
+                    <select id="preset-select" ondblclick="loadPreset()" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:4px 6px; font-size:12px; flex:1; min-width:120px;">
+                    </select>
+                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="loadPreset()">Load</button>
+                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="saveCurrentAsPreset()">Save</button>
+                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedPreset()">Del</button>
+                </div>
+            </div>
+
+            <!-- Missile Parameters -->
+            <div class="control-section">
+                <h3>Missile Parameters</h3>
+                <div class="control-row">
+                    <label>Boost Duration</label>
+                    <input type="number" id="boost-duration" value="65" min="10" max="200" step="5"> s
+                </div>
+                <div class="control-row">
+                    <label>Boost Accel</label>
+                    <input type="number" id="boost-accel" value="30" min="5" max="100" step="5"> m/s2
+                </div>
+                <div class="control-row">
+                    <label>Launch Angle</label>
+                    <input type="number" id="launch-angle" value="40" min="15" max="80" step="5"> deg
+                </div>
+                <div class="control-row">
+                    <label>Time Step</label>
+                    <input type="number" id="time-step" value="0.5" min="0.1" max="2.0" step="0.1"> s
+                </div>
+            </div>
+
+            <!-- Physics Model -->
+            <div class="control-section">
+                <h3>Physics Model</h3>
+                <div class="control-row">
+                    <label>Initial Mass</label>
+                    <input type="number" id="initial-mass" value="20000" min="1000" max="100000" step="1000"> kg
+                </div>
+                <div class="control-row">
+                    <label>Fuel Fraction</label>
+                    <input type="number" id="fuel-fraction" value="0.65" min="0.1" max="0.9" step="0.05">
+                </div>
+                <div class="control-row">
+                    <label>Isp</label>
+                    <input type="number" id="specific-impulse" value="250" min="100" max="500" step="10"> s
+                </div>
+                <div class="control-row">
+                    <label>Drag Coeff (Cd)</label>
+                    <input type="number" id="drag-coefficient" value="0.3" min="0.05" max="2.0" step="0.05">
+                </div>
+                <div class="control-row">
+                    <label>Cross Section</label>
+                    <input type="number" id="cross-section" value="1.0" min="0.1" max="10.0" step="0.1"> m2
+                </div>
+                <div class="control-row">
+                    <label style="min-width: auto;">
+                        <input type="checkbox" id="auto-adjust" checked> Auto-Adjust
+                    </label>
+                    <span id="auto-adjust-info" style="font-size:11px; color:#888;"></span>
+                </div>
+            </div>
+
+            <!-- Sensor Parameters -->
+            <div class="control-section">
+                <h3>Sensor Parameters</h3>
+                <div class="coord-display">
+                    Sensor: <span id="sensor-coord">Auto (Target)</span>
+                </div>
+                <div class="control-row">
+                    <label>Max Range</label>
+                    <input type="number" id="radar-max-range" value="0" min="0" max="2000" step="10"> km
+                </div>
+                <div class="control-row">
+                    <label>FOV</label>
+                    <input type="number" id="radar-fov" value="360" min="10" max="360" step="10"> deg
+                </div>
+                <div class="control-row">
+                    <label style="min-width: auto;">
+                        <input type="checkbox" id="sensor-auto" checked> Auto
+                    </label>
+                </div>
+            </div>
+
+            <!-- Evaluation Results -->
+            <div class="control-section">
+                <h3>Evaluation Results</h3>
+                <div class="eval-grid" id="eval-results">
+                    <div class="eval-item"><span class="label">Status:</span> <span class="value">Waiting</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="button-row">
+            <button class="btn btn-primary" id="btn-generate" onclick="generateTrajectory()">
+                Generate Trajectory
+            </button>
+            <button class="btn btn-secondary" id="btn-run-tracker" onclick="runTracker()" disabled>
+                Run Tracker
+            </button>
+            <button class="btn btn-secondary" onclick="clearAll()">
+                Clear
+            </button>
+            <span style="border-left: 1px solid #444; height: 24px; margin: 0 8px;"></span>
+            <button class="btn btn-secondary" onclick="saveScenario()">
+                Save Scenario
+            </button>
+            <button class="btn btn-secondary" onclick="document.getElementById('load-file').click()">
+                Load Scenario
+            </button>
+            <input type="file" id="load-file" accept=".json" style="display:none;" onchange="loadScenario(event)">
+            <span id="progress-text" style="font-size: 12px; color: #aaa; margin-left: 12px;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div class="text" id="loading-text">Generating trajectory...</div>
+</div>
+
+<script>
+// ========================================
+// State
+// ========================================
+let launchPoint = null;
+let targetPoint = null;
+let sensorPoint = null;
+let launchMarker = null;
+let targetMarker = null;
+let sensorMarker = null;
+let sensorCoverageCircle = null;
+let sensorFovPolygon = null;
+let trajectoryLine = null;
+let currentTrajectory = null;
+
+// ========================================
+// Map Initialization
+// ========================================
+const map = L.map('map').setView([35, 130], 4);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 18,
+}).addTo(map);
+
+// Custom icons
+const launchIcon = L.divIcon({
+    html: '<div style="background:#e94560; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 10px #e94560;"></div>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+    className: '',
+});
+const targetIcon = L.divIcon({
+    html: '<div style="background:#7ec8e3; width:16px; height:16px; border-radius:0; border:3px solid #fff; transform:rotate(45deg); box-shadow:0 0 10px #7ec8e3;"></div>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+    className: '',
+});
+
+// Left click = launch point
+map.on('click', function(e) {
+    setLaunchPoint(e.latlng.lat, e.latlng.lng);
+});
+
+// Right click = target point
+map.on('contextmenu', function(e) {
+    e.originalEvent.preventDefault();
+    setTargetPoint(e.latlng.lat, e.latlng.lng);
+});
+
+// Middle click = sensor point
+map.getContainer().addEventListener('mousedown', function(e) {
+    if (e.button === 1) {
+        e.preventDefault();
+        const point = map.mouseEventToLatLng(e);
+        setSensorPoint(point.lat, point.lng);
+    }
+});
+
+function setLaunchPoint(lat, lon) {
+    launchPoint = { lat, lon };
+    if (launchMarker) map.removeLayer(launchMarker);
+    launchMarker = L.marker([lat, lon], { icon: launchIcon })
+        .addTo(map)
+        .bindPopup(`Launch: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+    document.getElementById('launch-coord').textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    updateRange();
+    updateSensorCoverage();
+}
+
+function setTargetPoint(lat, lon) {
+    targetPoint = { lat, lon };
+    if (targetMarker) map.removeLayer(targetMarker);
+    targetMarker = L.marker([lat, lon], { icon: targetIcon })
+        .addTo(map)
+        .bindPopup(`Target: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+    document.getElementById('target-coord').textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    updateRange();
+    // Auto sensor follows target
+    if (document.getElementById('sensor-auto').checked) {
+        updateSensorMarker();
+        updateSensorCoverage();
+    }
+}
+
+function updateRange() {
+    if (launchPoint && targetPoint) {
+        const R = 6371;
+        const dLat = (targetPoint.lat - launchPoint.lat) * Math.PI / 180;
+        const dLon = (targetPoint.lon - launchPoint.lon) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(launchPoint.lat * Math.PI/180) * Math.cos(targetPoint.lat * Math.PI/180) * Math.sin(dLon/2)**2;
+        const d = 2 * R * Math.asin(Math.sqrt(a));
+        document.getElementById('range-display').textContent = `${d.toFixed(0)} km`;
+
+        // Draw line on map
+        if (trajectoryLine) map.removeLayer(trajectoryLine);
+        trajectoryLine = L.polyline(
+            [[launchPoint.lat, launchPoint.lon], [targetPoint.lat, targetPoint.lon]],
+            { color: '#e94560', dashArray: '10,10', weight: 2, opacity: 0.7 }
+        ).addTo(map);
+    }
+}
+
+function setSensorPoint(lat, lon) {
+    sensorPoint = { lat, lon };
+    document.getElementById('sensor-auto').checked = false;
+    document.getElementById('sensor-coord').textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    updateSensorMarker();
+    updateSensorCoverage();
+}
+
+function getSensorLatLng() {
+    if (sensorPoint) return sensorPoint;
+    if (targetPoint) return targetPoint;
+    return null;
+}
+
+function updateSensorMarker() {
+    const pos = getSensorLatLng();
+    if (!pos) return;
+
+    if (sensorMarker) map.removeLayer(sensorMarker);
+    const sensorIcon = L.divIcon({
+        html: '<div style="width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid #32ff32;filter:drop-shadow(0 0 6px #32ff32);"></div>',
+        iconSize: [18, 18],
+        iconAnchor: [9, 18],
+        className: '',
+    });
+    sensorMarker = L.marker([pos.lat, pos.lon], { icon: sensorIcon })
+        .addTo(map)
+        .bindPopup(`Sensor: ${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}`);
+}
+
+function updateSensorCoverage() {
+    // Remove old coverage
+    if (sensorCoverageCircle) map.removeLayer(sensorCoverageCircle);
+    if (sensorFovPolygon) map.removeLayer(sensorFovPolygon);
+    sensorCoverageCircle = null;
+    sensorFovPolygon = null;
+
+    const pos = getSensorLatLng();
+    if (!pos) return;
+
+    // Get max range in meters
+    let maxRangeKm = parseFloat(document.getElementById('radar-max-range').value);
+    if (maxRangeKm <= 0 && launchPoint && targetPoint) {
+        // Auto: estimate from launch-target range
+        const R = 6371;
+        const dLat = (launchPoint.lat - targetPoint.lat) * Math.PI / 180;
+        const dLon = (launchPoint.lon - targetPoint.lon) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(launchPoint.lat * Math.PI/180) * Math.cos(targetPoint.lat * Math.PI/180) * Math.sin(dLon/2)**2;
+        const d = 2 * R * Math.asin(Math.sqrt(a));
+        maxRangeKm = d * 1.3;
+    }
+    if (maxRangeKm <= 0) return;
+
+    const maxRangeM = maxRangeKm * 1000;
+    const fovDeg = parseFloat(document.getElementById('radar-fov').value) || 360;
+
+    if (fovDeg >= 360) {
+        // Full circle
+        sensorCoverageCircle = L.circle([pos.lat, pos.lon], {
+            radius: maxRangeM,
+            color: '#32ff32',
+            fillColor: '#32ff32',
+            fillOpacity: 0.08,
+            weight: 1.5,
+            opacity: 0.6,
+            dashArray: '6,4',
+        }).addTo(map);
+    } else {
+        // Draw FOV wedge
+        const halfFov = fovDeg / 2;
+        const bearing0 = 0; // North-facing default
+        const numPoints = 60;
+        const points = [[pos.lat, pos.lon]];
+
+        for (let i = 0; i <= numPoints; i++) {
+            const angle = (bearing0 - halfFov + (fovDeg * i / numPoints)) * Math.PI / 180;
+            const lat2 = pos.lat + (maxRangeM / 111320) * Math.cos(angle);
+            const lon2 = pos.lon + (maxRangeM / (111320 * Math.cos(pos.lat * Math.PI / 180))) * Math.sin(angle);
+            points.push([lat2, lon2]);
+        }
+        points.push([pos.lat, pos.lon]);
+
+        sensorFovPolygon = L.polygon(points, {
+            color: '#32ff32',
+            fillColor: '#32ff32',
+            fillOpacity: 0.08,
+            weight: 1.5,
+            opacity: 0.6,
+            dashArray: '6,4',
+        }).addTo(map);
+    }
+}
+
+// Update coverage when sensor params change
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('radar-max-range').addEventListener('input', updateSensorCoverage);
+    document.getElementById('radar-fov').addEventListener('input', updateSensorCoverage);
+    document.getElementById('sensor-auto').addEventListener('change', function() {
+        if (this.checked) {
+            sensorPoint = null;
+            document.getElementById('sensor-coord').textContent = 'Auto (Target)';
+            updateSensorMarker();
+            updateSensorCoverage();
+        }
+    });
+});
+
+// ========================================
+// Preset Management
+// ========================================
+const BUILTIN_PRESETS = {
+    'Korea → Japan': {
+        builtin: true,
+        launch: { lat: 39.0, lon: 125.7 },
+        target: { lat: 35.68, lon: 139.69 },
+        mapCenter: [37, 133], mapZoom: 5,
+        missile: { boost_duration: 65, boost_accel: 30, launch_angle: 45, time_step: 0.5 },
+    },
+    'Iran → Israel': {
+        builtin: true,
+        launch: { lat: 35.7, lon: 51.4 },
+        target: { lat: 32.08, lon: 34.78 },
+        mapCenter: [34, 43], mapZoom: 5,
+        missile: { boost_duration: 80, boost_accel: 25, launch_angle: 50, time_step: 0.5 },
+    },
+};
+
+function getUserPresets() {
+    try {
+        return JSON.parse(localStorage.getItem('fasttracker_presets') || '{}');
+    } catch { return {}; }
+}
+
+function saveUserPresets(presets) {
+    localStorage.setItem('fasttracker_presets', JSON.stringify(presets));
+}
+
+function getAllPresets() {
+    return { ...BUILTIN_PRESETS, ...getUserPresets() };
+}
+
+function refreshPresetSelect() {
+    const select = document.getElementById('preset-select');
+    const prev = select.value;
+    select.innerHTML = '';
+
+    // Built-in group
+    const builtinGroup = document.createElement('optgroup');
+    builtinGroup.label = 'Built-in';
+    for (const name of Object.keys(BUILTIN_PRESETS)) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        builtinGroup.appendChild(opt);
+    }
+    select.appendChild(builtinGroup);
+
+    // User presets group
+    const userPresets = getUserPresets();
+    const userNames = Object.keys(userPresets);
+    if (userNames.length > 0) {
+        const userGroup = document.createElement('optgroup');
+        userGroup.label = 'User';
+        for (const name of userNames) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            userGroup.appendChild(opt);
+        }
+        select.appendChild(userGroup);
+    }
+
+    // Restore selection
+    if (prev && [...select.options].some(o => o.value === prev)) {
+        select.value = prev;
+    }
+}
+
+function loadPreset() {
+    const name = document.getElementById('preset-select').value;
+    if (!name) return;
+
+    const all = getAllPresets();
+    const preset = all[name];
+    if (!preset) return;
+
+    // Launch & Target
+    if (preset.launch) setLaunchPoint(preset.launch.lat, preset.launch.lon);
+    if (preset.target) setTargetPoint(preset.target.lat, preset.target.lon);
+
+    // Map view
+    if (preset.mapCenter) {
+        map.setView(preset.mapCenter, preset.mapZoom || 5);
+    } else if (preset.launch && preset.target) {
+        map.fitBounds([
+            [preset.launch.lat, preset.launch.lon],
+            [preset.target.lat, preset.target.lon],
+        ], { padding: [50, 50] });
+    }
+
+    // Missile params
+    if (preset.missile) {
+        if (preset.missile.boost_duration != null) document.getElementById('boost-duration').value = preset.missile.boost_duration;
+        if (preset.missile.boost_accel != null) document.getElementById('boost-accel').value = preset.missile.boost_accel;
+        if (preset.missile.launch_angle != null) document.getElementById('launch-angle').value = preset.missile.launch_angle;
+        if (preset.missile.time_step != null) document.getElementById('time-step').value = preset.missile.time_step;
+    }
+
+    // Physics params
+    if (preset.physics) {
+        if (preset.physics.initial_mass != null) document.getElementById('initial-mass').value = preset.physics.initial_mass;
+        if (preset.physics.fuel_fraction != null) document.getElementById('fuel-fraction').value = preset.physics.fuel_fraction;
+        if (preset.physics.specific_impulse != null) document.getElementById('specific-impulse').value = preset.physics.specific_impulse;
+        if (preset.physics.drag_coefficient != null) document.getElementById('drag-coefficient').value = preset.physics.drag_coefficient;
+        if (preset.physics.cross_section_area != null) document.getElementById('cross-section').value = preset.physics.cross_section_area;
+        if (preset.physics.auto_adjust != null) document.getElementById('auto-adjust').checked = preset.physics.auto_adjust;
+    }
+
+    // Sensor
+    if (preset.sensor) {
+        if (preset.sensor.auto !== false && !preset.sensor.lat) {
+            sensorPoint = null;
+            document.getElementById('sensor-auto').checked = true;
+            document.getElementById('sensor-coord').textContent = 'Auto (Target)';
+        } else if (preset.sensor.lat != null && preset.sensor.lon != null) {
+            setSensorPoint(preset.sensor.lat, preset.sensor.lon);
+        }
+    } else {
+        sensorPoint = null;
+        document.getElementById('sensor-auto').checked = true;
+        document.getElementById('sensor-coord').textContent = 'Auto (Target)';
+    }
+
+    // Radar
+    if (preset.radar) {
+        if (preset.radar.max_range_km != null) document.getElementById('radar-max-range').value = preset.radar.max_range_km;
+        if (preset.radar.fov_deg != null) document.getElementById('radar-fov').value = preset.radar.fov_deg;
+    }
+
+    updateSensorMarker();
+    updateSensorCoverage();
+    updateStatus(`Preset loaded: ${name}`);
+}
+
+function saveCurrentAsPreset() {
+    if (!launchPoint || !targetPoint) {
+        alert('Set launch and target points first.');
+        return;
+    }
+
+    const defaultName = `${launchPoint.lat.toFixed(1)},${launchPoint.lon.toFixed(1)} → ${targetPoint.lat.toFixed(1)},${targetPoint.lon.toFixed(1)}`;
+    const name = prompt('Preset name:', defaultName);
+    if (!name || !name.trim()) return;
+    const trimmed = name.trim();
+
+    if (BUILTIN_PRESETS[trimmed]) {
+        alert('Cannot overwrite built-in presets.');
+        return;
+    }
+
+    const preset = {
+        launch: { lat: launchPoint.lat, lon: launchPoint.lon },
+        target: { lat: targetPoint.lat, lon: targetPoint.lon },
+        missile: {
+            boost_duration: parseFloat(document.getElementById('boost-duration').value),
+            boost_accel: parseFloat(document.getElementById('boost-accel').value),
+            launch_angle: parseFloat(document.getElementById('launch-angle').value),
+            time_step: parseFloat(document.getElementById('time-step').value),
+        },
+        physics: {
+            initial_mass: parseFloat(document.getElementById('initial-mass').value),
+            fuel_fraction: parseFloat(document.getElementById('fuel-fraction').value),
+            specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
+            drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
+            cross_section_area: parseFloat(document.getElementById('cross-section').value),
+            auto_adjust: document.getElementById('auto-adjust').checked,
+        },
+        sensor: {
+            lat: getSensorLatLng()?.lat ?? null,
+            lon: getSensorLatLng()?.lon ?? null,
+            auto: document.getElementById('sensor-auto').checked,
+        },
+        radar: {
+            max_range_km: parseFloat(document.getElementById('radar-max-range').value),
+            fov_deg: parseFloat(document.getElementById('radar-fov').value),
+        },
+    };
+
+    const userPresets = getUserPresets();
+    userPresets[trimmed] = preset;
+    saveUserPresets(userPresets);
+
+    refreshPresetSelect();
+    document.getElementById('preset-select').value = trimmed;
+    updateStatus(`Preset saved: ${trimmed}`);
+}
+
+function deleteSelectedPreset() {
+    const name = document.getElementById('preset-select').value;
+    if (!name) return;
+
+    if (BUILTIN_PRESETS[name]) {
+        alert('Built-in presets cannot be deleted.');
+        return;
+    }
+
+    if (!confirm(`Delete preset "${name}"?`)) return;
+
+    const userPresets = getUserPresets();
+    delete userPresets[name];
+    saveUserPresets(userPresets);
+
+    refreshPresetSelect();
+    updateStatus(`Preset deleted: ${name}`);
+}
+
+// Initialize preset dropdown on page load
+refreshPresetSelect();
+
+// ========================================
+// Generate Trajectory
+// ========================================
+async function generateTrajectory() {
+    if (!launchPoint || !targetPoint) {
+        alert('Please set both launch and target points on the map.');
+        return;
+    }
+
+    const autoAdjust = document.getElementById('auto-adjust').checked;
+    showLoading(autoAdjust ? 'Auto-adjusting parameters...' : 'Generating trajectory...');
+
+    const params = {
+        boost_duration: parseFloat(document.getElementById('boost-duration').value),
+        boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
+        launch_angle: parseFloat(document.getElementById('launch-angle').value) * Math.PI / 180,
+        dt: parseFloat(document.getElementById('time-step').value),
+        auto_adjust: autoAdjust,
+        initial_mass: parseFloat(document.getElementById('initial-mass').value),
+        fuel_fraction: parseFloat(document.getElementById('fuel-fraction').value),
+        specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
+        drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
+        cross_section_area: parseFloat(document.getElementById('cross-section').value),
+    };
+
+    try {
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                launch: launchPoint,
+                target: targetPoint,
+                params: params,
+            }),
+        });
+
+        const data = await response.json();
+        hideLoading();
+
+        if (data.success) {
+            currentTrajectory = data;
+            drawTrajectoryOnMap(data);
+            draw3DVisualization(data);
+            updateSummary(data.summary);
+            document.getElementById('btn-run-tracker').disabled = false;
+
+            // Handle auto-adjust results
+            const adjInfo = document.getElementById('auto-adjust-info');
+            if (data.auto_adjust && data.auto_adjust.adjusted) {
+                const adj = data.auto_adjust;
+                const changes = [];
+
+                // Update input fields with adjusted values
+                const adjAngleDeg = (adj.launch_angle * 180 / Math.PI).toFixed(1);
+                const origAngle = document.getElementById('launch-angle').value;
+                if (Math.abs(adj.launch_angle - parseFloat(origAngle) * Math.PI / 180) > 0.01) {
+                    document.getElementById('launch-angle').value = adjAngleDeg;
+                    changes.push(`Angle: ${adjAngleDeg}°`);
+                }
+
+                const origIsp = parseFloat(document.getElementById('specific-impulse').value);
+                if (Math.abs(adj.specific_impulse - origIsp) > 0.5) {
+                    document.getElementById('specific-impulse').value = adj.specific_impulse;
+                    changes.push(`Isp: ${adj.specific_impulse}s`);
+                }
+
+                const origFF = parseFloat(document.getElementById('fuel-fraction').value);
+                if (Math.abs(adj.fuel_fraction - origFF) > 0.005) {
+                    document.getElementById('fuel-fraction').value = adj.fuel_fraction;
+                    changes.push(`Fuel: ${adj.fuel_fraction}`);
+                }
+
+                adjInfo.textContent = changes.length > 0
+                    ? `Adjusted: ${changes.join(', ')}`
+                    : 'Angle adjusted';
+                adjInfo.style.color = '#ffaa00';
+
+                updateStatus(`Auto-adjusted: ${changes.join(', ')} | Impact: ${adj.impact_distance_km} km from target`);
+            } else {
+                adjInfo.textContent = '';
+                updateStatus(`Trajectory generated: ${data.summary.range_km} km, ${data.summary.flight_duration} s`);
+            }
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    } catch (err) {
+        hideLoading();
+        alert('Server error: ' + err.message);
+    }
+}
+
+// ========================================
+// Draw trajectory on map
+// ========================================
+function drawTrajectoryOnMap(data) {
+    if (trajectoryLine) map.removeLayer(trajectoryLine);
+
+    const latlons = data.plotly.latlons;
+    const phases = data.plotly.trajectory.phases;
+    const coords = latlons.map(ll => [ll[0], ll[1]]);
+
+    // Use a LayerGroup to track all layers for proper cleanup
+    const layerGroup = L.layerGroup();
+
+    // Phase-colored polyline segments
+    const phaseColors = { 'BOOST': '#ff8c00', 'MIDCOURSE': '#32c8ff', 'TERMINAL': '#ff2050' };
+    let currentPhase = phases[0];
+    let segment = [coords[0]];
+
+    for (let i = 1; i < coords.length; i++) {
+        if (phases[i] !== currentPhase || i === coords.length - 1) {
+            segment.push(coords[i]);
+            layerGroup.addLayer(L.polyline(segment, {
+                color: phaseColors[currentPhase] || '#fff',
+                weight: 3,
+                opacity: 0.9,
+            }));
+            currentPhase = phases[i];
+            segment = [coords[i]];
+        } else {
+            segment.push(coords[i]);
+        }
+    }
+
+    // Impact point marker (where missile actually lands)
+    if (coords.length > 0) {
+        const impactCoord = coords[coords.length - 1];
+        const impactIcon = L.divIcon({
+            html: '<div style="background:#ff2050; width:12px; height:12px; border-radius:0; border:2px solid #fff; transform:rotate(45deg); box-shadow:0 0 8px #ff2050;"></div>',
+            iconSize: [12, 12],
+            iconAnchor: [6, 6],
+            className: '',
+        });
+        layerGroup.addLayer(L.marker(impactCoord, { icon: impactIcon })
+            .bindTooltip('Impact Point', { permanent: false }));
+
+        // Check distance from impact to target
+        if (targetPoint) {
+            const dLat = impactCoord[0] - targetPoint.lat;
+            const dLon = impactCoord[1] - targetPoint.lon;
+            const distKm = Math.sqrt(dLat * dLat + dLon * dLon) * 111.0; // rough km
+            if (distKm > 50) {
+                updateStatus(`Warning: Impact point is ~${Math.round(distKm)} km from target. Adjust physics parameters for longer range.`);
+            }
+        }
+    }
+
+    layerGroup.addTo(map);
+    trajectoryLine = layerGroup;
+}
+
+// ========================================
+// 3D Visualization
+// ========================================
+function draw3DVisualization(data) {
+    const t = data.plotly.trajectory;
+
+    // Full trajectory line (gold/ground truth style)
+    const traceFullLine = {
+        type: 'scatter3d',
+        mode: 'lines',
+        x: t.x, y: t.y, z: t.z,
+        name: 'Ground Truth',
+        line: { color: 'rgba(255, 215, 0, 0.8)', width: 4 },
+        text: t.text,
+        hoverinfo: 'text',
+    };
+
+    // Phase-colored markers
+    const traceMarkers = {
+        type: 'scatter3d',
+        mode: 'markers',
+        x: t.x, y: t.y, z: t.z,
+        name: 'Phase',
+        marker: {
+            size: 3,
+            color: t.phases.map(p => p === 'BOOST' ? '#ff8c00' : p === 'MIDCOURSE' ? '#32c8ff' : '#ff2050'),
+        },
+        text: t.text,
+        hoverinfo: 'text',
+        showlegend: false,
+    };
+
+    // Start marker
+    const traceStart = {
+        type: 'scatter3d',
+        mode: 'markers',
+        x: [t.x[0]], y: [t.y[0]], z: [t.z[0]],
+        name: 'Launch',
+        marker: { size: 12, color: '#e94560', symbol: 'diamond', line: { color: 'white', width: 2 } },
+        hovertext: 'Launch Point',
+        hoverinfo: 'text',
+    };
+
+    // End marker
+    const lastIdx = t.x.length - 1;
+    const traceEnd = {
+        type: 'scatter3d',
+        mode: 'markers',
+        x: [t.x[lastIdx]], y: [t.y[lastIdx]], z: [t.z[lastIdx]],
+        name: 'Target',
+        marker: { size: 12, color: '#7ec8e3', symbol: 'cross', line: { color: 'white', width: 2 } },
+        hovertext: 'Target Point',
+        hoverinfo: 'text',
+    };
+
+    const layout = {
+        scene: {
+            xaxis: { title: 'X (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+            yaxis: { title: 'Y (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+            zaxis: { title: 'Altitude (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+            aspectmode: 'auto',
+        },
+        paper_bgcolor: '#16213e',
+        plot_bgcolor: '#16213e',
+        font: { color: '#e0e0e0' },
+        margin: { l: 0, r: 0, t: 30, b: 0 },
+        title: { text: 'Ballistic Missile Trajectory', font: { size: 14, color: '#e94560' } },
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)' },
+    };
+
+    Plotly.newPlot('plot3d', [traceFullLine, traceMarkers, traceStart, traceEnd], layout, {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['toImage'],
+    });
+
+    document.getElementById('viz-info').textContent =
+        `Range: ${data.summary.range_km} km | Duration: ${data.summary.flight_duration} s | Max Alt: ${(data.summary.max_altitude/1000).toFixed(1)} km`;
+}
+
+// ========================================
+// Run Tracker
+// ========================================
+async function runTracker() {
+    if (!currentTrajectory) return;
+
+    showLoading('Running FastTracker simulation...');
+    document.getElementById('btn-run-tracker').disabled = true;
+
+    try {
+        const response = await fetch('/api/run-tracker', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                trajectory: currentTrajectory.trajectory,
+                params: {
+                    launch_angle: parseFloat(document.getElementById('launch-angle').value) * Math.PI / 180,
+                    boost_duration: parseFloat(document.getElementById('boost-duration').value),
+                    boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
+                    initial_mass: parseFloat(document.getElementById('initial-mass').value),
+                    fuel_fraction: parseFloat(document.getElementById('fuel-fraction').value),
+                    specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
+                    drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
+                    cross_section_area: parseFloat(document.getElementById('cross-section').value),
+                    sensor_lat: getSensorLatLng()?.lat,
+                    sensor_lon: getSensorLatLng()?.lon,
+                    radar_max_range: parseFloat(document.getElementById('radar-max-range').value) * 1000,  // km to m
+                    radar_fov: parseFloat(document.getElementById('radar-fov').value) * Math.PI / 180,  // deg to rad
+                }
+            }),
+        });
+
+        const data = await response.json();
+        hideLoading();
+
+        if (data.success) {
+            draw3DWithTracks(data);
+            displayEvaluation(data);
+            updateStatus('Tracker simulation complete');
+        } else {
+            alert('Tracker error: ' + (data.error || 'Unknown error'));
+            updateStatus('Tracker failed: ' + (data.error || ''));
+        }
+    } catch (err) {
+        hideLoading();
+        alert('Server error: ' + err.message);
+    }
+    document.getElementById('btn-run-tracker').disabled = false;
+}
+
+function draw3DWithTracks(data) {
+    const gt = data.ground_truth;
+    const tracks = data.tracks;
+    const measurements = data.measurements || [];
+
+    if (!gt.length) return;
+
+    // Sensor position (origin of the plot)
+    const sx = (data.sensor_x || 0) / 1000;  // km
+    const sy = (data.sensor_y || 0) / 1000;
+
+    // Build altitude lookup from original trajectory (time → altitude in km)
+    const altLookup = [];
+    if (currentTrajectory && currentTrajectory.plotly && currentTrajectory.plotly.trajectory) {
+        const traj = currentTrajectory.plotly.trajectory;
+        for (let i = 0; i < traj.times.length; i++) {
+            altLookup.push({ time: traj.times[i], alt: traj.z[i] });
+        }
+    }
+
+    // Get the max trajectory time (flight duration)
+    const maxTrajectoryTime = altLookup.length > 0 ? altLookup[altLookup.length - 1].time : Infinity;
+
+    // Interpolate altitude from trajectory data by time
+    function getAltitude(time) {
+        if (altLookup.length === 0) return 0;
+        if (time <= altLookup[0].time) return altLookup[0].alt;
+        if (time >= altLookup[altLookup.length - 1].time) return altLookup[altLookup.length - 1].alt;
+        let lo = 0, hi = altLookup.length - 1;
+        while (lo < hi - 1) {
+            const mid = (lo + hi) >> 1;
+            if (altLookup[mid].time <= time) lo = mid; else hi = mid;
+        }
+        const t0 = altLookup[lo].time, t1 = altLookup[hi].time;
+        const frac = (t1 > t0) ? (time - t0) / (t1 - t0) : 0;
+        return altLookup[lo].alt + frac * (altLookup[hi].alt - altLookup[lo].alt);
+    }
+
+    const traces = [];
+
+    // Sensor origin marker
+    traces.push({
+        type: 'scatter3d',
+        mode: 'markers',
+        x: [0], y: [0], z: [0],
+        name: 'Sensor',
+        marker: { size: 8, color: '#32ff32', symbol: 'diamond', line: { color: 'white', width: 1 } },
+        hovertext: 'Sensor (Origin)',
+        hoverinfo: 'text',
+    });
+
+    // Measurements: convert polar (range, azimuth) to cartesian relative to sensor
+    if (measurements.length > 0) {
+        const mx = [], my = [], mz = [], mtext = [];
+        // Subsample if too many points
+        const step = measurements.length > 3000 ? Math.floor(measurements.length / 3000) : 1;
+        for (let i = 0; i < measurements.length; i += step) {
+            const m = measurements[i];
+            const r_km = m.range / 1000;
+            const az = m.azimuth;
+            // Cartesian relative to sensor (sensor is already the origin after offset)
+            mx.push(r_km * Math.cos(az));
+            my.push(r_km * Math.sin(az));
+            mz.push(getAltitude(m.time));
+            mtext.push(`t=${m.time.toFixed(1)}s R=${m.range.toFixed(0)}m Az=${(az*180/Math.PI).toFixed(1)}° SNR=${m.snr.toFixed(1)}dB`);
+        }
+        traces.push({
+            type: 'scatter3d',
+            mode: 'markers',
+            x: mx, y: my, z: mz,
+            name: 'Measurements',
+            marker: { size: 2, color: '#ff8800', opacity: 0.6 },
+            text: mtext,
+            hoverinfo: 'text',
+        });
+    }
+
+    // Ground truth line (sensor-origin coordinates) - filter to flight duration
+    const gtFiltered = gt.filter(r => r.time <= maxTrajectoryTime);
+    // Use altitude from ground_truth.csv if available, otherwise fallback to trajectory lookup
+    const gtHasAltitude = gtFiltered.length > 0 && gtFiltered[0].altitude !== undefined;
+    traces.push({
+        type: 'scatter3d',
+        mode: 'lines',
+        x: gtFiltered.map(r => r.x / 1000 - sx),
+        y: gtFiltered.map(r => r.y / 1000 - sy),
+        z: gtFiltered.map(r => gtHasAltitude ? r.altitude / 1000 : getAltitude(r.time)),
+        name: 'Ground Truth',
+        line: { color: 'rgba(255, 215, 0, 0.8)', width: 4 },
+    });
+
+    // Group tracks by track_id
+    const trackGroups = {};
+    tracks.forEach(row => {
+        const id = row.track_id;
+        if (!trackGroups[id]) trackGroups[id] = [];
+        trackGroups[id].push(row);
+    });
+
+    // Color palette for tracks
+    const stateColors = { 0: '#ffff00', 1: '#00ff00', 2: '#ff0000' };
+
+    // Add each track (sensor-origin coordinates) - filter to flight duration
+    Object.entries(trackGroups).forEach(([id, rows]) => {
+        const filteredRows = rows.filter(r => r.time <= maxTrajectoryTime);
+        if (filteredRows.length < 3) return;
+
+        const lastState = filteredRows[filteredRows.length - 1].state;
+        const color = stateColors[lastState] || '#888';
+
+        traces.push({
+            type: 'scatter3d',
+            mode: 'lines',
+            x: filteredRows.map(r => r.x / 1000 - sx),
+            y: filteredRows.map(r => r.y / 1000 - sy),
+            z: filteredRows.map(r => getAltitude(r.time)),
+            name: `Track ${id}`,
+            line: { color: color, width: 2 },
+            showlegend: filteredRows.length > 20,
+        });
+    });
+
+    const layout = {
+        scene: {
+            xaxis: { title: 'X from Sensor (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+            yaxis: { title: 'Y from Sensor (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+            zaxis: { title: 'Altitude (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+            aspectmode: 'auto',
+        },
+        paper_bgcolor: '#16213e',
+        plot_bgcolor: '#16213e',
+        font: { color: '#e0e0e0' },
+        margin: { l: 0, r: 0, t: 30, b: 0 },
+        title: { text: 'Tracker Results vs Ground Truth', font: { size: 14, color: '#e94560' } },
+        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)' },
+    };
+
+    Plotly.newPlot('plot3d', traces, layout, { responsive: true });
+}
+
+function displayEvaluation(data) {
+    const container = document.getElementById('eval-results');
+    const summary = data.eval_summary || {};
+
+    let html = '';
+    const metrics = [
+        ['Position RMSE', summary['位置RMSE'] || summary['Position RMSE'] || '-', 'm'],
+        ['OSPA Distance', summary['OSPA'] || summary['平均OSPA距離'] || '-', 'm'],
+        ['Tracks Created', Object.keys(groupBy(data.tracks, 'track_id')).length, ''],
+        ['GT Frames', data.ground_truth.length, ''],
+    ];
+
+    metrics.forEach(([label, value, unit]) => {
+        const v = typeof value === 'number' ? value.toFixed(1) : value;
+        html += `<div class="eval-item"><span class="label">${label}:</span> <span class="value">${v} ${unit}</span></div>`;
+    });
+
+    container.innerHTML = html;
+}
+
+function groupBy(arr, key) {
+    return arr.reduce((groups, item) => {
+        const val = item[key];
+        if (!groups[val]) groups[val] = [];
+        groups[val].push(item);
+        return groups;
+    }, {});
+}
+
+// ========================================
+// Save / Load Scenario
+// ========================================
+function saveScenario() {
+    if (!launchPoint || !targetPoint) {
+        alert('Please set both launch and target points before saving.');
+        return;
+    }
+
+    const scenario = {
+        version: 2,
+        launch: { lat: launchPoint.lat, lon: launchPoint.lon },
+        target: { lat: targetPoint.lat, lon: targetPoint.lon },
+        sensor: {
+            lat: getSensorLatLng()?.lat ?? null,
+            lon: getSensorLatLng()?.lon ?? null,
+            auto: document.getElementById('sensor-auto').checked,
+        },
+        missile: {
+            boost_duration: parseFloat(document.getElementById('boost-duration').value),
+            boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
+            launch_angle: parseFloat(document.getElementById('launch-angle').value),
+            time_step: parseFloat(document.getElementById('time-step').value),
+        },
+        physics: {
+            initial_mass: parseFloat(document.getElementById('initial-mass').value),
+            fuel_fraction: parseFloat(document.getElementById('fuel-fraction').value),
+            specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
+            drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
+            cross_section_area: parseFloat(document.getElementById('cross-section').value),
+            auto_adjust: document.getElementById('auto-adjust').checked,
+        },
+        radar: {
+            max_range_km: parseFloat(document.getElementById('radar-max-range').value),
+            fov_deg: parseFloat(document.getElementById('radar-fov').value),
+        },
+    };
+
+    const json = JSON.stringify(scenario, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const now = new Date();
+    const ts = now.getFullYear().toString()
+        + String(now.getMonth() + 1).padStart(2, '0')
+        + String(now.getDate()).padStart(2, '0')
+        + '_'
+        + String(now.getHours()).padStart(2, '0')
+        + String(now.getMinutes()).padStart(2, '0')
+        + String(now.getSeconds()).padStart(2, '0');
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fasttracker_scenario_${ts}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    updateStatus('Scenario saved');
+}
+
+function loadScenario(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const scenario = JSON.parse(e.target.result);
+
+            // Restore launch & target
+            if (scenario.launch) setLaunchPoint(scenario.launch.lat, scenario.launch.lon);
+            if (scenario.target) setTargetPoint(scenario.target.lat, scenario.target.lon);
+
+            // Restore missile params
+            if (scenario.missile) {
+                if (scenario.missile.boost_duration != null) document.getElementById('boost-duration').value = scenario.missile.boost_duration;
+                if (scenario.missile.boost_acceleration != null) document.getElementById('boost-accel').value = scenario.missile.boost_acceleration;
+                if (scenario.missile.launch_angle != null) document.getElementById('launch-angle').value = scenario.missile.launch_angle;
+                if (scenario.missile.time_step != null) document.getElementById('time-step').value = scenario.missile.time_step;
+            }
+
+            // Restore physics params
+            if (scenario.physics) {
+                if (scenario.physics.initial_mass != null) document.getElementById('initial-mass').value = scenario.physics.initial_mass;
+                if (scenario.physics.fuel_fraction != null) document.getElementById('fuel-fraction').value = scenario.physics.fuel_fraction;
+                if (scenario.physics.specific_impulse != null) document.getElementById('specific-impulse').value = scenario.physics.specific_impulse;
+                if (scenario.physics.drag_coefficient != null) document.getElementById('drag-coefficient').value = scenario.physics.drag_coefficient;
+                if (scenario.physics.cross_section_area != null) document.getElementById('cross-section').value = scenario.physics.cross_section_area;
+                if (scenario.physics.auto_adjust != null) document.getElementById('auto-adjust').checked = scenario.physics.auto_adjust;
+            }
+
+            // Restore sensor params
+            if (scenario.radar) {
+                if (scenario.radar.max_range_km != null) document.getElementById('radar-max-range').value = scenario.radar.max_range_km;
+                if (scenario.radar.fov_deg != null) document.getElementById('radar-fov').value = scenario.radar.fov_deg;
+            }
+
+            if (scenario.sensor) {
+                if (scenario.sensor.auto) {
+                    sensorPoint = null;
+                    document.getElementById('sensor-auto').checked = true;
+                    document.getElementById('sensor-coord').textContent = 'Auto (Target)';
+                } else if (scenario.sensor.lat != null && scenario.sensor.lon != null) {
+                    setSensorPoint(scenario.sensor.lat, scenario.sensor.lon);
+                }
+            }
+
+            updateSensorMarker();
+            updateSensorCoverage();
+
+            // Fit map to show both points
+            if (launchPoint && targetPoint) {
+                map.fitBounds([
+                    [launchPoint.lat, launchPoint.lon],
+                    [targetPoint.lat, targetPoint.lon],
+                ], { padding: [50, 50] });
+            }
+
+            // Auto-generate trajectory
+            generateTrajectory();
+
+            updateStatus('Scenario loaded: ' + file.name);
+        } catch (err) {
+            alert('Failed to load scenario: ' + err.message);
+        }
+    };
+    reader.readAsText(file);
+
+    // Reset input so the same file can be loaded again
+    event.target.value = '';
+}
+
+// ========================================
+// UI Helpers
+// ========================================
+function updateSummary(summary) {
+    const container = document.getElementById('eval-results');
+    container.innerHTML = `
+        <div class="eval-item"><span class="label">Range:</span> <span class="value">${summary.range_km} km</span></div>
+        <div class="eval-item"><span class="label">Duration:</span> <span class="value">${summary.flight_duration} s</span></div>
+        <div class="eval-item"><span class="label">Max Speed:</span> <span class="value">${summary.max_speed.toFixed(0)} m/s</span></div>
+        <div class="eval-item"><span class="label">Max Altitude:</span> <span class="value">${(summary.max_altitude/1000).toFixed(1)} km</span></div>
+        <div class="eval-item"><span class="label">Data Points:</span> <span class="value">${summary.num_steps}</span></div>
+    `;
+}
+
+function updateStatus(text) {
+    document.getElementById('status-text').textContent = text;
+}
+
+function showLoading(text) {
+    document.getElementById('loading-text').textContent = text;
+    document.getElementById('loading').classList.add('active');
+}
+
+function hideLoading() {
+    document.getElementById('loading').classList.remove('active');
+}
+
+function clearAll() {
+    if (launchMarker) map.removeLayer(launchMarker);
+    if (targetMarker) map.removeLayer(targetMarker);
+    if (sensorMarker) map.removeLayer(sensorMarker);
+    if (sensorCoverageCircle) map.removeLayer(sensorCoverageCircle);
+    if (sensorFovPolygon) map.removeLayer(sensorFovPolygon);
+    if (trajectoryLine) map.removeLayer(trajectoryLine);
+    launchPoint = null;
+    targetPoint = null;
+    sensorPoint = null;
+    sensorMarker = null;
+    sensorCoverageCircle = null;
+    sensorFovPolygon = null;
+    currentTrajectory = null;
+    document.getElementById('launch-coord').textContent = 'Not set';
+    document.getElementById('target-coord').textContent = 'Not set';
+    document.getElementById('sensor-coord').textContent = 'Auto (Target)';
+    document.getElementById('sensor-auto').checked = true;
+    document.getElementById('range-display').textContent = '-';
+    document.getElementById('btn-run-tracker').disabled = true;
+    document.getElementById('eval-results').innerHTML = '<div class="eval-item"><span class="label">Status:</span> <span class="value">Waiting</span></div>';
+    Plotly.purge('plot3d');
+
+    // Remove trajectory lines from map
+    map.eachLayer(layer => {
+        if (layer instanceof L.Polyline && !(layer instanceof L.Rectangle)) {
+            map.removeLayer(layer);
+        }
+    });
+
+    updateStatus('Cleared - Click on map to set launch/target points');
+}
+
+// Initial 3D placeholder
+Plotly.newPlot('plot3d', [], {
+    scene: {
+        xaxis: { title: 'X (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+        yaxis: { title: 'Y (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+        zaxis: { title: 'Altitude (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+    },
+    paper_bgcolor: '#16213e',
+    plot_bgcolor: '#16213e',
+    font: { color: '#e0e0e0' },
+    margin: { l: 0, r: 0, t: 30, b: 0 },
+    title: { text: 'Generate a trajectory to visualize', font: { size: 14, color: '#666' } },
+    annotations: [{
+        text: 'Set launch & target points on the map,<br>then click "Generate Trajectory"',
+        showarrow: false,
+        font: { size: 16, color: '#555' },
+        xref: 'paper', yref: 'paper',
+        x: 0.5, y: 0.5,
+    }],
+}, { responsive: true });
+
+// Handle window resize
+window.addEventListener('resize', () => {
+    map.invalidateSize();
+    Plotly.Plots.resize('plot3d');
+});
+</script>
+</body>
+</html>
