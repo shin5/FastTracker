@@ -25,7 +25,9 @@ enum class MotionModel {
 enum class BallisticPhase {
     BOOST,      // ブースト段階（上昇）
     MIDCOURSE,  // 中間飛翔段階（放物線）
-    TERMINAL    // 終末段階（落下・機動）
+    TERMINAL,   // 終末段階（落下・機動）
+    PULLUP,     // HGV: ブースト後の引き起こし遷移
+    GLIDE       // HGV: 超音速滑空飛翔
 };
 
 /**
@@ -37,6 +39,7 @@ struct TrajectoryPoint {
     float vx, vy, vz;    // 速度 [m/s]
     float mass;           // 現在質量 [kg]
     BallisticPhase phase; // 飛翔フェーズ
+    int object_id = 0;   // 0=弾頭(またはブースト中の一体), 1=ブースター残骸
 };
 
 /**
@@ -60,9 +63,20 @@ struct MissileParameters {
     // 超音速滑空体用
     float cruise_altitude;      // 巡航高度 [m]
     float glide_ratio;         // 滑空比（L/D）
-    float skip_amplitude;      // スキップ振幅 [m]
-    float skip_frequency;      // スキップ周波数 [Hz]
+    float skip_amplitude;      // スキップ振幅 [m]（レガシー: 物理モデルでは未使用）
+    float skip_frequency;      // スキップ周波数 [Hz]（レガシー: 物理モデルでは未使用）
     float terminal_dive_range; // 終末ダイブ開始距離 [m]
+    float pullup_duration;     // 引き起こし遷移時間 [s]
+    float bank_angle_max;      // 滑空中の最大バンク角 [rad]
+    float terminal_maneuver_freq; // 終末回避機動の周波数 [Hz]
+    float terminal_maneuver_amp;  // 終末回避機動のバンク振幅 [rad]
+    int num_skips;                // スキップ・グライド回数 (0=無制限)
+
+    // 分離シミュレーション用
+    bool enable_separation = false;     // 分離シミュレーション有効化
+    float warhead_mass_fraction = 0.3f; // 弾頭質量 = dry_mass × この値
+    float warhead_cd = 0.15f;           // 弾頭Cd（流線形）
+    float booster_cd = 1.5f;            // ブースターCd（タンブリング）
 
     MissileParameters()
         : launch_angle(0.785f),         // 45度
@@ -70,7 +84,7 @@ struct MissileParameters {
           boost_duration(60.0f),        // 60秒
           boost_acceleration(20.0f),    // 2G（レガシー）
           initial_mass(20000.0f),       // 20t
-          fuel_fraction(0.65f),         // 65%燃料
+          fuel_fraction(0.70f),         // 70%燃料
           specific_impulse(250.0f),     // Isp 250s
           drag_coefficient(0.3f),       // Cd 0.3
           cross_section_area(1.0f),     // 1m²
@@ -78,7 +92,12 @@ struct MissileParameters {
           glide_ratio(4.0f),            // L/D = 4
           skip_amplitude(5000.0f),      // 5km
           skip_frequency(0.01f),        // 0.01Hz
-          terminal_dive_range(10000.0f) {  // 10km
+          terminal_dive_range(10000.0f),  // 10km
+          pullup_duration(30.0f),        // 30s
+          bank_angle_max(0.0f),          // 0=バンク無効
+          terminal_maneuver_freq(0.3f),  // 0.3 Hz
+          terminal_maneuver_amp(1.2f),   // ~69 deg
+          num_skips(1) {                  // 1スキップ
         target_position.setZero();
     }
 };
@@ -99,6 +118,7 @@ struct TargetParameters {
 
     // RK4軌道キャッシュ（物理ベース弾道用）
     mutable std::vector<TrajectoryPoint> trajectory_cache;
+    mutable std::vector<TrajectoryPoint> booster_trajectory_cache;  // ブースター軌道
     mutable bool trajectory_computed = false;
 
     TargetParameters()
@@ -143,6 +163,11 @@ public:
     void precomputeBallisticTrajectory(TargetParameters& params, bool verbose = true) const;
 
     /**
+     * @brief HGV軌道を事前計算（RK4物理積分 + 揚力・バンク角誘導）
+     */
+    void precomputeHgvTrajectory(TargetParameters& params, bool verbose = true) const;
+
+    /**
      * @brief 指定目標の最後に参照した高度を取得
      */
     float getLastAltitude(int target_idx) const;
@@ -151,6 +176,11 @@ public:
      * @brief 弾道ミサイルの飛翔フェーズを判定
      */
     BallisticPhase getBallisticPhase(const TargetParameters& params, double time) const;
+
+    /**
+     * @brief 乱数シードを設定
+     */
+    void setSeed(uint32_t seed) { rng_.seed(seed); }
 
 private:
     int num_targets_;

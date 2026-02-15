@@ -146,7 +146,8 @@ __global__ void addNoiseCov(
     float* covariance,
     const float* noise_cov,
     int num_targets,
-    int dim
+    int dim,
+    float dt_scale = 1.0f
 );
 
 /**

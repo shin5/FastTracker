@@ -102,6 +102,11 @@ public:
      */
     void setSensorPosition(float x, float y) { sensor_x_ = x; sensor_y_ = y; }
 
+    /**
+     * @brief 観測ノイズを設定（初期共分散計算用）
+     */
+    void setMeasurementNoise(const MeasurementNoise& noise) { meas_noise_ = noise; }
+
 private:
     AssociationParams params_;
     std::map<int, Track> tracks_;  // track_id -> Track
@@ -114,6 +119,7 @@ private:
 
     float sensor_x_ = 0.0f;
     float sensor_y_ = 0.0f;
+    MeasurementNoise meas_noise_;
 
     /**
      * @brief 観測から初期状態を推定

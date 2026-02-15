@@ -4,30 +4,30 @@
 
 namespace fasttracker {
 
-IMMFilter::IMMFilter(int num_models, int max_targets)
+IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& external_noise)
     : num_models_(num_models), max_targets_(max_targets) {
 
     // 各モデル用のUKF初期化
     UKFParams ukf_params;
     MeasurementNoise meas_noise;
 
-    // モデル1: 等速度モデル（巡航・中間飛翔）
+    // モデル1: 等速度モデル（巡航・中間飛翔）— 外部ノイズの10%
     ProcessNoise noise1;
-    noise1.position_noise = 2.0f;
-    noise1.velocity_noise = 1.0f;
-    noise1.accel_noise = 0.5f;
+    noise1.position_noise = external_noise.position_noise * 0.1f;
+    noise1.velocity_noise = external_noise.velocity_noise * 0.1f;
+    noise1.accel_noise = external_noise.accel_noise * 0.1f;
 
-    // モデル2: 高加速度モデル（ブースト段階）
+    // モデル2: 高加速度モデル（ブースト段階）— 外部ノイズの150%
     ProcessNoise noise2;
-    noise2.position_noise = 15.0f;
-    noise2.velocity_noise = 30.0f;
-    noise2.accel_noise = 20.0f;  // 高加速度対応
+    noise2.position_noise = external_noise.position_noise * 1.5f;
+    noise2.velocity_noise = external_noise.velocity_noise * 1.5f;
+    noise2.accel_noise = external_noise.accel_noise * 1.5f;
 
-    // モデル3: 中程度加速度モデル（終末・機動）
+    // モデル3: 中程度加速度モデル（終末・機動）— 外部ノイズの50%
     ProcessNoise noise3;
-    noise3.position_noise = 8.0f;
-    noise3.velocity_noise = 15.0f;
-    noise3.accel_noise = 8.0f;
+    noise3.position_noise = external_noise.position_noise * 0.5f;
+    noise3.velocity_noise = external_noise.velocity_noise * 0.5f;
+    noise3.accel_noise = external_noise.accel_noise * 0.5f;
 
     process_noises_.push_back(noise1);
     process_noises_.push_back(noise2);
@@ -93,16 +93,26 @@ void IMMFilter::predict(
         // ax, ay は維持
 
         predicted_states[i] = pred;
-        predicted_covs[i] = covariances[i];
 
-        // プロセスノイズを共分散に追加
+        // 状態遷移行列 F (等加速度運動モデル、線形)
+        Eigen::Matrix<float, STATE_DIM, STATE_DIM> F;
+        F.setIdentity();
+        F(0, 2) = dt;  F(0, 4) = 0.5f * dt * dt;  // x += vx*dt + 0.5*ax*dt²
+        F(1, 3) = dt;  F(1, 5) = 0.5f * dt * dt;  // y += vy*dt + 0.5*ay*dt²
+        F(2, 4) = dt;                                // vx += ax*dt
+        F(3, 5) = dt;                                // vy += ay*dt
+
+        // 共分散伝播: P_pred = F * P * F^T
+        predicted_covs[i] = F * covariances[i] * F.transpose();
+
+        // プロセスノイズを共分散に追加 (Q * dt, GPU UKFと同じスケーリング)
         const auto& noise = process_noises_[max_model];
-        predicted_covs[i](0, 0) += noise.position_noise * noise.position_noise * dt * dt;
-        predicted_covs[i](1, 1) += noise.position_noise * noise.position_noise * dt * dt;
-        predicted_covs[i](2, 2) += noise.velocity_noise * noise.velocity_noise * dt * dt;
-        predicted_covs[i](3, 3) += noise.velocity_noise * noise.velocity_noise * dt * dt;
-        predicted_covs[i](4, 4) += noise.accel_noise * noise.accel_noise * dt * dt;
-        predicted_covs[i](5, 5) += noise.accel_noise * noise.accel_noise * dt * dt;
+        predicted_covs[i](0, 0) += noise.position_noise * noise.position_noise * dt;
+        predicted_covs[i](1, 1) += noise.position_noise * noise.position_noise * dt;
+        predicted_covs[i](2, 2) += noise.velocity_noise * noise.velocity_noise * dt;
+        predicted_covs[i](3, 3) += noise.velocity_noise * noise.velocity_noise * dt;
+        predicted_covs[i](4, 4) += noise.accel_noise * noise.accel_noise * dt;
+        predicted_covs[i](5, 5) += noise.accel_noise * noise.accel_noise * dt;
 
         // モデル確率の更新（簡易版: 遷移確率を適用）
         for (int m = 0; m < num_models_; m++) {

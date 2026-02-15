@@ -46,7 +46,7 @@
         .main-container {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto;
+            grid-template-rows: 1fr auto;
             gap: 8px;
             padding: 8px;
             height: calc(100vh - 50px);
@@ -85,38 +85,136 @@
             grid-row: 1;
             grid-column: 2;
         }
-        #plot3d {
-            width: 100%;
-            height: calc(100% - 32px);
+        /* Viz panel tabs */
+        .viz-tab-bar {
+            display: flex;
+            height: 100%;
+            align-items: stretch;
+        }
+        .viz-tab {
+            padding: 0 14px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.15s;
+            white-space: nowrap;
+            user-select: none;
+            display: flex;
+            align-items: center;
+        }
+        .viz-tab:hover { color: #ccc; background: rgba(233,69,96,0.05); }
+        .viz-tab.active { color: #e94560; border-bottom-color: #e94560; background: rgba(233,69,96,0.1); }
+        .viz-tab.disabled { color: #444; cursor: not-allowed; }
+        .viz-tab.disabled:hover { color: #444; background: none; }
+        .viz-tab-content { display: none; width: 100%; height: calc(100% - 32px); }
+        .viz-tab-content.active { display: block; }
+        #plot3d-trajectory, #plot3d-tracking { width: 100%; height: 100%; }
+        #plot-timeline { width: 100%; min-height: 100%; }
+
+        /* Evaluation tab */
+        .eval-section-title {
+            color: #e94560; font-size: 11px; text-transform: uppercase;
+            letter-spacing: 1px; margin: 10px 12px 6px; padding-bottom: 3px;
+            border-bottom: 1px solid #333;
+        }
+        .eval-section-title:first-child { margin-top: 4px; }
+        .eval-full-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 2px 16px; padding: 0 12px;
+        }
+        .eval-full-item {
+            font-size: 11px; padding: 2px 0;
+            display: flex; justify-content: space-between; gap: 6px;
+        }
+        .eval-full-item .label { color: #aaa; white-space: nowrap; cursor: help; }
+        .eval-full-item .value { color: #7ec8e3; font-family: monospace; font-weight: bold; text-align: right; }
+
+        /* Tooltip for labels */
+        .control-row label[title], .eval-full-item .label[title] {
+            cursor: help;
+            border-bottom: 1px dotted #555;
+        }
+        #eval-tab-content { overflow-y: auto; height: 100%; padding: 4px 0; }
+        .eval-charts-grid {
+            display: flex; flex-direction: column;
+            gap: 4px; padding: 4px 8px; margin-top: 4px;
+        }
+        .eval-chart { height: 200px; background: #0f3460; border-radius: 4px; }
+        .eval-placeholder {
+            display: flex; align-items: center; justify-content: center;
+            height: 100%; color: #555; font-size: 14px;
         }
 
         /* Control panel */
         #control-panel {
             grid-row: 2;
             grid-column: 1 / -1;
-            max-height: 280px;
-            overflow-y: auto;
         }
         .controls-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 12px;
-            padding: 12px;
+            display: flex;
+            gap: 0;
+        }
+
+        /* Object list (left sidebar) */
+        .object-list {
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #333;
+            min-width: 110px;
+        }
+        .object-list-item {
+            padding: 10px 14px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: all 0.15s;
+        }
+        .object-list-item:hover {
+            color: #ccc;
+            background: rgba(233,69,96,0.05);
+        }
+        .object-list-item.active {
+            color: #e94560;
+            border-left-color: #e94560;
+            background: rgba(233,69,96,0.1);
+        }
+
+        /* Detail pane (right) */
+        .detail-pane {
+            flex: 1;
+            padding: 8px 12px;
+            overflow-y: auto;
+        }
+        .detail-section {
+            display: none;
+        }
+        .detail-section.active {
+            display: block;
         }
 
         /* Control sections */
         .control-section h3 {
             color: #e94560;
             font-size: 12px;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
         .control-row {
             display: flex;
             align-items: center;
-            margin-bottom: 6px;
-            gap: 8px;
+            margin-bottom: 4px;
+            gap: 6px;
+            font-size: 11px;
+            color: #888;
         }
         .control-row label {
             font-size: 12px;
@@ -135,6 +233,27 @@
         .control-row input:focus {
             border-color: #e94560;
             outline: none;
+        }
+        .lock-label {
+            min-width: auto !important;
+            margin-left: 2px;
+            font-size: 10px !important;
+            color: #666 !important;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .lock-label input[type="checkbox"] {
+            width: auto;
+            min-width: auto;
+            padding: 0;
+            margin: 0;
+        }
+        .target-sub-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
         }
         .coord-display {
             font-size: 11px;
@@ -259,11 +378,29 @@
 
     <!-- 3D Visualization Panel -->
     <div class="panel" id="viz-panel">
-        <div class="panel-header">
-            <span>3D Trajectory Visualization</span>
-            <span id="viz-info" style="color: #7ec8e3; font-weight: normal;"></span>
+        <div class="panel-header" style="padding: 0;">
+            <div class="viz-tab-bar">
+                <div class="viz-tab active" data-viz-tab="trajectory" onclick="switchVizTab('trajectory')">Trajectory</div>
+                <div class="viz-tab disabled" data-viz-tab="tracking" onclick="switchVizTab('tracking')">Tracking</div>
+                <div class="viz-tab disabled" data-viz-tab="evaluation" onclick="switchVizTab('evaluation')">Evaluation</div>
+                <div class="viz-tab disabled" data-viz-tab="timeline" onclick="switchVizTab('timeline')">Timeline</div>
+            </div>
+            <span id="viz-info" style="color: #7ec8e3; font-weight: normal; font-size: 11px; padding-right: 10px; white-space: nowrap;"></span>
         </div>
-        <div id="plot3d"></div>
+        <div class="viz-tab-content active" id="viz-trajectory">
+            <div id="plot3d-trajectory"></div>
+        </div>
+        <div class="viz-tab-content" id="viz-tracking">
+            <div id="plot3d-tracking"></div>
+        </div>
+        <div class="viz-tab-content" id="viz-evaluation">
+            <div id="eval-tab-content">
+                <div class="eval-placeholder">Run Tracker to see evaluation metrics</div>
+            </div>
+        </div>
+        <div class="viz-tab-content" id="viz-timeline" style="overflow-y:auto;">
+            <div id="plot-timeline" style="width:100%;"></div>
+        </div>
     </div>
 
     <!-- Control Panel -->
@@ -271,106 +408,310 @@
         <div class="panel-header">
             <span>Parameters & Control</span>
         </div>
-        <div class="controls-content" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr;">
-            <!-- Coordinates -->
-            <div class="control-section">
-                <h3>Coordinates</h3>
-                <div class="coord-display">
-                    Launch: <span id="launch-coord">Not set</span>
-                </div>
-                <div class="coord-display">
-                    Target: <span id="target-coord">Not set</span>
-                </div>
-                <div class="coord-display">
-                    Range: <span id="range-display">-</span>
-                </div>
-                <div style="margin-top: 8px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap;">
-                    <select id="preset-select" ondblclick="loadPreset()" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:4px 6px; font-size:12px; flex:1; min-width:120px;">
-                    </select>
-                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="loadPreset()">Load</button>
-                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="saveCurrentAsPreset()">Save</button>
-                    <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedPreset()">Del</button>
-                </div>
+        <div class="controls-content">
+            <!-- Object List (left sidebar) -->
+            <div class="object-list">
+                <div class="object-list-item active" onclick="switchPanel('target')">Target</div>
+                <div class="object-list-item" onclick="switchPanel('sensor')">Sensor</div>
+                <div class="object-list-item" onclick="switchPanel('tracker')">Tracker</div>
             </div>
 
-            <!-- Missile Parameters -->
-            <div class="control-section">
-                <h3>Missile Parameters</h3>
-                <div class="control-row">
-                    <label>Boost Duration</label>
-                    <input type="number" id="boost-duration" value="65" min="10" max="200" step="5"> s
+            <!-- Detail Pane (right) -->
+            <div class="detail-pane">
+                <!-- Target -->
+                <div class="detail-section active" id="panel-target">
+                    <div class="control-row" style="margin-bottom:8px;">
+                        <label style="min-width:auto; font-weight:bold; color:#e94560;">Missile Type</label>
+                        <select id="missile-type" onchange="onMissileTypeChange()" style="background:#0f3460; color:#fff; border:1px solid #e94560; border-radius:4px; padding:4px 8px; font-size:12px; width:140px; font-weight:bold;">
+                            <option value="ballistic">Ballistic</option>
+                            <option value="hgv">HGV (Hypersonic Glide)</option>
+                        </select>
+                    </div>
+                    <div class="target-sub-grid">
+                        <div>
+                            <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                                <span style="min-width:50px;">Launch:</span>
+                                <select id="loc-launch-select" ondblclick="loadLocation('launch')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('launch')">Set</button>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('launch')">+</button>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('launch')">x</button>
+                                <span id="launch-coord" style="font-size:11px; color:#aaa;">Not set</span>
+                            </div>
+                            <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                                <span style="min-width:50px;">Target:</span>
+                                <select id="loc-target-select" ondblclick="loadLocation('target')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('target')">Set</button>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('target')">+</button>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('target')">x</button>
+                                <span id="target-coord" style="font-size:11px; color:#aaa;">Not set</span>
+                            </div>
+                            <div class="coord-display">
+                                Range: <span id="range-display">-</span>
+                            </div>
+                            <div class="control-row">
+                                <label title="Duration of rocket motor burn [s]. Longer boost increases velocity and range.">Boost Duration</label>
+                                <input type="number" id="boost-duration" value="65" min="10" max="200" step="5"> s
+                            </div>
+                            <div class="control-row">
+                                <label title="Acceleration during boost phase [m/s2]. Higher values produce faster missiles.">Boost Accel</label>
+                                <input type="number" id="boost-accel" value="30" min="5" max="100" step="5"> m/s2
+                            </div>
+                            <div class="control-row">
+                                <label title="Launch elevation angle [deg]. Steeper angle = higher apogee but shorter range. Auto-adjust optimizes this.">Launch Angle</label>
+                                <input type="number" id="launch-angle" value="40" min="15" max="80" step="5"> deg
+                                <label class="lock-label" title="Lock: exclude from auto-adjust"><input type="checkbox" id="lock-angle"> Lock</label>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="Total missile mass at launch including fuel [kg].">Initial Mass</label>
+                                <input type="number" id="initial-mass" value="20000" min="1000" max="100000" step="1000"> kg
+                            </div>
+                            <div class="control-row">
+                                <label title="Fraction of initial mass that is fuel (0-1). Higher = more fuel = longer burn.">Fuel Fraction</label>
+                                <input type="number" id="fuel-fraction" value="0.70" min="0.1" max="0.9" step="0.05">
+                                <label class="lock-label" title="Lock: exclude from auto-adjust"><input type="checkbox" id="lock-fuel"> Lock</label>
+                            </div>
+                            <div class="control-row">
+                                <label title="Specific impulse [s]. Engine efficiency metric. Higher Isp = more delta-v per unit fuel.">Isp</label>
+                                <input type="number" id="specific-impulse" value="250" min="100" max="500" step="10"> s
+                                <label class="lock-label" title="Lock: exclude from auto-adjust"><input type="checkbox" id="lock-isp"> Lock</label>
+                            </div>
+                            <div class="control-row">
+                                <label title="Aerodynamic drag coefficient. Lower = less air resistance. Typical: 0.1-0.5 for missiles.">Drag Coeff (Cd)</label>
+                                <input type="number" id="drag-coefficient" value="0.3" min="0.05" max="2.0" step="0.05">
+                            </div>
+                            <div class="control-row">
+                                <label title="Reference cross-sectional area for drag calculation [m2].">Cross Section</label>
+                                <input type="number" id="cross-section" value="1.0" min="0.1" max="10.0" step="0.1"> m2
+                            </div>
+                            <div class="control-row ballistic-only-param">
+                                <label title="Target maximum altitude constraint for auto-adjust [km]. 0 = no constraint.">Target Alt</label>
+                                <input type="number" id="target-max-altitude" value="0" min="0" max="5000" step="50"> km
+                                <span style="font-size:10px; color:#666;">(0=auto)</span>
+                            </div>
+                            <div class="control-row">
+                                <label style="min-width: auto;" title="Automatically adjust launch angle, Isp, and fuel fraction to hit the target position.">
+                                    <input type="checkbox" id="auto-adjust" checked> Auto-Adjust
+                                </label>
+                                <span id="auto-adjust-info" style="font-size:11px; color:#888;"></span>
+                            </div>
+                            <div class="control-row">
+                                <label style="min-width: auto;" title="Simulate booster-warhead separation after boost. Creates two separate tracked objects.">
+                                    <input type="checkbox" id="enable-separation" onchange="toggleSeparationParams()"> Separation
+                                </label>
+                            </div>
+                            <div class="control-row" id="sep-params" style="display:none;">
+                                <label title="Warhead mass as percentage of dry mass (after fuel is consumed).">Warhead Mass</label>
+                                <input type="number" id="warhead-mass-frac" value="30" min="5" max="80" step="5"> %
+                            </div>
+                            <!-- HGV-specific parameters -->
+                            <div class="control-row hgv-only-param" style="display:none;">
+                                <label title="Cruise/glide altitude [km]. HGV glides at this altitude band (30-50km typical).">Cruise Alt</label>
+                                <input type="number" id="cruise-altitude" value="40" min="20" max="80" step="5"> km
+                            </div>
+                            <div class="control-row hgv-only-param" style="display:none;">
+                                <label title="Lift-to-drag ratio (L/D). Higher = more efficient glide. Waverider: 4-6.">Glide Ratio</label>
+                                <input type="number" id="glide-ratio" value="4.0" min="2.0" max="8.0" step="0.5">
+                            </div>
+                            <div class="control-row hgv-only-param" style="display:none;">
+                                <label title="Distance from target to begin terminal dive [km].">Terminal Dive</label>
+                                <input type="number" id="terminal-dive-range" value="20" min="5" max="50" step="5"> km
+                            </div>
+                            <div class="control-row hgv-only-param" style="display:none;">
+                                <label title="Maximum bank angle during glide [deg]. Controls turn rate.">Max Bank</label>
+                                <input type="number" id="bank-angle-max" value="0" min="0" max="80" step="5"> deg
+                            </div>
+                            <div class="control-row hgv-only-param" style="display:none;">
+                                <label title="Number of skip-glide oscillations before terminal dive. 0 = unlimited (distance-based only).">Skips</label>
+                                <input type="number" id="num-skips" value="1" min="0" max="20" step="1">
+                            </div>
+                            <!-- Cluster parameters -->
+                            <div style="color: #e94560; font-size: 11px; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 1px;">Cluster (Dense Env)</div>
+                            <div class="control-row">
+                                <label title="Number of additional targets generated around the main missile. 0 = single target only.">Count</label>
+                                <input type="number" id="cluster-count" value="0" min="0" max="20" step="1">
+                            </div>
+                            <div class="control-row">
+                                <label title="Spatial spread radius [km]. Launch and impact positions of cluster targets are perturbed within this radius.">Spread</label>
+                                <input type="number" id="cluster-spread" value="5" min="1" max="50" step="1"> km
+                            </div>
+                            <div class="control-row">
+                                <label title="Launch time spread [s]. Each cluster target's launch time is randomly offset within 0 to this value.">Time Spread</label>
+                                <input type="number" id="launch-time-spread" value="5" min="0" max="60" step="1"> s
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="control-row">
-                    <label>Boost Accel</label>
-                    <input type="number" id="boost-accel" value="30" min="5" max="100" step="5"> m/s2
-                </div>
-                <div class="control-row">
-                    <label>Launch Angle</label>
-                    <input type="number" id="launch-angle" value="40" min="15" max="80" step="5"> deg
-                </div>
-                <div class="control-row">
-                    <label>Time Step</label>
-                    <input type="number" id="time-step" value="0.5" min="0.1" max="2.0" step="0.1"> s
-                </div>
-            </div>
 
-            <!-- Physics Model -->
-            <div class="control-section">
-                <h3>Physics Model</h3>
-                <div class="control-row">
-                    <label>Initial Mass</label>
-                    <input type="number" id="initial-mass" value="20000" min="1000" max="100000" step="1000"> kg
+                <!-- Sensor -->
+                <div class="detail-section" id="panel-sensor">
+                    <div class="target-sub-grid">
+                        <div>
+                            <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                                <span style="min-width:50px;">Position:</span>
+                                <select id="loc-sensor-select" ondblclick="loadLocation('sensor')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('sensor')">Set</button>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('sensor')">+</button>
+                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('sensor')">x</button>
+                                <span id="sensor-coord" style="font-size:11px; color:#aaa;">Not set</span>
+                            </div>
+                            <div class="control-row">
+                                <label title="Maximum radar detection range [km]. Auto = 1.3x max sensor-target distance.">Max Range</label>
+                                <input type="number" id="radar-max-range" value="800" min="10" max="2000" step="10" disabled> km
+                                <label class="lock-label" title="Auto: compute from scenario geometry"><input type="checkbox" id="auto-max-range" checked onchange="toggleAutoParam(this, 'radar-max-range')"> Auto</label>
+                                <span id="resolved-max-range" style="font-size:10px; color:#4ecdc4;"></span>
+                            </div>
+                            <div class="control-row">
+                                <label title="Radar field of view [deg]. 360 = omnidirectional, 120 = sector scan.">FOV</label>
+                                <input type="number" id="radar-fov" value="360" min="10" max="360" step="10"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Antenna boresight bearing [deg]. 0=North, 90=East. Center of the FOV.">Ant Bearing</label>
+                                <input type="number" id="antenna-bearing" value="0" min="-180" max="360" step="1" disabled onchange="updateSensorCoverage()"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Auto-compute antenna bearing from sensor-to-launch direction.">Auto Bearing</label>
+                                <input type="checkbox" id="auto-antenna-bearing" checked onchange="onAutoAntennaBearingChange()">
+                            </div>
+                            <div style="color: #e94560; font-size: 11px; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 1px;">Performance</div>
+                            <div class="control-row">
+                                <label title="Probability of detection (Pd). Chance a target in range is detected per scan. 1.0 = perfect detection.">Detect Prob</label>
+                                <input type="number" id="detect-prob" value="0.95" min="0.1" max="1.0" step="0.05">
+                            </div>
+                            <div class="control-row">
+                                <label title="Probability of false alarm per resolution cell. Controls clutter density.">Pfa</label>
+                                <input type="text" id="pfa" value="1e-6" style="width:70px;" disabled>
+                                <label class="lock-label" title="Auto: compute from scenario geometry"><input type="checkbox" id="auto-pfa" checked onchange="toggleAutoParam(this, 'pfa')"> Auto</label>
+                                <span id="resolved-pfa" style="font-size:10px; color:#4ecdc4;"></span>
+                            </div>
+                            <div class="control-row">
+                                <label title="Reference signal-to-noise ratio [dB] at 1km. Higher = better detection at long range.">SNR Ref</label>
+                                <input type="number" id="snr-ref" value="80" min="1" max="200" step="5" disabled> dB
+                                <label class="lock-label" title="Auto: compute from radar equation"><input type="checkbox" id="auto-snr-ref" checked onchange="toggleAutoParam(this, 'snr-ref')"> Auto</label>
+                                <span id="resolved-snr-ref" style="font-size:10px; color:#4ecdc4;"></span>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="color: #e94560; font-size: 11px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 1px;">Meas Noise (1&sigma;)</div>
+                            <div class="control-row">
+                                <label title="Range measurement noise 1-sigma [m]. Radar range resolution.">Range</label>
+                                <input type="number" id="range-noise" value="10" min="1" max="500" step="1"> m
+                            </div>
+                            <div class="control-row">
+                                <label title="Azimuth angle measurement noise 1-sigma [deg]. Cross-range error = range x azimuth_noise_rad.">Azimuth</label>
+                                <input type="number" id="azimuth-noise" value="0.57" min="0.01" max="6" step="0.01"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Elevation angle measurement noise 1-sigma [deg]. Altitude estimation accuracy.">Elevation</label>
+                                <input type="number" id="elevation-noise" value="0.57" min="0.01" max="6" step="0.01"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Doppler velocity measurement noise 1-sigma [m/s]. Radial velocity accuracy.">Doppler</label>
+                                <input type="number" id="doppler-noise" value="2" min="0.1" max="20" step="0.5"> m/s
+                            </div>
+                        </div>
+                        <div style="grid-column: 1 / -1; margin-top: 6px; border-top: 1px solid #333; padding-top: 4px;">
+                            <div style="color: #e94560; font-size: 11px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 1px;">Beam Steering</div>
+                            <div class="control-row">
+                                <label title="Angular width of each radar beam [degrees]. Typical phased array: 1-5 degrees.">Beam Width</label>
+                                <input type="number" id="beam-width" value="3" min="0.5" max="30" step="0.5"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Number of beam dwells per frame. Budget split between track beams (pointing at known targets) and search beams (raster scan for new targets).">Beams/Frame</label>
+                                <input type="number" id="num-beams" value="10" min="1" max="50" step="1">
+                            </div>
+                            <div class="control-row">
+                                <label title="Minimum number of beams reserved for search (raster scan). Higher values ensure faster new target discovery but reduce tracking capacity.">Min Search</label>
+                                <input type="number" id="min-search-beams" value="1" min="1" max="20" step="1">
+                            </div>
+                            <div class="control-row">
+                                <label title="Track beam priority. 'All' assigns beams to both confirmed and tentative tracks. 'Confirmed' only assigns to confirmed tracks.">Track Priority</label>
+                                <select id="track-priority">
+                                    <option value="all" selected>All Tracks</option>
+                                    <option value="confirmed">Confirmed Only</option>
+                                </select>
+                            </div>
+                            <div class="control-row">
+                                <label title="Auto-calculate search sector, center, and elevation from launch/target/sensor geometry.">Auto Sector</label>
+                                <input type="checkbox" id="auto-search-sector" checked onchange="onAutoSearchSectorChange()">
+                            </div>
+                            <div class="control-row">
+                                <label title="Angular width of the search scan sector [degrees]. Search beams raster-scan within this sector. 0 = use full FOV.">Search Sector</label>
+                                <input type="number" id="search-sector" value="0" min="0" max="360" step="1" disabled onchange="updateSensorCoverage()"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Center offset of the search sector from boresight (North) [degrees]. Positive = clockwise.">Search Center</label>
+                                <input type="number" id="search-center" value="0" min="-180" max="180" step="1" disabled onchange="updateSensorCoverage()"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Search beam elevation angle [degrees above horizon]. Beams scan in azimuth at this fixed elevation.">Search Elev</label>
+                                <input type="number" id="search-elevation" value="0" min="0" max="90" step="0.5" disabled> deg
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="control-row">
-                    <label>Fuel Fraction</label>
-                    <input type="number" id="fuel-fraction" value="0.65" min="0.1" max="0.9" step="0.05">
-                </div>
-                <div class="control-row">
-                    <label>Isp</label>
-                    <input type="number" id="specific-impulse" value="250" min="100" max="500" step="10"> s
-                </div>
-                <div class="control-row">
-                    <label>Drag Coeff (Cd)</label>
-                    <input type="number" id="drag-coefficient" value="0.3" min="0.05" max="2.0" step="0.05">
-                </div>
-                <div class="control-row">
-                    <label>Cross Section</label>
-                    <input type="number" id="cross-section" value="1.0" min="0.1" max="10.0" step="0.1"> m2
-                </div>
-                <div class="control-row">
-                    <label style="min-width: auto;">
-                        <input type="checkbox" id="auto-adjust" checked> Auto-Adjust
-                    </label>
-                    <span id="auto-adjust-info" style="font-size:11px; color:#888;"></span>
-                </div>
-            </div>
 
-            <!-- Sensor Parameters -->
-            <div class="control-section">
-                <h3>Sensor Parameters</h3>
-                <div class="coord-display">
-                    Sensor: <span id="sensor-coord">Auto (Target)</span>
-                </div>
-                <div class="control-row">
-                    <label>Max Range</label>
-                    <input type="number" id="radar-max-range" value="0" min="0" max="2000" step="10"> km
-                </div>
-                <div class="control-row">
-                    <label>FOV</label>
-                    <input type="number" id="radar-fov" value="360" min="10" max="360" step="10"> deg
-                </div>
-                <div class="control-row">
-                    <label style="min-width: auto;">
-                        <input type="checkbox" id="sensor-auto" checked> Auto
-                    </label>
-                </div>
-            </div>
-
-            <!-- Evaluation Results -->
-            <div class="control-section">
-                <h3>Evaluation Results</h3>
-                <div class="eval-grid" id="eval-results">
-                    <div class="eval-item"><span class="label">Status:</span> <span class="value">Waiting</span></div>
+                <!-- Tracker -->
+                <div class="detail-section" id="panel-tracker">
+                    <div class="target-sub-grid">
+                        <div>
+                            <div class="control-row">
+                                <label title="Simulation time step [s]. Smaller = more accurate but slower. Defines tracker update rate.">Time Step</label>
+                                <input type="number" id="time-step" value="0.5" min="0.1" max="2.0" step="0.1"> s
+                            </div>
+                            <div class="control-row">
+                                <label title="Mahalanobis distance gate for data association. Larger = accept more distant measurements. Too small = missed associations.">Gate Threshold</label>
+                                <input type="number" id="gate-threshold" value="500" min="1" max="2000" step="10">
+                            </div>
+                            <div class="control-row">
+                                <label title="Number of consecutive hits required to confirm a tentative track. Lower = faster confirmation but more false tracks.">Confirm Hits</label>
+                                <input type="number" id="confirm-hits" value="2" min="1" max="10" step="1">
+                            </div>
+                            <div class="control-row">
+                                <label title="Number of consecutive misses before a track is deleted. Higher = more tolerant of missed detections.">Delete Misses</label>
+                                <input type="number" id="delete-misses" value="20" min="1" max="50" step="1">
+                            </div>
+                            <div class="control-row">
+                                <label title="Minimum SNR [dB] to initiate a new track. Higher = fewer false tracks from clutter.">Min SNR</label>
+                                <input type="number" id="min-snr" value="22" min="0" max="60" step="1"> dB
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="Process noise for position [m]. Models unmodeled position disturbances. Higher = filter trusts measurements more.">Pos Noise</label>
+                                <input type="number" id="process-pos-noise" value="160" min="0.1" max="500" step="5"> m
+                            </div>
+                            <div class="control-row">
+                                <label title="Process noise for velocity [m/s]. Models unmodeled velocity changes. Higher = faster adaptation to maneuvers.">Vel Noise</label>
+                                <input type="number" id="process-vel-noise" value="65" min="0.1" max="200" step="5"> m/s
+                            </div>
+                            <div class="control-row">
+                                <label title="Process noise for acceleration [m/s2]. Models unmodeled acceleration (maneuvers). Higher = more responsive to sudden changes.">Acc Noise</label>
+                                <input type="number" id="process-acc-noise" value="160" min="0.1" max="500" step="5"> m/s2
+                            </div>
+                        </div>
+                    </div>
+                    <div class="param-grid" style="margin-top: 8px;">
+                        <div>
+                            <div class="control-row">
+                                <label title="Number of Monte Carlo simulation runs. Multiple runs provide mean +/- std statistics for robust evaluation.">Num Runs</label>
+                                <input type="number" id="num-runs" value="10" min="1" max="100" step="1">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="Random seed for reproducibility. 0 = random (different each time). >0 = deterministic (same seed = same result).">Seed</label>
+                                <input type="number" id="random-seed" value="0" min="0" max="999999" step="1">
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px;">
+                        <div style="color: #e94560; font-size: 12px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px;">Evaluation Results</div>
+                        <div class="eval-grid" id="eval-results">
+                            <div class="eval-item"><span class="label">Status:</span> <span class="value">Waiting</span></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -417,6 +758,7 @@ let targetMarker = null;
 let sensorMarker = null;
 let sensorCoverageCircle = null;
 let sensorFovPolygon = null;
+let searchSectorPolygon = null;
 let trajectoryLine = null;
 let currentTrajectory = null;
 
@@ -471,6 +813,9 @@ function setLaunchPoint(lat, lon) {
         .bindPopup(`Launch: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
     document.getElementById('launch-coord').textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     updateRange();
+    autoComputeAntennaBearing();
+    autoComputeSearchSector();
+    autoComputeSearchElevation();
     updateSensorCoverage();
 }
 
@@ -482,11 +827,9 @@ function setTargetPoint(lat, lon) {
         .bindPopup(`Target: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
     document.getElementById('target-coord').textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     updateRange();
-    // Auto sensor follows target
-    if (document.getElementById('sensor-auto').checked) {
-        updateSensorMarker();
-        updateSensorCoverage();
-    }
+    autoComputeAntennaBearing();
+    autoComputeSearchSector();
+    autoComputeSearchElevation();
 }
 
 function updateRange() {
@@ -509,9 +852,11 @@ function updateRange() {
 
 function setSensorPoint(lat, lon) {
     sensorPoint = { lat, lon };
-    document.getElementById('sensor-auto').checked = false;
     document.getElementById('sensor-coord').textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     updateSensorMarker();
+    autoComputeAntennaBearing();
+    autoComputeSearchSector();
+    autoComputeSearchElevation();
     updateSensorCoverage();
 }
 
@@ -526,29 +871,39 @@ function updateSensorMarker() {
     if (!pos) return;
 
     if (sensorMarker) map.removeLayer(sensorMarker);
+    const isFallback = !sensorPoint;
     const sensorIcon = L.divIcon({
-        html: '<div style="width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid #32ff32;filter:drop-shadow(0 0 6px #32ff32);"></div>',
+        html: `<div style="width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:18px solid ${isFallback ? '#32ff3280' : '#32ff32'};filter:drop-shadow(0 0 6px #32ff32);"></div>`,
         iconSize: [18, 18],
         iconAnchor: [9, 18],
         className: '',
     });
     sensorMarker = L.marker([pos.lat, pos.lon], { icon: sensorIcon })
         .addTo(map)
-        .bindPopup(`Sensor: ${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}`);
+        .bindPopup(`Sensor: ${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}${isFallback ? ' (=Target)' : ''}`);
+    if (isFallback) {
+        document.getElementById('sensor-coord').textContent = 'Not set (=Target)';
+        document.getElementById('sensor-coord').style.color = '#666';
+    } else {
+        document.getElementById('sensor-coord').style.color = '#aaa';
+    }
 }
 
 function updateSensorCoverage() {
     // Remove old coverage
     if (sensorCoverageCircle) map.removeLayer(sensorCoverageCircle);
     if (sensorFovPolygon) map.removeLayer(sensorFovPolygon);
+    if (searchSectorPolygon) map.removeLayer(searchSectorPolygon);
     sensorCoverageCircle = null;
     sensorFovPolygon = null;
+    searchSectorPolygon = null;
 
     const pos = getSensorLatLng();
     if (!pos) return;
 
     // Get max range in meters
-    let maxRangeKm = parseFloat(document.getElementById('radar-max-range').value);
+    const autoRange = document.getElementById('auto-max-range').checked;
+    let maxRangeKm = autoRange ? 0 : parseFloat(document.getElementById('radar-max-range').value);
     if (maxRangeKm <= 0 && launchPoint && targetPoint) {
         // Auto: estimate from launch-target range
         const R = 6371;
@@ -563,6 +918,21 @@ function updateSensorCoverage() {
     const maxRangeM = maxRangeKm * 1000;
     const fovDeg = parseFloat(document.getElementById('radar-fov').value) || 360;
 
+    // Helper: draw a wedge polygon from sensor at given angular range
+    function makeWedge(startDeg, endDeg, range) {
+        const numPoints = 60;
+        const pts = [[pos.lat, pos.lon]];
+        const spanDeg = endDeg - startDeg;
+        for (let i = 0; i <= numPoints; i++) {
+            const angle = (startDeg + spanDeg * i / numPoints) * Math.PI / 180;
+            const lat2 = pos.lat + (range / 111320) * Math.cos(angle);
+            const lon2 = pos.lon + (range / (111320 * Math.cos(pos.lat * Math.PI / 180))) * Math.sin(angle);
+            pts.push([lat2, lon2]);
+        }
+        pts.push([pos.lat, pos.lon]);
+        return pts;
+    }
+
     if (fovDeg >= 360) {
         // Full circle
         sensorCoverageCircle = L.circle([pos.lat, pos.lon], {
@@ -575,88 +945,280 @@ function updateSensorCoverage() {
             dashArray: '6,4',
         }).addTo(map);
     } else {
-        // Draw FOV wedge
+        // Draw FOV wedge centered on antenna bearing
+        const antBearing = parseFloat(document.getElementById('antenna-bearing').value) || 0;
         const halfFov = fovDeg / 2;
-        const bearing0 = 0; // North-facing default
-        const numPoints = 60;
-        const points = [[pos.lat, pos.lon]];
-
-        for (let i = 0; i <= numPoints; i++) {
-            const angle = (bearing0 - halfFov + (fovDeg * i / numPoints)) * Math.PI / 180;
-            const lat2 = pos.lat + (maxRangeM / 111320) * Math.cos(angle);
-            const lon2 = pos.lon + (maxRangeM / (111320 * Math.cos(pos.lat * Math.PI / 180))) * Math.sin(angle);
-            points.push([lat2, lon2]);
-        }
-        points.push([pos.lat, pos.lon]);
-
-        sensorFovPolygon = L.polygon(points, {
+        const fovPoints = makeWedge(antBearing - halfFov, antBearing + halfFov, maxRangeM);
+        sensorFovPolygon = L.polygon(fovPoints, {
             color: '#32ff32',
             fillColor: '#32ff32',
-            fillOpacity: 0.08,
+            fillOpacity: 0.06,
             weight: 1.5,
             opacity: 0.6,
             dashArray: '6,4',
         }).addTo(map);
     }
+
+    // Draw search sector overlay (absolute bearing, independent of FOV wedge)
+    const searchSectorDeg = parseFloat(document.getElementById('search-sector').value) || 0;
+    const searchCenterDeg = parseFloat(document.getElementById('search-center').value) || 0;
+    if (searchSectorDeg > 0) {
+        const sMin = searchCenterDeg - searchSectorDeg / 2;
+        const sMax = searchCenterDeg + searchSectorDeg / 2;
+        const searchPoints = makeWedge(sMin, sMax, maxRangeM);
+        searchSectorPolygon = L.polygon(searchPoints, {
+            color: '#4fc3f7',
+            fillColor: '#4fc3f7',
+            fillOpacity: 0.12,
+            weight: 1.5,
+            opacity: 0.8,
+        }).addTo(map);
+    }
 }
+
+// Auto search sector calculation
+function computeBearing(lat1, lon1, lat2, lon2) {
+    // Returns bearing in degrees, 0=North, positive=clockwise
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const lat1r = lat1 * Math.PI / 180;
+    const lat2r = lat2 * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2r);
+    const x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
+    return Math.atan2(y, x) * 180 / Math.PI;
+}
+
+function autoComputeSearchSector() {
+    if (!document.getElementById('auto-search-sector').checked) return;
+    const sensor = getSensorLatLng();
+    if (!sensor || !launchPoint) {
+        document.getElementById('search-sector').value = 0;
+        document.getElementById('search-center').value = 0;
+        updateSensorCoverage();
+        return;
+    }
+
+    const fovDeg = parseFloat(document.getElementById('radar-fov').value) || 360;
+
+    // Bearing from sensor to launch point (threat origin)
+    const bearingToLaunch = computeBearing(sensor.lat, sensor.lon, launchPoint.lat, launchPoint.lon);
+
+    // Bearing from sensor to target point (defended asset)
+    // Skip if sensor ≈ target (fallback case: distance < 1km)
+    let bearingToTarget = bearingToLaunch;
+    if (targetPoint) {
+        const dLat = Math.abs(sensor.lat - targetPoint.lat);
+        const dLon = Math.abs(sensor.lon - targetPoint.lon);
+        if (dLat > 0.01 || dLon > 0.01) {
+            bearingToTarget = computeBearing(sensor.lat, sensor.lon, targetPoint.lat, targetPoint.lon);
+        }
+    }
+
+    // Angular span between launch and target bearings
+    let span = bearingToTarget - bearingToLaunch;
+    // Normalize to [-180, 180]
+    while (span > 180) span -= 360;
+    while (span < -180) span += 360;
+
+    // Center bearing (midpoint of the two bearings)
+    let center = bearingToLaunch + span / 2;
+    // Normalize to [-180, 180]
+    while (center > 180) center -= 360;
+    while (center < -180) center += 360;
+
+    // Sector width = angular span + margin (20° each side), minimum 30°
+    const margin = 20;
+    let sector = Math.abs(span) + margin * 2;
+    sector = Math.max(sector, 30);
+    sector = Math.min(sector, fovDeg); // don't exceed FOV
+
+    document.getElementById('search-sector').value = Math.round(sector);
+    document.getElementById('search-center').value = Math.round(center);
+    updateSensorCoverage();
+}
+
+function onAutoSearchSectorChange() {
+    const auto = document.getElementById('auto-search-sector').checked;
+    ['search-sector', 'search-center', 'search-elevation'].forEach(id => {
+        const el = document.getElementById(id);
+        el.disabled = auto;
+        el.style.opacity = auto ? '0.4' : '1';
+    });
+    if (auto) {
+        autoComputeSearchSector();
+        autoComputeSearchElevation();
+    }
+}
+
+// Auto antenna bearing calculation
+function autoComputeAntennaBearing() {
+    if (!document.getElementById('auto-antenna-bearing').checked) return;
+    const sensor = getSensorLatLng();
+    if (!sensor || !launchPoint) {
+        document.getElementById('antenna-bearing').value = 0;
+        updateSensorCoverage();
+        return;
+    }
+
+    // Point antenna midway between launch and target directions
+    const bearingToLaunch = computeBearing(sensor.lat, sensor.lon, launchPoint.lat, launchPoint.lon);
+    let bearingToTarget = bearingToLaunch;
+    if (targetPoint) {
+        const dLat = Math.abs(sensor.lat - targetPoint.lat);
+        const dLon = Math.abs(sensor.lon - targetPoint.lon);
+        if (dLat > 0.01 || dLon > 0.01) {
+            bearingToTarget = computeBearing(sensor.lat, sensor.lon, targetPoint.lat, targetPoint.lon);
+        }
+    }
+    let span = bearingToTarget - bearingToLaunch;
+    while (span > 180) span -= 360;
+    while (span < -180) span += 360;
+    let center = bearingToLaunch + span / 2;
+    while (center > 180) center -= 360;
+    while (center < -180) center += 360;
+
+    document.getElementById('antenna-bearing').value = Math.round(center);
+    updateSensorCoverage();
+}
+
+function onAutoAntennaBearingChange() {
+    const auto = document.getElementById('auto-antenna-bearing').checked;
+    const el = document.getElementById('antenna-bearing');
+    el.disabled = auto;
+    el.style.opacity = auto ? '0.4' : '1';
+    if (auto) {
+        autoComputeAntennaBearing();
+    }
+}
+
+// Auto search elevation calculation
+function autoComputeSearchElevation() {
+    if (!document.getElementById('auto-search-sector').checked) return;
+    const sensor = getSensorLatLng();
+    if (!sensor || !launchPoint) {
+        document.getElementById('search-elevation').value = 0;
+        return;
+    }
+
+    // Haversine distance from sensor to launch point [km]
+    const R = 6371;
+    const dLat = (launchPoint.lat - sensor.lat) * Math.PI / 180;
+    const dLon = (launchPoint.lon - sensor.lon) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(sensor.lat * Math.PI/180) * Math.cos(launchPoint.lat * Math.PI/180) * Math.sin(dLon/2)**2;
+    const distToLaunchKm = 2 * R * Math.asin(Math.sqrt(a));
+
+    let distToTargetKm = distToLaunchKm;
+    if (targetPoint) {
+        const dLat2 = (targetPoint.lat - sensor.lat) * Math.PI / 180;
+        const dLon2 = (targetPoint.lon - sensor.lon) * Math.PI / 180;
+        const a2 = Math.sin(dLat2/2)**2 + Math.cos(sensor.lat * Math.PI/180) * Math.cos(targetPoint.lat * Math.PI/180) * Math.sin(dLon2/2)**2;
+        distToTargetKm = 2 * R * Math.asin(Math.sqrt(a2));
+    }
+
+    // Launch-to-target range [km]
+    let totalRangeKm = distToLaunchKm;
+    if (targetPoint) {
+        const dLat3 = (targetPoint.lat - launchPoint.lat) * Math.PI / 180;
+        const dLon3 = (targetPoint.lon - launchPoint.lon) * Math.PI / 180;
+        const a3 = Math.sin(dLat3/2)**2 + Math.cos(launchPoint.lat * Math.PI/180) * Math.cos(targetPoint.lat * Math.PI/180) * Math.sin(dLon3/2)**2;
+        totalRangeKm = 2 * R * Math.asin(Math.sqrt(a3));
+    }
+
+    // Estimate ballistic trajectory max altitude
+    // For minimum energy trajectory: H_max ≈ range / 4
+    // Use launch angle if available for better estimate: H_max ≈ range * tan(angle) / 4
+    const launchAngleDeg = parseFloat(document.getElementById('launch-angle').value) || 45;
+    const launchAngleRad = launchAngleDeg * Math.PI / 180;
+    const maxAltKm = totalRangeKm * Math.tan(launchAngleRad) / 4;
+
+    // Estimate altitude at the point closest to sensor along the trajectory
+    // The trajectory is roughly parabolic: h(x) = 4*H_max * x/R * (1 - x/R)
+    // where x is distance from launch along the ground track
+    // Sensor sees the target at horizontal range = distToLaunchKm (approx)
+    // The fraction along trajectory depends on sensor position relative to launch-target line
+    // Use average of sensor-to-launch and sensor-to-target as representative range
+    const avgDistKm = (distToLaunchKm + distToTargetKm) / 2;
+
+    // Fraction along trajectory where the sensor "looks" (rough estimate)
+    // If sensor is near target, fraction is near 1 (low altitude)
+    // If sensor is equidistant, fraction is near 0.5 (peak altitude)
+    let fraction = 0.5;
+    if (totalRangeKm > 1) {
+        // Approximate: sensor distance from launch / total range
+        fraction = Math.min(distToLaunchKm / totalRangeKm, 1.0);
+    }
+    // Parabolic altitude at this fraction
+    const altAtFractionKm = 4 * maxAltKm * fraction * (1 - fraction);
+
+    // Elevation angle from sensor to target at this altitude and average distance
+    const elevRad = Math.atan2(altAtFractionKm, avgDistKm);
+    let elevDeg = elevRad * 180 / Math.PI;
+    elevDeg = Math.max(0, Math.min(90, elevDeg));
+
+    document.getElementById('search-elevation').value = Math.round(elevDeg * 2) / 2; // round to 0.5
+}
+
+
 
 // Update coverage when sensor params change
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('radar-max-range').addEventListener('input', updateSensorCoverage);
-    document.getElementById('radar-fov').addEventListener('input', updateSensorCoverage);
-    document.getElementById('sensor-auto').addEventListener('change', function() {
-        if (this.checked) {
-            sensorPoint = null;
-            document.getElementById('sensor-coord').textContent = 'Auto (Target)';
-            updateSensorMarker();
-            updateSensorCoverage();
-        }
+    document.getElementById('radar-fov').addEventListener('input', () => { autoComputeAntennaBearing(); autoComputeSearchSector(); autoComputeSearchElevation(); updateSensorCoverage(); });
+    document.getElementById('launch-angle').addEventListener('input', () => { autoComputeSearchElevation(); });
+    // Restore previous state from localStorage
+    restoreStateFromStorage();
+    // Initialize auto param visual state (after restore so saved values take effect)
+    [['auto-max-range','radar-max-range'], ['auto-pfa','pfa'], ['auto-snr-ref','snr-ref']].forEach(([cbId, inputId]) => {
+        const cb = document.getElementById(cbId);
+        if (cb) toggleAutoParam(cb, inputId);
     });
 });
 
 // ========================================
-// Preset Management
+// Location Preset Management
 // ========================================
-const BUILTIN_PRESETS = {
-    'Korea → Japan': {
-        builtin: true,
-        launch: { lat: 39.0, lon: 125.7 },
-        target: { lat: 35.68, lon: 139.69 },
-        mapCenter: [37, 133], mapZoom: 5,
-        missile: { boost_duration: 65, boost_accel: 30, launch_angle: 45, time_step: 0.5 },
+const BUILTIN_LOCATIONS = {
+    launch: {
+        'Musudan-ri': { lat: 40.856, lon: 129.666 },
+        'Tongchang-ri': { lat: 39.660, lon: 124.705 },
+        'Kittae-ryong': { lat: 39.170, lon: 127.110 },
     },
-    'Iran → Israel': {
-        builtin: true,
-        launch: { lat: 35.7, lon: 51.4 },
-        target: { lat: 32.08, lon: 34.78 },
-        mapCenter: [34, 43], mapZoom: 5,
-        missile: { boost_duration: 80, boost_accel: 25, launch_angle: 50, time_step: 0.5 },
+    target: {
+        'Tokyo': { lat: 35.68, lon: 139.69 },
+        'Osaka': { lat: 34.69, lon: 135.50 },
+        'Sapporo': { lat: 43.06, lon: 141.35 },
+        'Fukuoka': { lat: 33.59, lon: 130.40 },
+    },
+    sensor: {
+        'Mishima': { lat: 34.79, lon: 131.13 },
     },
 };
 
-function getUserPresets() {
+function getUserLocations(category) {
     try {
-        return JSON.parse(localStorage.getItem('fasttracker_presets') || '{}');
+        return JSON.parse(localStorage.getItem(`fasttracker_loc_${category}`) || '{}');
     } catch { return {}; }
 }
 
-function saveUserPresets(presets) {
-    localStorage.setItem('fasttracker_presets', JSON.stringify(presets));
+function saveUserLocations(category, locs) {
+    localStorage.setItem(`fasttracker_loc_${category}`, JSON.stringify(locs));
 }
 
-function getAllPresets() {
-    return { ...BUILTIN_PRESETS, ...getUserPresets() };
-}
-
-function refreshPresetSelect() {
-    const select = document.getElementById('preset-select');
+function refreshLocationSelect(category) {
+    const select = document.getElementById(`loc-${category}-select`);
     const prev = select.value;
     select.innerHTML = '';
 
+    // Empty option
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = '-- select --';
+    select.appendChild(emptyOpt);
+
     // Built-in group
+    const builtins = BUILTIN_LOCATIONS[category] || {};
     const builtinGroup = document.createElement('optgroup');
     builtinGroup.label = 'Built-in';
-    for (const name of Object.keys(BUILTIN_PRESETS)) {
+    for (const [name, loc] of Object.entries(builtins)) {
         const opt = document.createElement('option');
         opt.value = name;
         opt.textContent = name;
@@ -664,9 +1226,9 @@ function refreshPresetSelect() {
     }
     select.appendChild(builtinGroup);
 
-    // User presets group
-    const userPresets = getUserPresets();
-    const userNames = Object.keys(userPresets);
+    // User group
+    const userLocs = getUserLocations(category);
+    const userNames = Object.keys(userLocs);
     if (userNames.length > 0) {
         const userGroup = document.createElement('optgroup');
         userGroup.label = 'User';
@@ -679,152 +1241,207 @@ function refreshPresetSelect() {
         select.appendChild(userGroup);
     }
 
-    // Restore selection
     if (prev && [...select.options].some(o => o.value === prev)) {
         select.value = prev;
     }
 }
 
-function loadPreset() {
-    const name = document.getElementById('preset-select').value;
+function getLocationByName(category, name) {
+    const builtins = BUILTIN_LOCATIONS[category] || {};
+    if (builtins[name]) return builtins[name];
+    const userLocs = getUserLocations(category);
+    return userLocs[name] || null;
+}
+
+function loadLocation(category) {
+    const select = document.getElementById(`loc-${category}-select`);
+    const name = select.value;
     if (!name) return;
 
-    const all = getAllPresets();
-    const preset = all[name];
-    if (!preset) return;
+    const loc = getLocationByName(category, name);
+    if (!loc) return;
 
-    // Launch & Target
-    if (preset.launch) setLaunchPoint(preset.launch.lat, preset.launch.lon);
-    if (preset.target) setTargetPoint(preset.target.lat, preset.target.lon);
+    if (category === 'launch') {
+        setLaunchPoint(loc.lat, loc.lon);
+    } else if (category === 'target') {
+        setTargetPoint(loc.lat, loc.lon);
+    } else if (category === 'sensor') {
+        setSensorPoint(loc.lat, loc.lon);
+    }
 
-    // Map view
-    if (preset.mapCenter) {
-        map.setView(preset.mapCenter, preset.mapZoom || 5);
-    } else if (preset.launch && preset.target) {
+    // Fit map to show launch + target if both are set
+    if (launchPoint && targetPoint) {
         map.fitBounds([
-            [preset.launch.lat, preset.launch.lon],
-            [preset.target.lat, preset.target.lon],
+            [launchPoint.lat, launchPoint.lon],
+            [targetPoint.lat, targetPoint.lon],
         ], { padding: [50, 50] });
     }
 
-    // Missile params
-    if (preset.missile) {
-        if (preset.missile.boost_duration != null) document.getElementById('boost-duration').value = preset.missile.boost_duration;
-        if (preset.missile.boost_accel != null) document.getElementById('boost-accel').value = preset.missile.boost_accel;
-        if (preset.missile.launch_angle != null) document.getElementById('launch-angle').value = preset.missile.launch_angle;
-        if (preset.missile.time_step != null) document.getElementById('time-step').value = preset.missile.time_step;
-    }
-
-    // Physics params
-    if (preset.physics) {
-        if (preset.physics.initial_mass != null) document.getElementById('initial-mass').value = preset.physics.initial_mass;
-        if (preset.physics.fuel_fraction != null) document.getElementById('fuel-fraction').value = preset.physics.fuel_fraction;
-        if (preset.physics.specific_impulse != null) document.getElementById('specific-impulse').value = preset.physics.specific_impulse;
-        if (preset.physics.drag_coefficient != null) document.getElementById('drag-coefficient').value = preset.physics.drag_coefficient;
-        if (preset.physics.cross_section_area != null) document.getElementById('cross-section').value = preset.physics.cross_section_area;
-        if (preset.physics.auto_adjust != null) document.getElementById('auto-adjust').checked = preset.physics.auto_adjust;
-    }
-
-    // Sensor
-    if (preset.sensor) {
-        if (preset.sensor.auto !== false && !preset.sensor.lat) {
-            sensorPoint = null;
-            document.getElementById('sensor-auto').checked = true;
-            document.getElementById('sensor-coord').textContent = 'Auto (Target)';
-        } else if (preset.sensor.lat != null && preset.sensor.lon != null) {
-            setSensorPoint(preset.sensor.lat, preset.sensor.lon);
-        }
-    } else {
-        sensorPoint = null;
-        document.getElementById('sensor-auto').checked = true;
-        document.getElementById('sensor-coord').textContent = 'Auto (Target)';
-    }
-
-    // Radar
-    if (preset.radar) {
-        if (preset.radar.max_range_km != null) document.getElementById('radar-max-range').value = preset.radar.max_range_km;
-        if (preset.radar.fov_deg != null) document.getElementById('radar-fov').value = preset.radar.fov_deg;
-    }
-
-    updateSensorMarker();
-    updateSensorCoverage();
-    updateStatus(`Preset loaded: ${name}`);
+    updateStatus(`${category}: ${name} (${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)})`);
 }
 
-function saveCurrentAsPreset() {
-    if (!launchPoint || !targetPoint) {
-        alert('Set launch and target points first.');
-        return;
+function saveCurrentLocation(category) {
+    let lat, lon;
+    if (category === 'launch') {
+        if (!launchPoint) { alert('Launch point not set. Click on the map first.'); return; }
+        lat = launchPoint.lat; lon = launchPoint.lon;
+    } else if (category === 'target') {
+        if (!targetPoint) { alert('Target point not set. Click on the map first.'); return; }
+        lat = targetPoint.lat; lon = targetPoint.lon;
+    } else if (category === 'sensor') {
+        const s = getSensorLatLng();
+        if (!s) { alert('Sensor position not set.'); return; }
+        lat = s.lat; lon = s.lon;
     }
 
-    const defaultName = `${launchPoint.lat.toFixed(1)},${launchPoint.lon.toFixed(1)} → ${targetPoint.lat.toFixed(1)},${targetPoint.lon.toFixed(1)}`;
-    const name = prompt('Preset name:', defaultName);
+    const defaultName = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+    const name = prompt(`Save ${category} location as:`, defaultName);
     if (!name || !name.trim()) return;
     const trimmed = name.trim();
 
-    if (BUILTIN_PRESETS[trimmed]) {
-        alert('Cannot overwrite built-in presets.');
+    if ((BUILTIN_LOCATIONS[category] || {})[trimmed]) {
+        alert('Cannot overwrite built-in locations.');
         return;
     }
 
-    const preset = {
-        launch: { lat: launchPoint.lat, lon: launchPoint.lon },
-        target: { lat: targetPoint.lat, lon: targetPoint.lon },
-        missile: {
-            boost_duration: parseFloat(document.getElementById('boost-duration').value),
-            boost_accel: parseFloat(document.getElementById('boost-accel').value),
-            launch_angle: parseFloat(document.getElementById('launch-angle').value),
-            time_step: parseFloat(document.getElementById('time-step').value),
-        },
-        physics: {
-            initial_mass: parseFloat(document.getElementById('initial-mass').value),
-            fuel_fraction: parseFloat(document.getElementById('fuel-fraction').value),
-            specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
-            drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
-            cross_section_area: parseFloat(document.getElementById('cross-section').value),
-            auto_adjust: document.getElementById('auto-adjust').checked,
-        },
-        sensor: {
-            lat: getSensorLatLng()?.lat ?? null,
-            lon: getSensorLatLng()?.lon ?? null,
-            auto: document.getElementById('sensor-auto').checked,
-        },
-        radar: {
-            max_range_km: parseFloat(document.getElementById('radar-max-range').value),
-            fov_deg: parseFloat(document.getElementById('radar-fov').value),
-        },
-    };
+    const userLocs = getUserLocations(category);
+    userLocs[trimmed] = { lat, lon };
+    saveUserLocations(category, userLocs);
 
-    const userPresets = getUserPresets();
-    userPresets[trimmed] = preset;
-    saveUserPresets(userPresets);
-
-    refreshPresetSelect();
-    document.getElementById('preset-select').value = trimmed;
-    updateStatus(`Preset saved: ${trimmed}`);
+    refreshLocationSelect(category);
+    document.getElementById(`loc-${category}-select`).value = trimmed;
+    updateStatus(`Saved ${category}: ${trimmed}`);
 }
 
-function deleteSelectedPreset() {
-    const name = document.getElementById('preset-select').value;
+function deleteSelectedLocation(category) {
+    const select = document.getElementById(`loc-${category}-select`);
+    const name = select.value;
     if (!name) return;
 
-    if (BUILTIN_PRESETS[name]) {
-        alert('Built-in presets cannot be deleted.');
+    if ((BUILTIN_LOCATIONS[category] || {})[name]) {
+        alert('Built-in locations cannot be deleted.');
         return;
     }
 
-    if (!confirm(`Delete preset "${name}"?`)) return;
+    if (!confirm(`Delete "${name}" from ${category}?`)) return;
 
-    const userPresets = getUserPresets();
-    delete userPresets[name];
-    saveUserPresets(userPresets);
+    const userLocs = getUserLocations(category);
+    delete userLocs[name];
+    saveUserLocations(category, userLocs);
 
-    refreshPresetSelect();
-    updateStatus(`Preset deleted: ${name}`);
+    refreshLocationSelect(category);
+    updateStatus(`Deleted ${category}: ${name}`);
 }
 
-// Initialize preset dropdown on page load
-refreshPresetSelect();
+// Initialize all location dropdowns
+refreshLocationSelect('launch');
+refreshLocationSelect('target');
+refreshLocationSelect('sensor');
+
+// Defaults
+document.getElementById('loc-launch-select').value = 'Musudan-ri';
+loadLocation('launch');
+document.getElementById('loc-target-select').value = 'Tokyo';
+loadLocation('target');
+document.getElementById('loc-sensor-select').value = 'Mishima';
+loadLocation('sensor');
+
+// ========================================
+// Panel switching
+// ========================================
+function switchPanel(name) {
+    document.querySelectorAll('.object-list-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.detail-section').forEach(el => el.classList.remove('active'));
+    document.querySelector(`.object-list-item[onclick="switchPanel('${name}')"]`).classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
+}
+
+// ========================================
+// Viz Panel Tab Switching
+// ========================================
+let activeVizTab = 'trajectory';
+
+function switchVizTab(name) {
+    const tab = document.querySelector(`.viz-tab[data-viz-tab="${name}"]`);
+    if (tab && tab.classList.contains('disabled')) return;
+    document.querySelectorAll('.viz-tab').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.viz-tab-content').forEach(el => el.classList.remove('active'));
+    if (tab) tab.classList.add('active');
+    document.getElementById('viz-' + name).classList.add('active');
+    activeVizTab = name;
+    // Plotly resize after tab becomes visible
+    setTimeout(() => {
+        if (name === 'trajectory' || name === 'tracking') {
+            const plotDiv = document.getElementById('plot3d-' + name);
+            if (plotDiv && plotDiv.data) Plotly.Plots.resize(plotDiv);
+        } else if (name === 'evaluation') {
+            ['eval-chart-pos', 'eval-chart-ospa', 'eval-chart-tracks', 'eval-chart-detect'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el && el.data) Plotly.Plots.resize(el);
+            });
+        }
+    }, 50);
+}
+
+function enableVizTab(name) {
+    const tab = document.querySelector(`.viz-tab[data-viz-tab="${name}"]`);
+    if (tab) tab.classList.remove('disabled');
+}
+
+function disableVizTab(name) {
+    const tab = document.querySelector(`.viz-tab[data-viz-tab="${name}"]`);
+    if (tab) tab.classList.add('disabled');
+}
+
+// ========================================
+// Separation toggle
+// ========================================
+function toggleSeparationParams() {
+    const enabled = document.getElementById('enable-separation').checked;
+    document.getElementById('sep-params').style.display = enabled ? 'flex' : 'none';
+}
+
+// HGV defaults for typical parameters
+const BALLISTIC_DEFAULTS = {
+    launch_angle: 40, boost_duration: 65, initial_mass: 20000,
+    fuel_fraction: 0.70, specific_impulse: 250, drag_coefficient: 0.3,
+    cross_section: 1.0, boost_accel: 30,
+};
+const HGV_DEFAULTS = {
+    launch_angle: 20, boost_duration: 55, initial_mass: 18000,
+    fuel_fraction: 0.70, specific_impulse: 250, drag_coefficient: 0.20,
+    cross_section: 0.7, boost_accel: 30,
+};
+
+function onMissileTypeChange() {
+    const isHgv = document.getElementById('missile-type').value === 'hgv';
+
+    // Show/hide HGV-specific params
+    document.querySelectorAll('.hgv-only-param').forEach(el => {
+        el.style.display = isHgv ? 'flex' : 'none';
+    });
+    // Show/hide ballistic-only params
+    document.querySelectorAll('.ballistic-only-param').forEach(el => {
+        el.style.display = isHgv ? 'none' : 'flex';
+    });
+
+    // Apply type-specific defaults
+    const defaults = isHgv ? HGV_DEFAULTS : BALLISTIC_DEFAULTS;
+    document.getElementById('launch-angle').value = defaults.launch_angle;
+    document.getElementById('boost-duration').value = defaults.boost_duration;
+    document.getElementById('initial-mass').value = defaults.initial_mass;
+    document.getElementById('fuel-fraction').value = defaults.fuel_fraction;
+    document.getElementById('specific-impulse').value = defaults.specific_impulse;
+    document.getElementById('drag-coefficient').value = defaults.drag_coefficient;
+    document.getElementById('cross-section').value = defaults.cross_section;
+    document.getElementById('boost-accel').value = defaults.boost_accel;
+
+    // HGV always has separation enabled
+    if (isHgv) {
+        document.getElementById('enable-separation').checked = true;
+        toggleSeparationParams();
+    }
+}
 
 // ========================================
 // Generate Trajectory
@@ -835,10 +1452,16 @@ async function generateTrajectory() {
         return;
     }
 
+    const missileType = document.getElementById('missile-type').value;
+    const isHgv = missileType === 'hgv';
     const autoAdjust = document.getElementById('auto-adjust').checked;
-    showLoading(autoAdjust ? 'Auto-adjusting parameters...' : 'Generating trajectory...');
+    const loadMsg = isHgv ? 'Computing HGV trajectory...'
+        : (autoAdjust ? 'Auto-adjusting parameters...' : 'Generating trajectory...');
+    showLoading(loadMsg);
 
+    const targetAltKm = parseFloat(document.getElementById('target-max-altitude').value) || 0;
     const params = {
+        missile_type: missileType,
         boost_duration: parseFloat(document.getElementById('boost-duration').value),
         boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
         launch_angle: parseFloat(document.getElementById('launch-angle').value) * Math.PI / 180,
@@ -849,7 +1472,23 @@ async function generateTrajectory() {
         specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
         drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
         cross_section_area: parseFloat(document.getElementById('cross-section').value),
+        target_max_altitude: targetAltKm * 1000,
+        lock_angle: document.getElementById('lock-angle').checked,
+        lock_isp: document.getElementById('lock-isp').checked,
+        lock_fuel: document.getElementById('lock-fuel').checked,
+        enable_separation: document.getElementById('enable-separation').checked,
+        warhead_mass_fraction: parseFloat(document.getElementById('warhead-mass-frac').value) / 100.0,
     };
+
+    // HGV-specific parameters (in meters/radians for backend)
+    if (isHgv) {
+        params.cruise_altitude = parseFloat(document.getElementById('cruise-altitude').value) * 1000;
+        params.glide_ratio = parseFloat(document.getElementById('glide-ratio').value);
+        params.terminal_dive_range = parseFloat(document.getElementById('terminal-dive-range').value) * 1000;
+        params.pullup_duration = 30.0;  // fixed internal
+        params.bank_angle_max = parseFloat(document.getElementById('bank-angle-max').value) * Math.PI / 180;
+        params.num_skips = parseInt(document.getElementById('num-skips').value) || 0;
+    }
 
     try {
         const response = await fetch('/api/generate', {
@@ -895,7 +1534,8 @@ async function generateTrajectory() {
                 const origFF = parseFloat(document.getElementById('fuel-fraction').value);
                 if (Math.abs(adj.fuel_fraction - origFF) > 0.005) {
                     document.getElementById('fuel-fraction').value = adj.fuel_fraction;
-                    changes.push(`Fuel: ${adj.fuel_fraction}`);
+                    const fuelMassStr = adj.fuel_mass != null ? ` (${adj.fuel_mass.toFixed(0)}kg)` : '';
+                    changes.push(`Fuel: ${adj.fuel_fraction.toFixed(3)}${fuelMassStr}`);
                 }
 
                 adjInfo.textContent = changes.length > 0
@@ -908,6 +1548,7 @@ async function generateTrajectory() {
                 adjInfo.textContent = '';
                 updateStatus(`Trajectory generated: ${data.summary.range_km} km, ${data.summary.flight_duration} s`);
             }
+            saveStateToStorage();
         } else {
             alert('Error: ' + (data.error || 'Unknown error'));
         }
@@ -950,7 +1591,7 @@ function drawTrajectoryOnMap(data) {
         }
     }
 
-    // Impact point marker (where missile actually lands)
+    // Impact point marker (where warhead actually lands)
     if (coords.length > 0) {
         const impactCoord = coords[coords.length - 1];
         const impactIcon = L.divIcon({
@@ -960,7 +1601,7 @@ function drawTrajectoryOnMap(data) {
             className: '',
         });
         layerGroup.addLayer(L.marker(impactCoord, { icon: impactIcon })
-            .bindTooltip('Impact Point', { permanent: false }));
+            .bindTooltip('Warhead Impact', { permanent: false }));
 
         // Check distance from impact to target
         if (targetPoint) {
@@ -973,6 +1614,28 @@ function drawTrajectoryOnMap(data) {
         }
     }
 
+    // Booster trajectory on map (if separation enabled)
+    if (data.plotly.booster_latlons && data.plotly.booster_latlons.length > 0) {
+        const boosterCoords = data.plotly.booster_latlons.map(ll => [ll[0], ll[1]]);
+        layerGroup.addLayer(L.polyline(boosterCoords, {
+            color: '#888',
+            weight: 2,
+            opacity: 0.7,
+            dashArray: '6,6',
+        }));
+
+        // Booster impact marker
+        const boosterImpact = boosterCoords[boosterCoords.length - 1];
+        const boosterIcon = L.divIcon({
+            html: '<div style="background:#888; width:10px; height:10px; border-radius:0; border:2px solid #fff; transform:rotate(45deg); box-shadow:0 0 6px #888;"></div>',
+            iconSize: [10, 10],
+            iconAnchor: [5, 5],
+            className: '',
+        });
+        layerGroup.addLayer(L.marker(boosterImpact, { icon: boosterIcon })
+            .bindTooltip('Booster Impact', { permanent: false }));
+    }
+
     layerGroup.addTo(map);
     trajectoryLine = layerGroup;
 }
@@ -983,54 +1646,102 @@ function drawTrajectoryOnMap(data) {
 function draw3DVisualization(data) {
     const t = data.plotly.trajectory;
 
-    // Full trajectory line (gold/ground truth style)
-    const traceFullLine = {
-        type: 'scatter3d',
-        mode: 'lines',
-        x: t.x, y: t.y, z: t.z,
-        name: 'Ground Truth',
-        line: { color: 'rgba(255, 215, 0, 0.8)', width: 4 },
-        text: t.text,
-        hoverinfo: 'text',
-    };
+    // Phase-colored line segments (matching map style)
+    const phaseColors = { 'BOOST': '#ff8c00', 'MIDCOURSE': '#32c8ff', 'TERMINAL': '#ff2050' };
+    const phaseNames = { 'BOOST': 'Boost', 'MIDCOURSE': 'Midcourse', 'TERMINAL': 'Terminal' };
+    const plotTraces = [];
+    const shownPhases = new Set();
+    {
+        let segStart = 0;
+        let curPhase = t.phases[0];
+        for (let i = 1; i <= t.x.length; i++) {
+            if (i === t.x.length || t.phases[i] !== curPhase) {
+                const end = Math.min(i + 1, t.x.length);
+                const first = !shownPhases.has(curPhase);
+                shownPhases.add(curPhase);
+                plotTraces.push({
+                    type: 'scatter3d', mode: 'lines',
+                    x: t.x.slice(segStart, end),
+                    y: t.y.slice(segStart, end),
+                    z: t.z.slice(segStart, end),
+                    name: phaseNames[curPhase] || curPhase,
+                    line: { color: phaseColors[curPhase] || '#fff', width: 4 },
+                    text: t.text.slice(segStart, end),
+                    hoverinfo: 'text',
+                    legendgroup: curPhase,
+                    showlegend: first,
+                });
+                if (i < t.x.length) {
+                    curPhase = t.phases[i];
+                    segStart = i;
+                }
+            }
+        }
+    }
 
-    // Phase-colored markers
-    const traceMarkers = {
-        type: 'scatter3d',
-        mode: 'markers',
-        x: t.x, y: t.y, z: t.z,
-        name: 'Phase',
-        marker: {
-            size: 3,
-            color: t.phases.map(p => p === 'BOOST' ? '#ff8c00' : p === 'MIDCOURSE' ? '#32c8ff' : '#ff2050'),
-        },
-        text: t.text,
-        hoverinfo: 'text',
-        showlegend: false,
-    };
-
-    // Start marker
-    const traceStart = {
-        type: 'scatter3d',
-        mode: 'markers',
+    // Launch marker (small on chart, legend via dummy trace)
+    plotTraces.push({
+        type: 'scatter3d', mode: 'markers',
         x: [t.x[0]], y: [t.y[0]], z: [t.z[0]],
+        marker: { size: 3.5, color: '#e94560', symbol: 'circle', line: { color: 'white', width: 1 } },
+        hovertext: 'Launch Point', hoverinfo: 'text',
+        legendgroup: 'launch', showlegend: false,
+    });
+    plotTraces.push({
+        type: 'scatter3d', mode: 'markers',
+        x: [null], y: [null], z: [null],
         name: 'Launch',
-        marker: { size: 12, color: '#e94560', symbol: 'diamond', line: { color: 'white', width: 2 } },
-        hovertext: 'Launch Point',
-        hoverinfo: 'text',
-    };
+        marker: { size: 7, color: '#e94560', symbol: 'circle', line: { color: 'white', width: 1 } },
+        hoverinfo: 'skip',
+        legendgroup: 'launch',
+    });
 
-    // End marker
+    // Warhead impact marker (small on chart, legend via dummy trace)
     const lastIdx = t.x.length - 1;
-    const traceEnd = {
-        type: 'scatter3d',
-        mode: 'markers',
+    plotTraces.push({
+        type: 'scatter3d', mode: 'markers',
         x: [t.x[lastIdx]], y: [t.y[lastIdx]], z: [t.z[lastIdx]],
-        name: 'Target',
-        marker: { size: 12, color: '#7ec8e3', symbol: 'cross', line: { color: 'white', width: 2 } },
-        hovertext: 'Target Point',
-        hoverinfo: 'text',
-    };
+        marker: { size: 3.5, color: '#ff2050', symbol: 'diamond', line: { color: 'white', width: 1 } },
+        hovertext: 'Warhead Impact', hoverinfo: 'text',
+        legendgroup: 'warhead', showlegend: false,
+    });
+    plotTraces.push({
+        type: 'scatter3d', mode: 'markers',
+        x: [null], y: [null], z: [null],
+        name: 'Impact (Warhead)',
+        marker: { size: 7, color: '#ff2050', symbol: 'diamond', line: { color: 'white', width: 1 } },
+        hoverinfo: 'skip',
+        legendgroup: 'warhead',
+    });
+
+    // Booster trajectory (if separation enabled)
+    if (data.plotly.booster) {
+        const b = data.plotly.booster;
+        plotTraces.push({
+            type: 'scatter3d', mode: 'lines',
+            x: b.x, y: b.y, z: b.z,
+            name: 'Booster',
+            line: { color: '#888', width: 2, dash: 'dash' },
+            text: b.text, hoverinfo: 'text',
+        });
+
+        const bLastIdx = b.x.length - 1;
+        plotTraces.push({
+            type: 'scatter3d', mode: 'markers',
+            x: [b.x[bLastIdx]], y: [b.y[bLastIdx]], z: [b.z[bLastIdx]],
+            marker: { size: 2.5, color: '#888', symbol: 'diamond', line: { color: 'white', width: 1 } },
+            hovertext: 'Booster Impact', hoverinfo: 'text',
+            legendgroup: 'booster_impact', showlegend: false,
+        });
+        plotTraces.push({
+            type: 'scatter3d', mode: 'markers',
+            x: [null], y: [null], z: [null],
+            name: 'Impact (Booster)',
+            marker: { size: 5, color: '#888', symbol: 'diamond', line: { color: 'white', width: 1 } },
+            hoverinfo: 'skip',
+            legendgroup: 'booster_impact',
+        });
+    }
 
     const layout = {
         scene: {
@@ -1047,14 +1758,27 @@ function draw3DVisualization(data) {
         legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)' },
     };
 
-    Plotly.newPlot('plot3d', [traceFullLine, traceMarkers, traceStart, traceEnd], layout, {
+    Plotly.newPlot('plot3d-trajectory', plotTraces, layout, {
         responsive: true,
         displayModeBar: true,
         modeBarButtonsToRemove: ['toImage'],
     });
 
-    document.getElementById('viz-info').textContent =
-        `Range: ${data.summary.range_km} km | Duration: ${data.summary.flight_duration} s | Max Alt: ${(data.summary.max_altitude/1000).toFixed(1)} km`;
+    let vizInfo = `Range: ${data.summary.range_km} km | Duration: ${data.summary.flight_duration} s | Max Alt: ${(data.summary.max_altitude/1000).toFixed(1)} km`;
+    if (data.summary.separation_time != null) {
+        vizInfo += ` | Sep: ${data.summary.separation_time.toFixed(0)}s`;
+    }
+    document.getElementById('viz-info').textContent = vizInfo;
+
+    // Tab management: enable trajectory, reset tracking/evaluation
+    enableVizTab('trajectory');
+    switchVizTab('trajectory');
+    Plotly.purge('plot3d-tracking');
+    Plotly.purge('plot-timeline');
+    disableVizTab('tracking');
+    disableVizTab('evaluation');
+    disableVizTab('timeline');
+    document.getElementById('eval-tab-content').innerHTML = '<div class="eval-placeholder">Run Tracker to see evaluation metrics</div>';
 }
 
 // ========================================
@@ -1063,16 +1787,21 @@ function draw3DVisualization(data) {
 async function runTracker() {
     if (!currentTrajectory) return;
 
-    showLoading('Running FastTracker simulation...');
+    const numRuns = parseInt(document.getElementById('num-runs').value) || 1;
+    const clusterCount = parseInt(document.getElementById('cluster-count').value) || 0;
+    const loadMsg = numRuns > 1
+        ? `Running FastTracker simulation (${numRuns} runs)...`
+        : clusterCount > 0
+            ? `Running FastTracker (${clusterCount + 1} targets, cluster mode)...`
+            : 'Running FastTracker simulation...';
+    showLoading(loadMsg);
     document.getElementById('btn-run-tracker').disabled = true;
 
     try {
-        const response = await fetch('/api/run-tracker', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                trajectory: currentTrajectory.trajectory,
-                params: {
+        const missileType = document.getElementById('missile-type').value;
+        const isHgv = missileType === 'hgv';
+        const trackerParams = {
+                    missile_type: missileType,
                     launch_angle: parseFloat(document.getElementById('launch-angle').value) * Math.PI / 180,
                     boost_duration: parseFloat(document.getElementById('boost-duration').value),
                     boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
@@ -1083,28 +1812,137 @@ async function runTracker() {
                     cross_section_area: parseFloat(document.getElementById('cross-section').value),
                     sensor_lat: getSensorLatLng()?.lat,
                     sensor_lon: getSensorLatLng()?.lon,
-                    radar_max_range: parseFloat(document.getElementById('radar-max-range').value) * 1000,  // km to m
+                    radar_max_range: document.getElementById('auto-max-range').checked ? 0 : parseFloat(document.getElementById('radar-max-range').value) * 1000,
                     radar_fov: parseFloat(document.getElementById('radar-fov').value) * Math.PI / 180,  // deg to rad
+                    enable_separation: document.getElementById('enable-separation').checked,
+                    warhead_mass_fraction: parseFloat(document.getElementById('warhead-mass-frac').value) / 100.0,
+                    cluster_count: parseInt(document.getElementById('cluster-count').value) || 0,
+                    cluster_spread: parseFloat(document.getElementById('cluster-spread').value) * 1000,  // km to m
+                    launch_time_spread: parseFloat(document.getElementById('launch-time-spread').value) || 5,
+                    // Beam steering
+                    beam_width: parseFloat(document.getElementById('beam-width').value) * Math.PI / 180,  // deg to rad
+                    num_beams: parseInt(document.getElementById('num-beams').value),
+                    min_search_beams: parseInt(document.getElementById('min-search-beams').value),
+                    track_confirmed_only: document.getElementById('track-priority').value === 'confirmed',
+                    search_sector: (parseFloat(document.getElementById('search-sector').value) || 0) > 0
+                        ? parseFloat(document.getElementById('search-sector').value) * Math.PI / 180 : -1,
+                    search_center: parseFloat(document.getElementById('search-center').value) || 0,
+                    antenna_boresight: parseFloat(document.getElementById('antenna-bearing').value) || 0,
+                    search_elevation: parseFloat(document.getElementById('search-elevation').value) || 0,
+        };
+        if (isHgv) {
+            trackerParams.cruise_altitude = parseFloat(document.getElementById('cruise-altitude').value) * 1000;
+            trackerParams.glide_ratio = parseFloat(document.getElementById('glide-ratio').value);
+            trackerParams.terminal_dive_range = parseFloat(document.getElementById('terminal-dive-range').value) * 1000;
+            trackerParams.pullup_duration = 30.0;
+            trackerParams.bank_angle_max = parseFloat(document.getElementById('bank-angle-max').value) * Math.PI / 180;
+            trackerParams.num_skips = parseInt(document.getElementById('num-skips').value) || 0;
+        }
+        const response = await fetch('/api/run-tracker', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                trajectory: currentTrajectory.trajectory,
+                params: {
+                    ...trackerParams,
+                    // Sensor performance params
+                    detect_prob: parseFloat(document.getElementById('detect-prob').value),
+                    pfa: document.getElementById('auto-pfa').checked ? 0 : parseFloat(document.getElementById('pfa').value),
+                    snr_ref: document.getElementById('auto-snr-ref').checked ? 0 : parseFloat(document.getElementById('snr-ref').value),
+                    range_noise: parseFloat(document.getElementById('range-noise').value),
+                    azimuth_noise: parseFloat(document.getElementById('azimuth-noise').value) * Math.PI / 180,
+                    elevation_noise: parseFloat(document.getElementById('elevation-noise').value) * Math.PI / 180,
+                    doppler_noise: parseFloat(document.getElementById('doppler-noise').value),
+                    // Tracker params
+                    gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
+                    confirm_hits: parseInt(document.getElementById('confirm-hits').value),
+                    delete_misses: parseInt(document.getElementById('delete-misses').value),
+                    min_snr: parseFloat(document.getElementById('min-snr').value),
+                    process_pos_noise: parseFloat(document.getElementById('process-pos-noise').value),
+                    process_vel_noise: parseFloat(document.getElementById('process-vel-noise').value),
+                    process_acc_noise: parseFloat(document.getElementById('process-acc-noise').value),
+                    // Multi-run params
+                    num_runs: parseInt(document.getElementById('num-runs').value),
+                    seed: parseInt(document.getElementById('random-seed').value),
                 }
             }),
         });
 
         const data = await response.json();
-        hideLoading();
 
         if (data.success) {
+            // 描画を非同期化してブラウザの無応答を防止
+            const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
+
+            updateStatus('Rendering 3D view...');
+            await yieldToUI();
             draw3DWithTracks(data);
-            displayEvaluation(data);
-            updateStatus('Tracker simulation complete');
+
+            updateStatus('Rendering timeline...');
+            await yieldToUI();
+            drawTimeline(data);
+
+            updateStatus('Rendering evaluation...');
+            await yieldToUI();
+            await displayEvaluation(data);
+
+            showResolvedParams(data.eval_summary);
+            enableVizTab('tracking');
+            enableVizTab('evaluation');
+            enableVizTab('timeline');
+            switchVizTab('tracking');
+            const numRuns = parseInt(document.getElementById('num-runs').value);
+            updateStatus(`Tracker simulation complete${numRuns > 1 ? ` (${numRuns} runs)` : ''}`);
+            saveStateToStorage();
         } else {
             alert('Tracker error: ' + (data.error || 'Unknown error'));
             updateStatus('Tracker failed: ' + (data.error || ''));
         }
     } catch (err) {
-        hideLoading();
         alert('Server error: ' + err.message);
     }
+    hideLoading();
     document.getElementById('btn-run-tracker').disabled = false;
+}
+
+function toggleAutoParam(checkbox, inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.disabled = checkbox.checked;
+    if (checkbox.checked) {
+        input.style.opacity = '0.4';
+    } else {
+        input.style.opacity = '1';
+    }
+}
+
+function showResolvedParams(summary) {
+    const r = summary && summary.resolved;
+    // Mapping: { resolved_key: [spanId, autoCheckboxId, inputId, fmtSpan, fmtInput] }
+    const defs = {
+        radar_max_range: ['resolved-max-range', 'auto-max-range', 'radar-max-range',
+                          v => `(=${(v/1000).toFixed(0)} km)`, v => (v/1000).toFixed(0)],
+        pfa:             ['resolved-pfa',        'auto-pfa',       'pfa',
+                          v => `(=${v.toExponential(1)})`,   v => v.toExponential(1)],
+        snr_ref:         ['resolved-snr-ref',    'auto-snr-ref',   'snr-ref',
+                          v => `(=${v.toFixed(1)} dB)`,      v => v.toFixed(1)],
+    };
+    for (const [key, [spanId, autoId, inputId, fmtSpan, fmtInput]] of Object.entries(defs)) {
+        const span = document.getElementById(spanId);
+        const autoCheck = document.getElementById(autoId);
+        const input = document.getElementById(inputId);
+        if (!span) continue;
+        if (r && r[key] != null) {
+            if (autoCheck && autoCheck.checked) {
+                span.textContent = fmtSpan(r[key]);
+                if (input) input.value = fmtInput(r[key]);
+            } else {
+                span.textContent = '';
+            }
+        } else {
+            span.textContent = '';
+        }
+    }
 }
 
 function draw3DWithTracks(data) {
@@ -1118,19 +1956,26 @@ function draw3DWithTracks(data) {
     const sx = (data.sensor_x || 0) / 1000;  // km
     const sy = (data.sensor_y || 0) / 1000;
 
-    // Build altitude lookup from original trajectory (time → altitude in km)
-    const altLookup = [];
-    if (currentTrajectory && currentTrajectory.plotly && currentTrajectory.plotly.trajectory) {
-        const traj = currentTrajectory.plotly.trajectory;
-        for (let i = 0; i < traj.times.length; i++) {
-            altLookup.push({ time: traj.times[i], alt: traj.z[i] });
+    // Build altitude lookup from ground truth data (average altitude per frame, in km)
+    // This is more reliable than currentTrajectory for multi-target scenarios
+    const altByFrame = {};
+    gt.forEach(r => {
+        if (r.altitude != null) {
+            if (!altByFrame[r.frame]) altByFrame[r.frame] = { sum: 0, count: 0, time: r.time };
+            altByFrame[r.frame].sum += r.altitude / 1000;
+            altByFrame[r.frame].count++;
         }
-    }
+    });
+    const altLookup = Object.values(altByFrame)
+        .map(v => ({ time: v.time, alt: v.sum / v.count }))
+        .sort((a, b) => a.time - b.time);
 
-    // Get the max trajectory time (flight duration)
-    const maxTrajectoryTime = altLookup.length > 0 ? altLookup[altLookup.length - 1].time : Infinity;
+    // Get the max flight time from GT data
+    const maxTrajectoryTime = gt.length > 0
+        ? gt.reduce((mx, r) => Math.max(mx, r.time), 0)
+        : Infinity;
 
-    // Interpolate altitude from trajectory data by time
+    // Interpolate average altitude by time (for measurements which lack altitude)
     function getAltitude(time) {
         if (altLookup.length === 0) return 0;
         if (time <= altLookup[0].time) return altLookup[0].alt;
@@ -1145,58 +1990,152 @@ function draw3DWithTracks(data) {
         return altLookup[lo].alt + frac * (altLookup[hi].alt - altLookup[lo].alt);
     }
 
+    // Build GT index by frame for altitude lookup (detections and tracks)
+    const gtByFrame = {};
+    gt.forEach(r => {
+        const f = r.frame;
+        if (!gtByFrame[f]) gtByFrame[f] = [];
+        gtByFrame[f].push(r);
+    });
+
+    // Get altitude for a detection by matching to nearest GT target at same frame
+    function getDetectionAltitude(m) {
+        const frameGt = gtByFrame[m.frame];
+        if (!frameGt || frameGt.length === 0) return getAltitude(m.time);
+        if (frameGt.length === 1) {
+            return (frameGt[0].altitude != null) ? frameGt[0].altitude / 1000 : getAltitude(m.time);
+        }
+        // Convert detection polar coords to simulation cartesian (meters)
+        const det_x = sx * 1000 + m.range * Math.cos(m.azimuth);
+        const det_y = sy * 1000 + m.range * Math.sin(m.azimuth);
+        let bestDist = Infinity, bestAlt = 0;
+        for (const g of frameGt) {
+            const dx = det_x - g.x, dy = det_y - g.y;
+            const d = dx * dx + dy * dy;
+            if (d < bestDist) {
+                bestDist = d;
+                bestAlt = (g.altitude != null) ? g.altitude / 1000 : getAltitude(g.time);
+            }
+        }
+        return bestAlt;
+    }
+
     const traces = [];
 
     // Sensor origin marker
     traces.push({
-        type: 'scatter3d',
-        mode: 'markers',
+        type: 'scatter3d', mode: 'markers',
         x: [0], y: [0], z: [0],
+        marker: { size: 5, color: '#32ff32', symbol: 'diamond', line: { color: 'white', width: 1 } },
+        hovertext: 'Sensor (Origin)', hoverinfo: 'text',
+        legendgroup: 'sensor', showlegend: false,
+    });
+    traces.push({
+        type: 'scatter3d', mode: 'markers',
+        x: [null], y: [null], z: [null],
         name: 'Sensor',
         marker: { size: 8, color: '#32ff32', symbol: 'diamond', line: { color: 'white', width: 1 } },
-        hovertext: 'Sensor (Origin)',
-        hoverinfo: 'text',
+        hoverinfo: 'skip',
+        legendgroup: 'sensor',
     });
 
     // Measurements: convert polar (range, azimuth) to cartesian relative to sensor
+    // Split into true detections and false alarms (clutter)
     if (measurements.length > 0) {
-        const mx = [], my = [], mz = [], mtext = [];
-        // Subsample if too many points
-        const step = measurements.length > 3000 ? Math.floor(measurements.length / 3000) : 1;
+        const dx = [], dy = [], dz = [], dtext = [];
+        const cx = [], cy = [], cz = [], ctext = [];
+        const step = measurements.length > 5000 ? Math.floor(measurements.length / 5000) : 1;
         for (let i = 0; i < measurements.length; i += step) {
             const m = measurements[i];
             const r_km = m.range / 1000;
             const az = m.azimuth;
-            // Cartesian relative to sensor (sensor is already the origin after offset)
-            mx.push(r_km * Math.cos(az));
-            my.push(r_km * Math.sin(az));
-            mz.push(getAltitude(m.time));
-            mtext.push(`t=${m.time.toFixed(1)}s R=${m.range.toFixed(0)}m Az=${(az*180/Math.PI).toFixed(1)}° SNR=${m.snr.toFixed(1)}dB`);
+            const px = r_km * Math.cos(az);
+            const py = r_km * Math.sin(az);
+            const pz = getDetectionAltitude(m);
+            const hover = `t=${m.time.toFixed(1)}s R=${m.range.toFixed(0)}m Az=${(az*180/Math.PI).toFixed(1)}° SNR=${m.snr.toFixed(1)}dB`;
+            if (m.is_clutter === 1 || m.is_clutter === true) {
+                cx.push(px); cy.push(py); cz.push(pz); ctext.push('[Clutter] ' + hover);
+            } else {
+                dx.push(px); dy.push(py); dz.push(pz); dtext.push(hover);
+            }
         }
-        traces.push({
-            type: 'scatter3d',
-            mode: 'markers',
-            x: mx, y: my, z: mz,
-            name: 'Measurements',
-            marker: { size: 2, color: '#ff8800', opacity: 0.6 },
-            text: mtext,
-            hoverinfo: 'text',
-        });
+        if (dx.length > 0) {
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: dx, y: dy, z: dz,
+                marker: { size: 2, color: '#ff8800', opacity: 0.5 },
+                text: dtext, hoverinfo: 'text',
+                legendgroup: 'detections', showlegend: false,
+            });
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: [null], y: [null], z: [null],
+                name: 'Detections',
+                marker: { size: 8, color: '#ff8800' },
+                hoverinfo: 'skip',
+                legendgroup: 'detections',
+            });
+        }
+        if (cx.length > 0) {
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: cx, y: cy, z: cz,
+                marker: { size: 2, color: 'rgba(180, 80, 80, 0.3)' },
+                text: ctext, hoverinfo: 'text',
+                legendgroup: 'falsealarms', showlegend: false,
+            });
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: [null], y: [null], z: [null],
+                name: 'False Alarms',
+                marker: { size: 8, color: 'rgba(180, 80, 80, 0.6)' },
+                hoverinfo: 'skip',
+                legendgroup: 'falsealarms',
+            });
+        }
     }
 
-    // Ground truth line (sensor-origin coordinates) - filter to flight duration
+    // Ground truth lines (sensor-origin coordinates) - group by target_id
     const gtFiltered = gt.filter(r => r.time <= maxTrajectoryTime);
-    // Use altitude from ground_truth.csv if available, otherwise fallback to trajectory lookup
-    const gtHasAltitude = gtFiltered.length > 0 && gtFiltered[0].altitude !== undefined;
-    traces.push({
-        type: 'scatter3d',
-        mode: 'lines',
-        x: gtFiltered.map(r => r.x / 1000 - sx),
-        y: gtFiltered.map(r => r.y / 1000 - sy),
-        z: gtFiltered.map(r => gtHasAltitude ? r.altitude / 1000 : getAltitude(r.time)),
-        name: 'Ground Truth',
-        line: { color: 'rgba(255, 215, 0, 0.8)', width: 4 },
+    const gtGroups = {};
+    gtFiltered.forEach(r => {
+        const id = r.target_id !== undefined ? r.target_id : 0;
+        if (!gtGroups[id]) gtGroups[id] = [];
+        gtGroups[id].push(r);
     });
+    const gtColorPalette = [
+        'rgba(255, 215, 0, 0.7)', 'rgba(255, 180, 50, 0.7)',
+        'rgba(255, 140, 80, 0.7)', 'rgba(255, 200, 100, 0.7)',
+        'rgba(230, 200, 0, 0.7)', 'rgba(255, 160, 30, 0.7)',
+    ];
+    Object.entries(gtGroups).forEach(([id, rows], idx) => {
+        traces.push({
+            type: 'scatter3d',
+            mode: 'lines',
+            x: rows.map(r => r.x / 1000 - sx),
+            y: rows.map(r => r.y / 1000 - sy),
+            z: rows.map(r => (r.altitude != null) ? r.altitude / 1000 : getAltitude(r.time)),
+            name: idx === 0 ? 'Truth' : `Truth ${id}`,
+            line: { color: gtColorPalette[idx % gtColorPalette.length], width: 4 },
+            legendgroup: 'truth',
+            showlegend: idx === 0,
+        });
+    });
+
+    function getTrackAltitude(row) {
+        const frameGt = gtByFrame[row.frame];
+        if (!frameGt || frameGt.length === 0) return getAltitude(row.time);
+        let bestDist = Infinity, bestAlt = 0;
+        for (const g of frameGt) {
+            const dx = row.x - g.x, dy = row.y - g.y;
+            const d = dx * dx + dy * dy;
+            if (d < bestDist) {
+                bestDist = d;
+                bestAlt = (g.altitude != null) ? g.altitude / 1000 : getAltitude(g.time);
+            }
+        }
+        return bestAlt;
+    }
 
     // Group tracks by track_id
     const trackGroups = {};
@@ -1206,25 +2145,30 @@ function draw3DWithTracks(data) {
         trackGroups[id].push(row);
     });
 
-    // Color palette for tracks
-    const stateColors = { 0: '#ffff00', 1: '#00ff00', 2: '#ff0000' };
+    // Color palette for tracks - unique color per track
+    const trackColorPalette = [
+        '#00ff88', '#00ccff', '#ff66cc', '#88ff00',
+        '#ffaa00', '#aa66ff', '#ff4444', '#44ffdd',
+        '#ff8844', '#66aaff', '#ccff44', '#ff44aa',
+    ];
 
     // Add each track (sensor-origin coordinates) - filter to flight duration
+    let trackIdx = 0;
     Object.entries(trackGroups).forEach(([id, rows]) => {
         const filteredRows = rows.filter(r => r.time <= maxTrajectoryTime);
         if (filteredRows.length < 3) return;
 
-        const lastState = filteredRows[filteredRows.length - 1].state;
-        const color = stateColors[lastState] || '#888';
+        const color = trackColorPalette[trackIdx % trackColorPalette.length];
+        trackIdx++;
 
         traces.push({
             type: 'scatter3d',
             mode: 'lines',
             x: filteredRows.map(r => r.x / 1000 - sx),
             y: filteredRows.map(r => r.y / 1000 - sy),
-            z: filteredRows.map(r => getAltitude(r.time)),
+            z: filteredRows.map(r => getTrackAltitude(r)),
             name: `Track ${id}`,
-            line: { color: color, width: 2 },
+            line: { color: color, width: 3 },
             showlegend: filteredRows.length > 20,
         });
     });
@@ -1240,31 +2184,486 @@ function draw3DWithTracks(data) {
         plot_bgcolor: '#16213e',
         font: { color: '#e0e0e0' },
         margin: { l: 0, r: 0, t: 30, b: 0 },
-        title: { text: 'Tracker Results vs Ground Truth', font: { size: 14, color: '#e94560' } },
+        title: { text: 'Tracker Results vs Truth', font: { size: 14, color: '#e94560' } },
         legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)' },
     };
 
-    Plotly.newPlot('plot3d', traces, layout, { responsive: true });
+    Plotly.newPlot('plot3d-tracking', traces, layout, { responsive: true });
 }
 
-function displayEvaluation(data) {
-    const container = document.getElementById('eval-results');
-    const summary = data.eval_summary || {};
+function drawTimeline(data) {
+    const gt = data.ground_truth || [];
+    const tracks = data.tracks || [];
+    if (!gt.length) return;
 
-    let html = '';
-    const metrics = [
-        ['Position RMSE', summary['位置RMSE'] || summary['Position RMSE'] || '-', 'm'],
-        ['OSPA Distance', summary['OSPA'] || summary['平均OSPA距離'] || '-', 'm'],
-        ['Tracks Created', Object.keys(groupBy(data.tracks, 'track_id')).length, ''],
-        ['GT Frames', data.ground_truth.length, ''],
-    ];
-
-    metrics.forEach(([label, value, unit]) => {
-        const v = typeof value === 'number' ? value.toFixed(1) : value;
-        html += `<div class="eval-item"><span class="label">${label}:</span> <span class="value">${v} ${unit}</span></div>`;
+    // 1. GT: target_id ごとに birth/death を集計
+    const gtTargets = {};
+    gt.forEach(r => {
+        const id = r.target_id !== undefined ? r.target_id : 0;
+        if (!gtTargets[id]) gtTargets[id] = { birth: Infinity, death: -Infinity, rows: [] };
+        const t = gtTargets[id];
+        if (r.time < t.birth) t.birth = r.time;
+        if (r.time > t.death) t.death = r.time;
+        t.rows.push(r);
     });
 
+    // 2. Tracks: track_id ごとに init/confirm/end を集計
+    const trackInfo = {};
+    tracks.forEach(r => {
+        const id = r.track_id;
+        if (!trackInfo[id]) trackInfo[id] = { init: Infinity, end: -Infinity, confirmTime: null, rows: [] };
+        const t = trackInfo[id];
+        if (r.time < t.init) t.init = r.time;
+        if (r.time > t.end) t.end = r.time;
+        if (r.state === 1 && t.confirmTime === null) t.confirmTime = r.time;
+        t.rows.push(r);
+    });
+
+    // 3. Track→Target マッチング（確認時の位置で最近傍GT割当）
+    const targetIds = Object.keys(gtTargets).map(Number).sort((a, b) => a - b);
+    const trackIds = Object.keys(trackInfo).map(Number).sort((a, b) => a - b);
+
+    // GT を frame→targets インデックス化
+    const gtByFrame = {};
+    gt.forEach(r => {
+        const f = r.frame;
+        if (!gtByFrame[f]) gtByFrame[f] = [];
+        gtByFrame[f].push(r);
+    });
+
+    // 各 track の確認時点で最近傍 GT target を検索
+    const trackToTarget = {};
+    trackIds.forEach(tid => {
+        const info = trackInfo[tid];
+        // 確認時 or 初期時のフレームを使用
+        const matchTime = info.confirmTime !== null ? info.confirmTime : info.init;
+        const matchRow = info.rows.find(r => r.time === matchTime) || info.rows[0];
+        if (!matchRow) return;
+
+        const frameGt = gtByFrame[matchRow.frame];
+        if (!frameGt || frameGt.length === 0) return;
+
+        let bestDist = Infinity, bestId = -1;
+        for (const g of frameGt) {
+            const dx = matchRow.x - g.x, dy = matchRow.y - g.y;
+            const d = dx * dx + dy * dy;
+            if (d < bestDist) { bestDist = d; bestId = g.target_id !== undefined ? g.target_id : 0; }
+        }
+        trackToTarget[tid] = bestId;
+    });
+
+    // 4. 各 target に対する track リストを構築
+    const targetTracks = {};
+    targetIds.forEach(id => { targetTracks[id] = []; });
+    trackIds.forEach(tid => {
+        const tgtId = trackToTarget[tid];
+        if (tgtId !== undefined && targetTracks[tgtId]) {
+            targetTracks[tgtId].push(tid);
+        }
+    });
+
+    // 5. Plotly データ構築
+    const shapes = [];
+    const annotations = [];
+    const traces = [];
+    const yLabels = [];
+    let yPos = 0;
+
+    targetIds.forEach(targetId => {
+        const tgt = gtTargets[targetId];
+        const tids = targetTracks[targetId] || [];
+        const nTracks = Math.max(tids.length, 1); // 最低1行確保
+        const yCenter = yPos + (nTracks - 1) / 2;
+
+        // Y軸ラベル: ターゲット名を中央に配置
+        yLabels.push({ pos: yCenter, label: `Target ${targetId}` });
+
+        // GT ライフタイム (背景バー) — 全サブ行をカバー
+        shapes.push({
+            type: 'rect', xref: 'x', yref: 'y',
+            x0: tgt.birth, x1: tgt.death,
+            y0: yPos - 0.35, y1: yPos + nTracks - 1 + 0.35,
+            fillcolor: 'rgba(255, 215, 0, 0.15)', line: { color: 'rgba(255, 215, 0, 0.4)', width: 1 },
+        });
+
+        // このターゲットに関連するトラック — 各トラックに個別サブ行
+        tids.forEach((tid, idx) => {
+            const info = trackInfo[tid];
+            const ty = yPos + idx;  // サブ行のY位置
+
+            // Tentative phase (init → confirm or end)
+            const tentEnd = info.confirmTime !== null ? info.confirmTime : info.end;
+            shapes.push({
+                type: 'rect', xref: 'x', yref: 'y',
+                x0: info.init, x1: tentEnd, y0: ty - 0.15, y1: ty + 0.15,
+                fillcolor: 'rgba(255, 200, 0, 0.6)', line: { width: 0 },
+            });
+
+            // Confirmed phase — 探知/未探知理由/着弾後で色分け
+            // miss_reason: 0=探知, 1=覆域外, 2=ビームリソース不足, 3=ビーム照射未探知
+            if (info.confirmTime !== null) {
+                const deathTime = tgt.death;
+
+                const confRows = info.rows
+                    .filter(r => r.time >= info.confirmTime)
+                    .sort((a, b) => a.time - b.time);
+
+                if (confRows.length > 0) {
+                    const getState = (r) => {
+                        if (r.time > deathTime) return 'post';
+                        if (r.misses === 0) return 'det';
+                        const mr = r.miss_reason;
+                        if (mr === 1) return 'out_fov';
+                        if (mr === 2) return 'no_beam';
+                        return 'beam_miss';
+                    };
+
+                    const colorMap = {
+                        det:       'rgba(0, 200, 100, 0.7)',    // 探知: 緑
+                        beam_miss: 'rgba(200, 100, 0, 0.5)',    // ビーム照射未探知: オレンジ
+                        no_beam:   'rgba(180, 50, 180, 0.5)',   // ビームリソース不足: 紫
+                        out_fov:   'rgba(200, 50, 50, 0.5)',    // 覆域外: 赤
+                        post:      'rgba(120, 120, 120, 0.4)',  // 着弾後: グレー
+                    };
+
+                    let segStart = confRows[0].time;
+                    let segState = getState(confRows[0]);
+
+                    for (let i = 1; i <= confRows.length; i++) {
+                        const isLast = (i === confRows.length);
+                        const curState = isLast ? null : getState(confRows[i]);
+
+                        if (curState !== segState || isLast) {
+                            const segEnd = isLast ? info.end : confRows[i].time;
+                            shapes.push({
+                                type: 'rect', xref: 'x', yref: 'y',
+                                x0: segStart, x1: segEnd, y0: ty - 0.15, y1: ty + 0.15,
+                                fillcolor: colorMap[segState],
+                                line: { width: 0 },
+                            });
+                            if (!isLast) {
+                                segStart = confRows[i].time;
+                                segState = curState;
+                            }
+                        }
+                    }
+                }
+            }
+
+        });
+
+        yPos += nTracks;
+    });
+
+    // バー色分けの凡例用ダミートレース（shapesは凡例に出ないため）
+    const barLegend = [
+        { name: 'Tentative',       color: 'rgba(255, 200, 0, 0.6)' },
+        { name: 'Detected',        color: 'rgba(0, 200, 100, 0.7)' },
+        { name: 'Beam Miss',       color: 'rgba(200, 100, 0, 0.5)' },
+        { name: 'No Beam',         color: 'rgba(180, 50, 180, 0.5)' },
+        { name: 'Out of FOV',      color: 'rgba(200, 50, 50, 0.5)' },
+        { name: 'Post-Impact',     color: 'rgba(120, 120, 120, 0.4)' },
+        { name: 'GT Lifetime',     color: 'rgba(255, 215, 0, 0.15)' },
+    ];
+    barLegend.forEach(item => {
+        traces.push({
+            type: 'scatter', mode: 'markers',
+            x: [null], y: [null],
+            name: item.name,
+            marker: { symbol: 'square', size: 10, color: item.color, line: { color: item.color, width: 1 } },
+            showlegend: true,
+        });
+    });
+
+    // 行数に基づく高さ計算（1行あたり40px、最低でもコンテナ高さ）
+    const rowHeight = 40;
+    const minHeight = 300;
+    const computedHeight = Math.max(minHeight, yPos * rowHeight + 80);
+    const container = document.getElementById('plot-timeline');
+    container.style.height = computedHeight + 'px';
+
+    // レイアウト
+    const layout = {
+        paper_bgcolor: '#0f3460',
+        plot_bgcolor: '#16213e',
+        font: { color: '#e0e0e0' },
+        margin: { l: 80, r: 20, t: 8, b: 40 },
+        xaxis: {
+            title: 'Time [s]', gridcolor: '#1a1a2e', zerolinecolor: '#333',
+            color: '#aaa',
+        },
+        yaxis: {
+            tickvals: yLabels.map(l => l.pos),
+            ticktext: yLabels.map(l => l.label),
+            gridcolor: '#1a1a2e',
+            color: '#aaa',
+            range: [yPos - 0.5, -0.5],
+        },
+        legend: { x: 0, y: 1, orientation: 'h', bgcolor: 'rgba(0,0,0,0.3)', font: { size: 11 }, xanchor: 'left', yanchor: 'bottom' },
+        shapes: shapes,
+        height: computedHeight,
+    };
+
+    Plotly.newPlot('plot-timeline', traces, layout, { responsive: true });
+}
+
+async function displayEvaluation(data) {
+    // Update small eval-grid in control panel
+    const container = document.getElementById('eval-results');
+    const summary = data.eval_summary || {};
+    let html = '';
+
+    // Show aggregated results if available
+    if (summary.num_runs && summary.num_runs > 1) {
+        const fmtAgg = (d) => d ? `${d.mean.toFixed(1)}±${d.std.toFixed(1)}` : '-';
+        const fmtAggS = (d) => d ? `${d.mean.toFixed(2)}±${d.std.toFixed(2)}` : '-';
+        const quickMetrics = [
+            ['Pos RMSE', fmtAgg(summary['agg_Position RMSE']), 'm'],
+            ['OSPA', fmtAgg(summary['agg_OSPA Distance']), 'm'],
+            ['F1', fmtAgg(summary['agg_F1 Score']), '%'],
+            ['Wall-clock', fmtAggS(summary['agg_Wall-clock']), 's'],
+            ['Runs', summary.num_runs, ''],
+        ];
+        quickMetrics.forEach(([label, value, unit]) => {
+            html += `<div class="eval-item"><span class="label">${label}:</span> <span class="value">${value} ${unit}</span></div>`;
+        });
+    } else {
+        const quickMetrics = [
+            ['Position RMSE', summary['Position RMSE'] != null ? summary['Position RMSE'].toFixed(1) : '-', 'm'],
+            ['OSPA Distance', summary['Mean OSPA'] != null ? summary['Mean OSPA'].toFixed(1) : '-', 'm'],
+            ['Tracks Created', Object.keys(groupBy(data.tracks, 'track_id')).length, ''],
+            ['GT Frames', data.ground_truth.length, ''],
+        ];
+        quickMetrics.forEach(([label, value, unit]) => {
+            const v = typeof value === 'number' ? value.toFixed(1) : value;
+            html += `<div class="eval-item"><span class="label">${label}:</span> <span class="value">${v} ${unit}</span></div>`;
+        });
+    }
     container.innerHTML = html;
+
+    // Build comprehensive Evaluation tab using summary from backend
+    const s = summary;  // All metrics parsed from full stdout on backend
+    const numTracks = Object.keys(groupBy(data.tracks, 'track_id')).length;
+    const ei = (label, value, unit, tooltip) => {
+        const v = (value != null && value !== '' && value !== undefined) ? value : '-';
+        const tip = tooltip ? ` title="${tooltip}"` : '';
+        return `<div class="eval-full-item"><span class="label"${tip}>${label}</span><span class="value">${v}${unit ? ' ' + unit : ''}</span></div>`;
+    };
+    const fmt = (v, d) => v != null ? v.toFixed(d != null ? d : 2) : null;
+
+    let e = '';
+
+    // Aggregated results (multi-run)
+    if (s.num_runs && s.num_runs > 1) {
+        const ae = (label, key, unit, tooltip) => {
+            const d = s[key];
+            if (d && d.mean !== undefined) {
+                return ei(label, `${d.mean.toFixed(1)} \u00b1 ${d.std.toFixed(1)}`, unit, tooltip);
+            }
+            return '';
+        };
+        e += `<div class="eval-section-title" style="color: #4ecdc4;">Aggregated Results (${s.num_runs} runs)</div><div class="eval-full-grid">`;
+        e += ae('Position RMSE', 'agg_Position RMSE', 'm', 'Mean \u00b1 StdDev of position RMSE across all runs');
+        e += ae('Velocity RMSE', 'agg_Velocity RMSE', 'm/s', 'Mean \u00b1 StdDev of velocity RMSE across all runs');
+        e += ae('OSPA Distance', 'agg_OSPA Distance', 'm', 'Mean \u00b1 StdDev of OSPA distance across all runs');
+        e += ae('Precision', 'agg_Precision', '%', 'Mean \u00b1 StdDev of precision across all runs');
+        e += ae('Recall', 'agg_Recall', '%', 'Mean \u00b1 StdDev of recall across all runs');
+        e += ae('F1 Score', 'agg_F1 Score', '%', 'Mean \u00b1 StdDev of F1 score across all runs');
+        e += ae('Wall-clock', 'agg_Wall-clock', 's', 'Mean \u00b1 StdDev of total wall-clock time per run');
+        e += ae('Avg Frame', 'agg_Avg frame', 'ms', 'Mean \u00b1 StdDev of average GPU frame time per run');
+        e += '</div>';
+    }
+
+    e += '<div class="eval-section-title">Accuracy</div><div class="eval-full-grid">';
+    e += ei('Position RMSE', fmt(s['Position RMSE']), 'm', 'Root Mean Square Error of position (x,y) between tracks and ground truth');
+    e += ei('Position MAE', fmt(s['Position MAE']), 'm', 'Mean Absolute Error of position between tracks and ground truth');
+    e += ei('Velocity RMSE', fmt(s['Velocity RMSE']), 'm/s', 'Root Mean Square Error of velocity (vx,vy) between tracks and ground truth');
+    e += ei('Velocity MAE', fmt(s['Velocity MAE']), 'm/s', 'Mean Absolute Error of velocity between tracks and ground truth');
+    e += ei('Mean OSPA', fmt(s['Mean OSPA']), 'm', 'Optimal Sub-Pattern Assignment distance. Combines position error, missed targets, and false tracks into a single metric');
+    e += '</div>';
+
+    e += '<div class="eval-section-title">Detection</div><div class="eval-full-grid">';
+    e += ei('True Positives', fmt(s['True Positives'], 0), '', 'Number of frames where a confirmed track is correctly matched to a ground truth target');
+    e += ei('False Positives', fmt(s['False Positives'], 0), '', 'Number of confirmed tracks not matched to any ground truth (false alarms)');
+    e += ei('False Negatives', fmt(s['False Negatives'], 0), '', 'Number of ground truth targets without a matching confirmed track (missed detections)');
+    e += ei('Precision', fmt(s['Precision'], 4), '%', 'TP / (TP + FP). Fraction of confirmed tracks that are real targets. Higher = fewer false tracks');
+    e += ei('Recall', fmt(s['Recall'], 4), '%', 'TP / (TP + FN). Fraction of real targets that are tracked. Higher = fewer missed targets');
+    e += ei('F1 Score', fmt(s['F1 Score'], 4), '%', 'Harmonic mean of Precision and Recall. Overall tracking performance metric (0-100%)');
+    e += '</div>';
+
+    e += '<div class="eval-section-title">Track Quality</div><div class="eval-full-grid">';
+    e += ei('Total Tracks', numTracks, '', 'Total number of distinct tracks created during the simulation');
+    e += ei('Avg Duration', fmt(s['Avg Track Duration']), 's', 'Average lifetime of tracks');
+    e += ei('Confirm Rate', fmt(s['Confirmation Rate']), '%', 'Fraction of created tracks that reached confirmed state');
+    e += ei('False Track Rate', fmt(s['False Track Rate']), '%', 'Fraction of confirmed tracks not associated with any real target');
+    e += ei('Track Purity', fmt(s['Track Purity']), '%', 'Average fraction of updates from the dominant true target per track (1.0 = no ID switches)');
+    e += ei('Mostly Tracked', fmt(s['Mostly Tracked (MT)'], 0), '', 'Targets tracked for >80% of their lifetime');
+    e += ei('Partially Tracked', fmt(s['Partially Tracked (PT)'], 0), '', 'Targets tracked for 20-80% of their lifetime');
+    e += ei('Mostly Lost', fmt(s['Mostly Lost (ML)'], 0), '', 'Targets tracked for <20% of their lifetime');
+    e += '</div>';
+
+    e += '<div class="eval-section-title">Data Statistics</div><div class="eval-full-grid">';
+    e += ei('Total Frames', fmt(s['Total Frames'], 0), '', 'Total number of simulation time steps');
+    e += ei('GT Frames', data.ground_truth.length, '', 'Total ground truth data points (targets x frames)');
+    e += ei('Measurements', (data.measurements || []).length, '', 'Total radar measurements (detections + clutter)');
+    e += ei('Avg GT/Frame', fmt(s['Avg GT Targets'], 0), '', 'Average number of active ground truth targets per frame');
+    e += ei('Avg Tracks/Frame', fmt(s['Avg Tracks'], 0), '', 'Average number of active tracks per frame');
+    e += '</div>';
+
+    // Performance section
+    const wallMs = s['Wall-clock time'];
+    const gpuTotal = s['GPU total'];
+    const gpuAvg = s['GPU avg/frame'];
+    const gpuMin = s['GPU min/frame'];
+    const gpuMax = s['GPU max/frame'];
+    const rtFactor = s['Realtime factor'];
+    const predictMs = s['Predict total'];
+    const assocMs = s['Association total'];
+    const updateMs = s['Update total'];
+
+    e += '<div class="eval-section-title">Performance</div><div class="eval-full-grid">';
+    e += ei('Wall-clock', wallMs != null ? (wallMs / 1000).toFixed(2) : null, 's', 'Total elapsed wall-clock time for the simulation run');
+    e += ei('Realtime Factor', rtFactor != null ? rtFactor.toFixed(1) + 'x' : null, '', 'Simulation speed relative to realtime. >1x means faster than realtime');
+    e += ei('GPU Total', gpuTotal != null ? gpuTotal.toFixed(1) : null, 'ms', 'Total GPU processing time across all frames (predict + associate + update)');
+    e += ei('GPU Avg/Frame', gpuAvg != null ? gpuAvg.toFixed(2) : null, 'ms', 'Average GPU processing time per frame');
+    e += ei('GPU Min/Frame', gpuMin != null ? gpuMin.toFixed(2) : null, 'ms', 'Minimum GPU processing time for a single frame');
+    e += ei('GPU Max/Frame', gpuMax != null ? gpuMax.toFixed(2) : null, 'ms', 'Maximum GPU processing time for a single frame');
+    e += ei('Predict', predictMs != null ? predictMs.toFixed(1) : null, 'ms', 'Total time for UKF prediction step (sigma points + state propagation)');
+    e += ei('Association', assocMs != null ? assocMs.toFixed(1) : null, 'ms', 'Total time for measurement-to-track data association (gating + assignment)');
+    e += ei('Update', updateMs != null ? updateMs.toFixed(1) : null, 'ms', 'Total time for UKF update step (Kalman gain + state/covariance update)');
+    e += '</div>';
+
+    // Chart containers
+    e += '<div class="eval-charts-grid">';
+    e += '<div class="eval-chart" id="eval-chart-pos"></div>';
+    e += '<div class="eval-chart" id="eval-chart-ospa"></div>';
+    e += '<div class="eval-chart" id="eval-chart-tracks"></div>';
+    e += '<div class="eval-chart" id="eval-chart-detect"></div>';
+    e += '<div class="eval-chart" id="eval-chart-perf"></div>';
+    e += '<div class="eval-chart" id="eval-chart-beam"></div>';
+    e += '</div>';
+
+    document.getElementById('eval-tab-content').innerHTML = e;
+
+    // Draw time-series charts from per-frame evaluation data
+    const evalRows = data.evaluation || [];
+    const resultsRows = data.results || [];
+    if (evalRows.length > 0) {
+        await drawEvalCharts(evalRows, resultsRows);
+    }
+
+    // Enable tabs (don't auto-switch here; runTracker controls which tab to show)
+    enableVizTab('evaluation');
+}
+
+async function drawEvalCharts(rows, resultsRows) {
+    const times = rows.map(r => parseFloat(r.timestamp));
+    const darkLayout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(15,52,96,0.5)',
+        font: { color: '#aaa', size: 9 },
+        margin: { l: 45, r: 8, t: 24, b: 28 },
+        xaxis: { gridcolor: '#333', title: { text: 'Time (s)', font: { size: 9 } } },
+        yaxis: { gridcolor: '#333' },
+        legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(0,0,0,0.4)', font: { size: 8 } },
+    };
+    const cfg = { responsive: true, displayModeBar: false };
+    const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
+
+    // Position Error
+    Plotly.newPlot('eval-chart-pos', [{
+        x: times, y: rows.map(r => parseFloat(r.avg_position_error)),
+        type: 'scatter', mode: 'lines', name: 'Pos Error',
+        line: { color: '#e94560', width: 1.5 },
+    }], { ...darkLayout, title: { text: 'Position Error (m)', font: { size: 10, color: '#e94560' } },
+        yaxis: { ...darkLayout.yaxis, title: { text: 'm', font: { size: 9 } } }
+    }, cfg);
+    await yieldToUI();
+
+    // OSPA Distance
+    Plotly.newPlot('eval-chart-ospa', [{
+        x: times, y: rows.map(r => parseFloat(r.ospa_distance)),
+        type: 'scatter', mode: 'lines', name: 'OSPA',
+        line: { color: '#7ec8e3', width: 1.5 },
+    }], { ...darkLayout, title: { text: 'OSPA Distance (m)', font: { size: 10, color: '#7ec8e3' } },
+        yaxis: { ...darkLayout.yaxis, title: { text: 'm', font: { size: 9 } } }
+    }, cfg);
+    await yieldToUI();
+
+    // Track Count vs Truth
+    Plotly.newPlot('eval-chart-tracks', [
+        { x: times, y: rows.map(r => parseInt(r.num_ground_truth)), type: 'scatter', mode: 'lines',
+          name: 'GT', line: { color: '#ffd700', width: 1.5 } },
+        { x: times, y: rows.map(r => parseInt(r.num_tracks)), type: 'scatter', mode: 'lines',
+          name: 'Tracks', line: { color: '#00ff88', width: 1.5 } },
+        { x: times, y: rows.map(r => parseInt(r.num_confirmed)), type: 'scatter', mode: 'lines',
+          name: 'Confirmed', line: { color: '#00ff88', width: 1, dash: 'dot' } },
+    ], { ...darkLayout, title: { text: 'Tracks vs Truth', font: { size: 10, color: '#ffd700' } },
+        yaxis: { ...darkLayout.yaxis, title: { text: 'Count', font: { size: 9 } } }
+    }, cfg);
+    await yieldToUI();
+
+    // Detection: TP / FP / FN
+    Plotly.newPlot('eval-chart-detect', [
+        { x: times, y: rows.map(r => parseInt(r.true_positives)), type: 'scatter', mode: 'lines',
+          name: 'TP', line: { color: '#00ff88', width: 1.5 } },
+        { x: times, y: rows.map(r => parseInt(r.false_positives)), type: 'scatter', mode: 'lines',
+          name: 'FP', line: { color: '#ff6b6b', width: 1.5 } },
+        { x: times, y: rows.map(r => parseInt(r.false_negatives)), type: 'scatter', mode: 'lines',
+          name: 'FN', line: { color: '#ffa500', width: 1.5 } },
+    ], { ...darkLayout, title: { text: 'Detection Metrics', font: { size: 10, color: '#00ff88' } },
+        yaxis: { ...darkLayout.yaxis, title: { text: 'Count', font: { size: 9 } } }
+    }, cfg);
+    await yieldToUI();
+
+    // Processing Time chart (from results.csv)
+    if (resultsRows && resultsRows.length > 0) {
+        const perfTimes = resultsRows.map(r => parseFloat(r.time));
+        const perfMs = resultsRows.map(r => parseFloat(r.processing_time_ms));
+        Plotly.newPlot('eval-chart-perf', [{
+            x: perfTimes, y: perfMs,
+            type: 'scatter', mode: 'lines', name: 'Frame Time',
+            line: { color: '#c084fc', width: 1.5 },
+        }], { ...darkLayout, title: { text: 'Processing Time (ms/frame)', font: { size: 10, color: '#c084fc' } },
+            yaxis: { ...darkLayout.yaxis, title: { text: 'ms', font: { size: 9 } } }
+        }, cfg);
+
+        // Beam Resource Saturation chart
+        const beamTrack = resultsRows.map(r => parseInt(r.beam_track) || 0);
+        const beamSearch = resultsRows.map(r => parseInt(r.beam_search) || 0);
+        const beamDemand = resultsRows.map(r => parseInt(r.beam_demand) || 0);
+        const hasBeamData = beamTrack.some(v => v > 0) || beamSearch.some(v => v > 0) || beamDemand.some(v => v > 0);
+        if (hasBeamData) {
+            const beamBudget = beamTrack.map((t, i) => t + beamSearch[i]);
+            Plotly.newPlot('eval-chart-beam', [
+                { x: perfTimes, y: beamDemand, type: 'scatter', mode: 'lines',
+                  name: 'Demand', line: { color: '#ff6b6b', width: 1.5, dash: 'dot' } },
+                { x: perfTimes, y: beamTrack, type: 'scatter', mode: 'lines',
+                  name: 'Track Beams', line: { color: '#00ff88', width: 1.5 },
+                  fill: 'tozeroy', fillcolor: 'rgba(0, 255, 136, 0.15)' },
+                { x: perfTimes, y: beamBudget, type: 'scatter', mode: 'lines',
+                  name: 'Total (Track+Search)', line: { color: '#7ec8e3', width: 1.5 },
+                  fill: 'tonexty', fillcolor: 'rgba(126, 200, 227, 0.15)' },
+            ], { ...darkLayout, title: { text: 'Beam Resource Allocation', font: { size: 10, color: '#7ec8e3' } },
+                yaxis: { ...darkLayout.yaxis, title: { text: 'Beams', font: { size: 9 } } }
+            }, cfg);
+        }
+    }
+}
+
+function parseStdoutMetrics(stdout) {
+    const m = {};
+    if (!stdout) return m;
+    for (const line of stdout.split('\n')) {
+        const t = line.trim();
+        const ci = t.indexOf(':');
+        if (ci < 0) continue;
+        const key = t.substring(0, ci).trim();
+        const val = t.substring(ci + 1).trim();
+        // Keep raw string (includes units like "m", "%", "s")
+        m[key] = val;
+    }
+    return m;
 }
 
 function groupBy(arr, key) {
@@ -1279,6 +2678,220 @@ function groupBy(arr, key) {
 // ========================================
 // Save / Load Scenario
 // ========================================
+// ========================================
+// Auto-save / Restore (localStorage)
+// ========================================
+const STORAGE_KEY = 'fasttracker_last_state';
+
+function saveStateToStorage() {
+    try {
+        const state = {
+            missile_type: document.getElementById('missile-type').value,
+            launch: launchPoint ? { lat: launchPoint.lat, lon: launchPoint.lon } : null,
+            target: targetPoint ? { lat: targetPoint.lat, lon: targetPoint.lon } : null,
+            sensor: sensorPoint ? { lat: sensorPoint.lat, lon: sensorPoint.lon } : null,
+            missile: {
+                boost_duration: document.getElementById('boost-duration').value,
+                boost_acceleration: document.getElementById('boost-accel').value,
+                launch_angle: document.getElementById('launch-angle').value,
+                time_step: document.getElementById('time-step').value,
+            },
+            hgv: {
+                cruise_altitude: document.getElementById('cruise-altitude').value,
+                glide_ratio: document.getElementById('glide-ratio').value,
+                terminal_dive_range: document.getElementById('terminal-dive-range').value,
+                bank_angle_max: document.getElementById('bank-angle-max').value,
+                num_skips: document.getElementById('num-skips').value,
+            },
+            physics: {
+                initial_mass: document.getElementById('initial-mass').value,
+                fuel_fraction: document.getElementById('fuel-fraction').value,
+                specific_impulse: document.getElementById('specific-impulse').value,
+                drag_coefficient: document.getElementById('drag-coefficient').value,
+                cross_section: document.getElementById('cross-section').value,
+                auto_adjust: document.getElementById('auto-adjust').checked,
+                enable_separation: document.getElementById('enable-separation').checked,
+                warhead_mass_frac: document.getElementById('warhead-mass-frac').value,
+                cluster_count: document.getElementById('cluster-count').value,
+                cluster_spread: document.getElementById('cluster-spread').value,
+                launch_time_spread: document.getElementById('launch-time-spread').value,
+                lock_angle: document.getElementById('lock-angle').checked,
+                lock_isp: document.getElementById('lock-isp').checked,
+                lock_fuel: document.getElementById('lock-fuel').checked,
+            },
+            radar: {
+                max_range: document.getElementById('radar-max-range').value,
+                auto_max_range: document.getElementById('auto-max-range').checked,
+                fov: document.getElementById('radar-fov').value,
+                detect_prob: document.getElementById('detect-prob').value,
+                pfa: document.getElementById('pfa').value,
+                auto_pfa: document.getElementById('auto-pfa').checked,
+                snr_ref: document.getElementById('snr-ref').value,
+                auto_snr_ref: document.getElementById('auto-snr-ref').checked,
+                range_noise: document.getElementById('range-noise').value,
+                azimuth_noise: document.getElementById('azimuth-noise').value,
+                elevation_noise: document.getElementById('elevation-noise').value,
+                doppler_noise: document.getElementById('doppler-noise').value,
+                beam_width: document.getElementById('beam-width').value,
+                num_beams: document.getElementById('num-beams').value,
+                min_search_beams: document.getElementById('min-search-beams').value,
+                track_priority: document.getElementById('track-priority').value,
+                search_sector: document.getElementById('search-sector').value,
+                search_center: document.getElementById('search-center').value,
+                auto_search_sector: document.getElementById('auto-search-sector').checked,
+                antenna_bearing: document.getElementById('antenna-bearing').value,
+                auto_antenna_bearing: document.getElementById('auto-antenna-bearing').checked,
+                search_elevation: document.getElementById('search-elevation').value,
+            },
+            tracker: {
+                gate_threshold: document.getElementById('gate-threshold').value,
+                confirm_hits: document.getElementById('confirm-hits').value,
+                delete_misses: document.getElementById('delete-misses').value,
+                min_snr: document.getElementById('min-snr').value,
+                process_pos_noise: document.getElementById('process-pos-noise').value,
+                process_vel_noise: document.getElementById('process-vel-noise').value,
+                process_acc_noise: document.getElementById('process-acc-noise').value,
+                num_runs: document.getElementById('num-runs').value,
+                seed: document.getElementById('random-seed').value,
+            },
+            target_max_altitude: document.getElementById('target-max-altitude').value,
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) { /* ignore quota errors */ }
+}
+
+function restoreStateFromStorage() {
+    try {
+        const json = localStorage.getItem(STORAGE_KEY);
+        if (!json) return;
+        const s = JSON.parse(json);
+
+        // Map points
+        if (s.launch) setLaunchPoint(s.launch.lat, s.launch.lon);
+        if (s.target) setTargetPoint(s.target.lat, s.target.lon);
+
+        // Missile type
+        if (s.missile_type) {
+            document.getElementById('missile-type').value = s.missile_type;
+            onMissileTypeChange();
+        }
+
+        // Missile
+        if (s.missile) {
+            if (s.missile.boost_duration != null) document.getElementById('boost-duration').value = s.missile.boost_duration;
+            if (s.missile.boost_acceleration != null) document.getElementById('boost-accel').value = s.missile.boost_acceleration;
+            if (s.missile.launch_angle != null) document.getElementById('launch-angle').value = s.missile.launch_angle;
+            if (s.missile.time_step != null) document.getElementById('time-step').value = s.missile.time_step;
+        }
+
+        // HGV
+        if (s.hgv) {
+            if (s.hgv.cruise_altitude != null) document.getElementById('cruise-altitude').value = s.hgv.cruise_altitude;
+            if (s.hgv.glide_ratio != null) document.getElementById('glide-ratio').value = s.hgv.glide_ratio;
+            if (s.hgv.terminal_dive_range != null) document.getElementById('terminal-dive-range').value = s.hgv.terminal_dive_range;
+            if (s.hgv.bank_angle_max != null) document.getElementById('bank-angle-max').value = s.hgv.bank_angle_max;
+            if (s.hgv.num_skips != null) document.getElementById('num-skips').value = s.hgv.num_skips;
+        }
+
+        // Physics
+        if (s.physics) {
+            if (s.physics.initial_mass != null) document.getElementById('initial-mass').value = s.physics.initial_mass;
+            if (s.physics.fuel_fraction != null) document.getElementById('fuel-fraction').value = s.physics.fuel_fraction;
+            if (s.physics.specific_impulse != null) document.getElementById('specific-impulse').value = s.physics.specific_impulse;
+            if (s.physics.drag_coefficient != null) document.getElementById('drag-coefficient').value = s.physics.drag_coefficient;
+            if (s.physics.cross_section != null) document.getElementById('cross-section').value = s.physics.cross_section;
+            if (s.physics.auto_adjust != null) document.getElementById('auto-adjust').checked = s.physics.auto_adjust;
+            if (s.physics.enable_separation != null) {
+                document.getElementById('enable-separation').checked = s.physics.enable_separation;
+                toggleSeparationParams();
+            }
+            if (s.physics.warhead_mass_frac != null) document.getElementById('warhead-mass-frac').value = s.physics.warhead_mass_frac;
+            if (s.physics.cluster_count != null) document.getElementById('cluster-count').value = s.physics.cluster_count;
+            if (s.physics.cluster_spread != null) document.getElementById('cluster-spread').value = s.physics.cluster_spread;
+            if (s.physics.launch_time_spread != null) document.getElementById('launch-time-spread').value = s.physics.launch_time_spread;
+            if (s.physics.lock_angle != null) document.getElementById('lock-angle').checked = s.physics.lock_angle;
+            if (s.physics.lock_isp != null) document.getElementById('lock-isp').checked = s.physics.lock_isp;
+            if (s.physics.lock_fuel != null) document.getElementById('lock-fuel').checked = s.physics.lock_fuel;
+        }
+
+        // Radar
+        if (s.radar) {
+            if (s.radar.max_range != null) document.getElementById('radar-max-range').value = s.radar.max_range;
+            if (s.radar.fov != null) document.getElementById('radar-fov').value = s.radar.fov;
+            if (s.radar.detect_prob != null) document.getElementById('detect-prob').value = s.radar.detect_prob;
+            if (s.radar.pfa != null) document.getElementById('pfa').value = s.radar.pfa;
+            if (s.radar.snr_ref != null) document.getElementById('snr-ref').value = s.radar.snr_ref;
+            if (s.radar.range_noise != null) document.getElementById('range-noise').value = s.radar.range_noise;
+            if (s.radar.azimuth_noise != null) document.getElementById('azimuth-noise').value = s.radar.azimuth_noise;
+            if (s.radar.elevation_noise != null) document.getElementById('elevation-noise').value = s.radar.elevation_noise;
+            if (s.radar.doppler_noise != null) document.getElementById('doppler-noise').value = s.radar.doppler_noise;
+            if (s.radar.beam_width != null) document.getElementById('beam-width').value = s.radar.beam_width;
+            if (s.radar.num_beams != null) document.getElementById('num-beams').value = s.radar.num_beams;
+            if (s.radar.min_search_beams != null) document.getElementById('min-search-beams').value = s.radar.min_search_beams;
+            if (s.radar.track_priority != null) document.getElementById('track-priority').value = s.radar.track_priority;
+            if (s.radar.search_sector != null) document.getElementById('search-sector').value = s.radar.search_sector;
+            if (s.radar.search_center != null) document.getElementById('search-center').value = s.radar.search_center;
+            if (s.radar.auto_search_sector != null) {
+                document.getElementById('auto-search-sector').checked = s.radar.auto_search_sector;
+                onAutoSearchSectorChange();
+            }
+            if (s.radar.antenna_bearing != null) document.getElementById('antenna-bearing').value = s.radar.antenna_bearing;
+            if (s.radar.auto_antenna_bearing != null) {
+                document.getElementById('auto-antenna-bearing').checked = s.radar.auto_antenna_bearing;
+                onAutoAntennaBearingChange();
+            }
+            if (s.radar.search_elevation != null) document.getElementById('search-elevation').value = s.radar.search_elevation;
+            if (s.radar.auto_max_range != null) {
+                document.getElementById('auto-max-range').checked = s.radar.auto_max_range;
+                toggleAutoParam(document.getElementById('auto-max-range'), 'radar-max-range');
+            }
+            if (s.radar.auto_pfa != null) {
+                document.getElementById('auto-pfa').checked = s.radar.auto_pfa;
+                toggleAutoParam(document.getElementById('auto-pfa'), 'pfa');
+            }
+            if (s.radar.auto_snr_ref != null) {
+                document.getElementById('auto-snr-ref').checked = s.radar.auto_snr_ref;
+                toggleAutoParam(document.getElementById('auto-snr-ref'), 'snr-ref');
+            }
+        }
+
+        // Tracker
+        if (s.tracker) {
+            if (s.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = s.tracker.gate_threshold;
+            if (s.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = s.tracker.confirm_hits;
+            if (s.tracker.delete_misses != null) document.getElementById('delete-misses').value = s.tracker.delete_misses;
+            if (s.tracker.min_snr != null) document.getElementById('min-snr').value = s.tracker.min_snr;
+            if (s.tracker.process_pos_noise != null) document.getElementById('process-pos-noise').value = s.tracker.process_pos_noise;
+            if (s.tracker.process_vel_noise != null) document.getElementById('process-vel-noise').value = s.tracker.process_vel_noise;
+            if (s.tracker.process_acc_noise != null) document.getElementById('process-acc-noise').value = s.tracker.process_acc_noise;
+            if (s.tracker.num_runs != null) document.getElementById('num-runs').value = s.tracker.num_runs;
+            if (s.tracker.seed != null) document.getElementById('random-seed').value = s.tracker.seed;
+        }
+
+        if (s.target_max_altitude != null) document.getElementById('target-max-altitude').value = s.target_max_altitude;
+
+        // Sensor point (after map points so sensor coverage can draw)
+        if (s.sensor) setSensorPoint(s.sensor.lat, s.sensor.lon);
+
+        // Auto: always re-apply after all points are restored
+        onAutoAntennaBearingChange();
+        onAutoSearchSectorChange();
+
+        updateSensorMarker();
+        updateSensorCoverage();
+
+        // Fit map
+        if (launchPoint && targetPoint) {
+            map.fitBounds([
+                [launchPoint.lat, launchPoint.lon],
+                [targetPoint.lat, targetPoint.lon],
+            ], { padding: [50, 50] });
+        }
+
+        updateStatus('Previous state restored');
+    } catch (e) { /* ignore parse errors */ }
+}
+
 function saveScenario() {
     if (!launchPoint || !targetPoint) {
         alert('Please set both launch and target points before saving.');
@@ -1286,19 +2899,26 @@ function saveScenario() {
     }
 
     const scenario = {
-        version: 2,
+        version: 3,
+        missile_type: document.getElementById('missile-type').value,
         launch: { lat: launchPoint.lat, lon: launchPoint.lon },
         target: { lat: targetPoint.lat, lon: targetPoint.lon },
         sensor: {
-            lat: getSensorLatLng()?.lat ?? null,
-            lon: getSensorLatLng()?.lon ?? null,
-            auto: document.getElementById('sensor-auto').checked,
+            lat: sensorPoint?.lat ?? null,
+            lon: sensorPoint?.lon ?? null,
         },
         missile: {
             boost_duration: parseFloat(document.getElementById('boost-duration').value),
             boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
             launch_angle: parseFloat(document.getElementById('launch-angle').value),
             time_step: parseFloat(document.getElementById('time-step').value),
+        },
+        hgv: {
+            cruise_altitude: parseFloat(document.getElementById('cruise-altitude').value),
+            glide_ratio: parseFloat(document.getElementById('glide-ratio').value),
+            terminal_dive_range: parseFloat(document.getElementById('terminal-dive-range').value),
+            bank_angle_max: parseFloat(document.getElementById('bank-angle-max').value),
+            num_skips: parseInt(document.getElementById('num-skips').value) || 0,
         },
         physics: {
             initial_mass: parseFloat(document.getElementById('initial-mass').value),
@@ -1307,10 +2927,46 @@ function saveScenario() {
             drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
             cross_section_area: parseFloat(document.getElementById('cross-section').value),
             auto_adjust: document.getElementById('auto-adjust').checked,
+            enable_separation: document.getElementById('enable-separation').checked,
+            warhead_mass_frac: parseFloat(document.getElementById('warhead-mass-frac').value),
+            cluster_count: parseInt(document.getElementById('cluster-count').value) || 0,
+            cluster_spread: parseFloat(document.getElementById('cluster-spread').value),
+            launch_time_spread: parseFloat(document.getElementById('launch-time-spread').value),
         },
         radar: {
             max_range_km: parseFloat(document.getElementById('radar-max-range').value),
+            auto_max_range: document.getElementById('auto-max-range').checked,
             fov_deg: parseFloat(document.getElementById('radar-fov').value),
+            detect_prob: parseFloat(document.getElementById('detect-prob').value),
+            pfa: document.getElementById('pfa').value,
+            auto_pfa: document.getElementById('auto-pfa').checked,
+            snr_ref: parseFloat(document.getElementById('snr-ref').value),
+            auto_snr_ref: document.getElementById('auto-snr-ref').checked,
+            range_noise: parseFloat(document.getElementById('range-noise').value),
+            azimuth_noise: parseFloat(document.getElementById('azimuth-noise').value),
+            elevation_noise: parseFloat(document.getElementById('elevation-noise').value),
+            doppler_noise: parseFloat(document.getElementById('doppler-noise').value),
+            beam_width_deg: parseFloat(document.getElementById('beam-width').value),
+            num_beams: parseInt(document.getElementById('num-beams').value),
+            min_search_beams: parseInt(document.getElementById('min-search-beams').value),
+            track_priority: document.getElementById('track-priority').value,
+            search_sector_deg: parseFloat(document.getElementById('search-sector').value),
+            search_center_deg: parseFloat(document.getElementById('search-center').value),
+            auto_search_sector: document.getElementById('auto-search-sector').checked,
+            antenna_bearing_deg: parseFloat(document.getElementById('antenna-bearing').value),
+            auto_antenna_bearing: document.getElementById('auto-antenna-bearing').checked,
+            search_elevation_deg: parseFloat(document.getElementById('search-elevation').value),
+        },
+        tracker: {
+            gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
+            confirm_hits: parseInt(document.getElementById('confirm-hits').value),
+            delete_misses: parseInt(document.getElementById('delete-misses').value),
+            min_snr: parseFloat(document.getElementById('min-snr').value),
+            process_pos_noise: parseFloat(document.getElementById('process-pos-noise').value),
+            process_vel_noise: parseFloat(document.getElementById('process-vel-noise').value),
+            process_acc_noise: parseFloat(document.getElementById('process-acc-noise').value),
+            num_runs: parseInt(document.getElementById('num-runs').value),
+            seed: parseInt(document.getElementById('random-seed').value),
         },
     };
 
@@ -1349,6 +3005,21 @@ function loadScenario(event) {
             if (scenario.launch) setLaunchPoint(scenario.launch.lat, scenario.launch.lon);
             if (scenario.target) setTargetPoint(scenario.target.lat, scenario.target.lon);
 
+            // Restore missile type
+            if (scenario.missile_type) {
+                document.getElementById('missile-type').value = scenario.missile_type;
+                onMissileTypeChange();
+            }
+
+            // Restore HGV params
+            if (scenario.hgv) {
+                if (scenario.hgv.cruise_altitude != null) document.getElementById('cruise-altitude').value = scenario.hgv.cruise_altitude;
+                if (scenario.hgv.glide_ratio != null) document.getElementById('glide-ratio').value = scenario.hgv.glide_ratio;
+                if (scenario.hgv.terminal_dive_range != null) document.getElementById('terminal-dive-range').value = scenario.hgv.terminal_dive_range;
+                if (scenario.hgv.bank_angle_max != null) document.getElementById('bank-angle-max').value = scenario.hgv.bank_angle_max;
+                if (scenario.hgv.num_skips != null) document.getElementById('num-skips').value = scenario.hgv.num_skips;
+            }
+
             // Restore missile params
             if (scenario.missile) {
                 if (scenario.missile.boost_duration != null) document.getElementById('boost-duration').value = scenario.missile.boost_duration;
@@ -1365,22 +3036,77 @@ function loadScenario(event) {
                 if (scenario.physics.drag_coefficient != null) document.getElementById('drag-coefficient').value = scenario.physics.drag_coefficient;
                 if (scenario.physics.cross_section_area != null) document.getElementById('cross-section').value = scenario.physics.cross_section_area;
                 if (scenario.physics.auto_adjust != null) document.getElementById('auto-adjust').checked = scenario.physics.auto_adjust;
+                if (scenario.physics.enable_separation != null) {
+                    document.getElementById('enable-separation').checked = scenario.physics.enable_separation;
+                    toggleSeparationParams();
+                }
+                if (scenario.physics.warhead_mass_frac != null) document.getElementById('warhead-mass-frac').value = scenario.physics.warhead_mass_frac;
+                if (scenario.physics.cluster_count != null) document.getElementById('cluster-count').value = scenario.physics.cluster_count;
+                if (scenario.physics.cluster_spread != null) document.getElementById('cluster-spread').value = scenario.physics.cluster_spread;
+                if (scenario.physics.launch_time_spread != null) document.getElementById('launch-time-spread').value = scenario.physics.launch_time_spread;
+            }
+
+            // Restore tracker params
+            if (scenario.tracker) {
+                if (scenario.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = scenario.tracker.gate_threshold;
+                if (scenario.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = scenario.tracker.confirm_hits;
+                if (scenario.tracker.delete_misses != null) document.getElementById('delete-misses').value = scenario.tracker.delete_misses;
+                if (scenario.tracker.min_snr != null) document.getElementById('min-snr').value = scenario.tracker.min_snr;
+                // Legacy: detect_prob was in tracker section in older scenario files
+                if (scenario.tracker.detect_prob != null && !(scenario.radar && scenario.radar.detect_prob != null)) {
+                    document.getElementById('detect-prob').value = scenario.tracker.detect_prob;
+                }
+                if (scenario.tracker.process_pos_noise != null) document.getElementById('process-pos-noise').value = scenario.tracker.process_pos_noise;
+                if (scenario.tracker.process_vel_noise != null) document.getElementById('process-vel-noise').value = scenario.tracker.process_vel_noise;
+                if (scenario.tracker.process_acc_noise != null) document.getElementById('process-acc-noise').value = scenario.tracker.process_acc_noise;
+                if (scenario.tracker.num_runs != null) document.getElementById('num-runs').value = scenario.tracker.num_runs;
+                if (scenario.tracker.seed != null) document.getElementById('random-seed').value = scenario.tracker.seed;
             }
 
             // Restore sensor params
             if (scenario.radar) {
                 if (scenario.radar.max_range_km != null) document.getElementById('radar-max-range').value = scenario.radar.max_range_km;
                 if (scenario.radar.fov_deg != null) document.getElementById('radar-fov').value = scenario.radar.fov_deg;
+                if (scenario.radar.detect_prob != null) document.getElementById('detect-prob').value = scenario.radar.detect_prob;
+                if (scenario.radar.pfa != null) document.getElementById('pfa').value = scenario.radar.pfa;
+                // 旧形式の後方互換
+                if (scenario.radar.clutter_per_scan != null && scenario.radar.pfa == null) document.getElementById('pfa').value = scenario.radar.clutter_per_scan;
+                if (scenario.radar.snr_ref != null) document.getElementById('snr-ref').value = scenario.radar.snr_ref;
+                if (scenario.radar.range_noise != null) document.getElementById('range-noise').value = scenario.radar.range_noise;
+                if (scenario.radar.azimuth_noise != null) document.getElementById('azimuth-noise').value = scenario.radar.azimuth_noise;
+                if (scenario.radar.elevation_noise != null) document.getElementById('elevation-noise').value = scenario.radar.elevation_noise;
+                if (scenario.radar.doppler_noise != null) document.getElementById('doppler-noise').value = scenario.radar.doppler_noise;
+                // Auto checkboxes
+                const autoMaxRange = scenario.radar.auto_max_range !== false;
+                document.getElementById('auto-max-range').checked = autoMaxRange;
+                toggleAutoParam(document.getElementById('auto-max-range'), 'radar-max-range');
+                const autoPfa = scenario.radar.auto_pfa !== false;
+                document.getElementById('auto-pfa').checked = autoPfa;
+                toggleAutoParam(document.getElementById('auto-pfa'), 'pfa');
+                const autoSnr = scenario.radar.auto_snr_ref !== false;
+                document.getElementById('auto-snr-ref').checked = autoSnr;
+                toggleAutoParam(document.getElementById('auto-snr-ref'), 'snr-ref');
+                // Beam steering
+                if (scenario.radar.beam_width_deg != null) document.getElementById('beam-width').value = scenario.radar.beam_width_deg;
+                if (scenario.radar.num_beams != null) document.getElementById('num-beams').value = scenario.radar.num_beams;
+                if (scenario.radar.min_search_beams != null) document.getElementById('min-search-beams').value = scenario.radar.min_search_beams;
+                if (scenario.radar.track_priority != null) document.getElementById('track-priority').value = scenario.radar.track_priority;
+                if (scenario.radar.search_sector_deg != null) document.getElementById('search-sector').value = scenario.radar.search_sector_deg;
+                if (scenario.radar.search_center_deg != null) document.getElementById('search-center').value = scenario.radar.search_center_deg;
+                if (scenario.radar.auto_search_sector != null) {
+                    document.getElementById('auto-search-sector').checked = scenario.radar.auto_search_sector;
+                    onAutoSearchSectorChange();
+                }
+                if (scenario.radar.antenna_bearing_deg != null) document.getElementById('antenna-bearing').value = scenario.radar.antenna_bearing_deg;
+                if (scenario.radar.auto_antenna_bearing != null) {
+                    document.getElementById('auto-antenna-bearing').checked = scenario.radar.auto_antenna_bearing;
+                    onAutoAntennaBearingChange();
+                }
+                if (scenario.radar.search_elevation_deg != null) document.getElementById('search-elevation').value = scenario.radar.search_elevation_deg;
             }
 
-            if (scenario.sensor) {
-                if (scenario.sensor.auto) {
-                    sensorPoint = null;
-                    document.getElementById('sensor-auto').checked = true;
-                    document.getElementById('sensor-coord').textContent = 'Auto (Target)';
-                } else if (scenario.sensor.lat != null && scenario.sensor.lon != null) {
-                    setSensorPoint(scenario.sensor.lat, scenario.sensor.lon);
-                }
+            if (scenario.sensor && scenario.sensor.lat != null && scenario.sensor.lon != null) {
+                setSensorPoint(scenario.sensor.lat, scenario.sensor.lon);
             }
 
             updateSensorMarker();
@@ -1441,6 +3167,7 @@ function clearAll() {
     if (sensorMarker) map.removeLayer(sensorMarker);
     if (sensorCoverageCircle) map.removeLayer(sensorCoverageCircle);
     if (sensorFovPolygon) map.removeLayer(sensorFovPolygon);
+    if (searchSectorPolygon) map.removeLayer(searchSectorPolygon);
     if (trajectoryLine) map.removeLayer(trajectoryLine);
     launchPoint = null;
     targetPoint = null;
@@ -1448,15 +3175,32 @@ function clearAll() {
     sensorMarker = null;
     sensorCoverageCircle = null;
     sensorFovPolygon = null;
+    searchSectorPolygon = null;
     currentTrajectory = null;
     document.getElementById('launch-coord').textContent = 'Not set';
     document.getElementById('target-coord').textContent = 'Not set';
-    document.getElementById('sensor-coord').textContent = 'Auto (Target)';
-    document.getElementById('sensor-auto').checked = true;
+    document.getElementById('sensor-coord').textContent = 'Not set';
     document.getElementById('range-display').textContent = '-';
     document.getElementById('btn-run-tracker').disabled = true;
+    // Reset auto checkboxes and resolved hints
+    ['auto-max-range', 'auto-pfa', 'auto-snr-ref'].forEach(id => {
+        document.getElementById(id).checked = true;
+    });
+    [['auto-max-range','radar-max-range'], ['auto-pfa','pfa'], ['auto-snr-ref','snr-ref']].forEach(([cbId, inputId]) => {
+        toggleAutoParam(document.getElementById(cbId), inputId);
+    });
+    ['resolved-max-range', 'resolved-pfa', 'resolved-snr-ref'].forEach(id => {
+        document.getElementById(id).textContent = '';
+    });
     document.getElementById('eval-results').innerHTML = '<div class="eval-item"><span class="label">Status:</span> <span class="value">Waiting</span></div>';
-    Plotly.purge('plot3d');
+    Plotly.purge('plot3d-trajectory');
+    Plotly.purge('plot3d-tracking');
+    Plotly.purge('plot-timeline');
+    document.getElementById('eval-tab-content').innerHTML = '<div class="eval-placeholder">Run Tracker to see evaluation metrics</div>';
+    disableVizTab('tracking');
+    disableVizTab('evaluation');
+    disableVizTab('timeline');
+    switchVizTab('trajectory');
 
     // Remove trajectory lines from map
     map.eachLayer(layer => {
@@ -1469,7 +3213,7 @@ function clearAll() {
 }
 
 // Initial 3D placeholder
-Plotly.newPlot('plot3d', [], {
+Plotly.newPlot('plot3d-trajectory', [], {
     scene: {
         xaxis: { title: 'X (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
         yaxis: { title: 'Y (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
@@ -1492,7 +3236,15 @@ Plotly.newPlot('plot3d', [], {
 // Handle window resize
 window.addEventListener('resize', () => {
     map.invalidateSize();
-    Plotly.Plots.resize('plot3d');
+    if (activeVizTab === 'trajectory' || activeVizTab === 'tracking') {
+        const el = document.getElementById('plot3d-' + activeVizTab);
+        if (el && el.data) Plotly.Plots.resize(el);
+    } else if (activeVizTab === 'evaluation') {
+        ['eval-chart-pos', 'eval-chart-ospa', 'eval-chart-tracks', 'eval-chart-detect'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && el.data) Plotly.Plots.resize(el);
+        });
+    }
 });
 </script>
 </body>

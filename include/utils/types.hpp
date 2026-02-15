@@ -45,9 +45,11 @@ struct Measurement {
     float snr;          // SN比 [dB]
     double timestamp;   // タイムスタンプ [s]
     int sensor_id;      // センサーID
+    bool is_clutter;    // クラッタ（誤警報）フラグ
 
     Measurement() : range(0.0f), azimuth(0.0f), elevation(0.0f),
-                    doppler(0.0f), snr(0.0f), timestamp(0.0), sensor_id(0) {}
+                    doppler(0.0f), snr(0.0f), timestamp(0.0), sensor_id(0),
+                    is_clutter(false) {}
 };
 
 // トラック状態
@@ -83,7 +85,7 @@ struct UKFParams {
     float kappa;    // 補助パラメータ (0.0)
     float lambda;   // 複合スケーリングパラメータ
 
-    UKFParams() : alpha(0.001f), beta(2.0f), kappa(0.0f) {
+    UKFParams() : alpha(0.5f), beta(2.0f), kappa(0.0f) {
         lambda = alpha * alpha * (STATE_DIM + kappa) - STATE_DIM;
     }
 };
@@ -98,12 +100,12 @@ struct AssociationParams {
     float min_snr_for_init;     // トラック生成に必要な最小SNR [dB]
 
     AssociationParams()
-        : gate_threshold(9.488f),  // χ²(4) 95%信頼区間
-          max_distance(3.0f),       // 3σ
-          confirm_hits(3),
+        : gate_threshold(500.0f),
+          max_distance(100.0f),
+          confirm_hits(2),
           confirm_window(5),
-          delete_misses(5),
-          min_snr_for_init(15.0f) {}  // デフォルト15dB
+          delete_misses(20),
+          min_snr_for_init(22.0f) {}
 };
 
 // プロセスノイズ
@@ -113,9 +115,9 @@ struct ProcessNoise {
     float accel_noise;      // 加速度ノイズ std [m/s²]
 
     ProcessNoise()
-        : position_noise(1.0f),
-          velocity_noise(0.5f),
-          accel_noise(0.1f) {}
+        : position_noise(160.0f),
+          velocity_noise(65.0f),
+          accel_noise(160.0f) {}
 };
 
 // 観測ノイズ

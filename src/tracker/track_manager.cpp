@@ -172,9 +172,8 @@ StateCov TrackManager::getInitialCovariance(float range) const {
     cov.setZero();
 
     // レンジに基づく位置不確かさのスケーリング
-    // 方位角誤差0.01radでレンジrの場合、横方向誤差 = r * 0.01
-    float azimuth_noise = 0.01f;
-    float range_noise = 10.0f;
+    float azimuth_noise = meas_noise_.azimuth_noise;
+    float range_noise = meas_noise_.range_noise;
     float pos_std = std::sqrt(range_noise * range_noise +
                               (range * azimuth_noise) * (range * azimuth_noise));
     pos_std = std::max(pos_std, 100.0f);  // 最低100m

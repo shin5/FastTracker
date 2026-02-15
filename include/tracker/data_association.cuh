@@ -56,6 +56,11 @@ public:
     void setSensorPosition(float x, float y) { sensor_x_ = x; sensor_y_ = y; }
 
     /**
+     * @brief 観測ノイズを設定
+     */
+    void setMeasurementNoise(const MeasurementNoise& noise) { meas_noise_ = noise; }
+
+    /**
      * @brief Mahalanobis距離を計算（CPU版、デバッグ用）
      * @param track トラック
      * @param meas 観測
@@ -68,6 +73,7 @@ private:
     int max_tracks_;
     int max_measurements_;
     AssociationParams params_;
+    MeasurementNoise meas_noise_;
     float sensor_x_ = 0.0f;
     float sensor_y_ = 0.0f;
 

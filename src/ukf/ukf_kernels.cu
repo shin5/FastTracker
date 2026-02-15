@@ -255,7 +255,8 @@ __global__ void addNoiseCov(
     float* covariance,
     const float* noise_cov,
     int num_targets,
-    int dim)
+    int dim,
+    float dt_scale)
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= num_targets) return;
@@ -263,7 +264,7 @@ __global__ void addNoiseCov(
     float* cov = &covariance[tid * dim * dim];
 
     for (int i = 0; i < dim * dim; i++) {
-        cov[i] += noise_cov[i];
+        cov[i] += noise_cov[i] * dt_scale;
     }
 }
 
@@ -476,7 +477,7 @@ __global__ void fusedPredict(
             float diff_j = s_pred_sigma_points[k * n + j] - s_mean[j];
             cov_ij += weights_cov[k] * diff_i * diff_j;
         }
-        cov_ij += process_cov[i * n + j];  // プロセスノイズ加算
+        cov_ij += process_cov[i * n + j] * dt;  // プロセスノイズ加算（dtスケーリング）
         s_cov[i * n + j] = cov_ij;
     }
     __syncthreads();

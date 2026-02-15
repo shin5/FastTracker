@@ -4,6 +4,7 @@
 #include <limits>
 #include <cmath>
 #include <iostream>
+#include <utility>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -109,18 +110,17 @@ void DataAssociation::computeCostMatrix(int num_tracks, int num_measurements) {
     );
 
     // 観測ノイズ標準偏差をデバイスに渡す（正規化距離計算用）
-    MeasurementNoise meas_noise;  // デフォルト値を使用
     float meas_noise_stds[MEAS_DIM] = {
-        meas_noise.range_noise,
-        meas_noise.azimuth_noise,
-        meas_noise.elevation_noise,
-        meas_noise.doppler_noise
+        meas_noise_.range_noise,
+        meas_noise_.azimuth_noise,
+        meas_noise_.elevation_noise,
+        meas_noise_.doppler_noise
     };
     float* d_meas_noise_stds = nullptr;
     cudaMalloc(&d_meas_noise_stds, MEAS_DIM * sizeof(float));
     cudaMemcpy(d_meas_noise_stds, meas_noise_stds, MEAS_DIM * sizeof(float), cudaMemcpyHostToDevice);
 
-    // コスト行列を計算
+    // コスト行列を計算（正規化距離）
     grid_size = (num_tracks * num_measurements + block_size - 1) / block_size;
     cuda::computeMahalanobisCostMatrix<<<grid_size, block_size>>>(
         d_pred_meas_.get(),
@@ -149,31 +149,144 @@ std::vector<int> DataAssociation::hungarianAssignment(int num_tracks, int num_me
 std::vector<int> DataAssociation::hungarianAlgorithm(
     const std::vector<float>& cost_matrix, int n, int m)
 {
-    // 簡易版Hungarian法（Munkresアルゴリズム）
-    // 完全な実装の代わりに、貪欲法を使用
-
+    // Munkres (Hungarian) アルゴリズム — 最適割り当て
     std::vector<int> assignments(n, -1);
-    std::vector<bool> meas_assigned(m, false);
+    if (n == 0 || m == 0) return assignments;
 
-    // 各トラックについて最小コストの観測を探す
-    for (int i = 0; i < n; i++) {
-        float min_cost = std::numeric_limits<float>::max();
-        int best_meas = -1;
+    const int N = std::max(n, m);
 
-        for (int j = 0; j < m; j++) {
-            if (!meas_assigned[j]) {
-                float cost = cost_matrix[i * m + j];
-                if (cost < min_cost) {
-                    min_cost = cost;
-                    best_meas = j;
-                }
+    // パディング済み正方コスト行列を構築
+    std::vector<float> C(N * N, 0.0f);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < m; j++)
+            C[i * N + j] = cost_matrix[i * m + j];
+
+    // スター・プライム・カバー
+    std::vector<int> star_col(N, -1);   // star_col[i] = 行iのスター列 (-1=なし)
+    std::vector<int> star_row(N, -1);   // star_row[j] = 列jのスター行 (-1=なし)
+    std::vector<int> prime_col(N, -1);  // prime_col[i] = 行iのプライム列
+    std::vector<bool> row_cover(N, false);
+    std::vector<bool> col_cover(N, false);
+
+    // Step 0: 行リダクション
+    for (int i = 0; i < N; i++) {
+        float row_min = C[i * N];
+        for (int j = 1; j < N; j++)
+            if (C[i * N + j] < row_min) row_min = C[i * N + j];
+        for (int j = 0; j < N; j++)
+            C[i * N + j] -= row_min;
+    }
+
+    // Step 1: 列リダクション
+    for (int j = 0; j < N; j++) {
+        float col_min = C[j];
+        for (int i = 1; i < N; i++)
+            if (C[i * N + j] < col_min) col_min = C[i * N + j];
+        for (int i = 0; i < N; i++)
+            C[i * N + j] -= col_min;
+    }
+
+    // Step 2: 初期スター化
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            if (C[i * N + j] == 0.0f && star_col[i] == -1 && star_row[j] == -1) {
+                star_col[i] = j;
+                star_row[j] = i;
             }
         }
+    }
 
-        // 閾値以下なら割り当て
-        if (best_meas >= 0 && min_cost < 1e9f) {
-            assignments[i] = best_meas;
-            meas_assigned[best_meas] = true;
+    // メインループ
+    for (;;) {
+        // Step 3: スター列をカバー
+        std::fill(col_cover.begin(), col_cover.end(), false);
+        int covered = 0;
+        for (int i = 0; i < N; i++) {
+            if (star_col[i] >= 0) {
+                col_cover[star_col[i]] = true;
+                covered++;
+            }
+        }
+        if (covered >= N) break;  // 全行にスターあり → 完了
+
+        // Step 4-6 ループ
+        for (;;) {
+            // Step 4: 未カバーゼロを探してプライム
+            int pr = -1, pc = -1;
+            for (;;) {
+                pr = -1; pc = -1;
+                for (int i = 0; i < N && pr == -1; i++) {
+                    if (row_cover[i]) continue;
+                    for (int j = 0; j < N; j++) {
+                        if (!col_cover[j] && C[i * N + j] == 0.0f) {
+                            pr = i; pc = j;
+                            break;
+                        }
+                    }
+                }
+                if (pr == -1) {
+                    // Step 6: 未カバー最小値で調整
+                    float min_val = std::numeric_limits<float>::max();
+                    for (int i = 0; i < N; i++) {
+                        if (row_cover[i]) continue;
+                        for (int j = 0; j < N; j++) {
+                            if (!col_cover[j] && C[i * N + j] < min_val)
+                                min_val = C[i * N + j];
+                        }
+                    }
+                    for (int i = 0; i < N; i++) {
+                        for (int j = 0; j < N; j++) {
+                            if (row_cover[i]) C[i * N + j] += min_val;
+                            if (!col_cover[j]) C[i * N + j] -= min_val;
+                        }
+                    }
+                    // Step 4 を再試行
+                    continue;
+                }
+                break;
+            }
+
+            // プライムを記録
+            prime_col[pr] = pc;
+
+            if (star_col[pr] == -1) {
+                // Step 5: 増加パス（プライムから始まる交互パス）
+                int path_row = pr, path_col = pc;
+                for (;;) {
+                    int sr = star_row[path_col];
+                    // 旧スターを除去
+                    if (sr >= 0) {
+                        star_col[sr] = -1;
+                    }
+                    // プライムをスターに昇格
+                    star_col[path_row] = path_col;
+                    star_row[path_col] = path_row;
+
+                    if (sr < 0) break;
+                    // sr の行のプライム列を辿る
+                    path_col = prime_col[sr];
+                    path_row = sr;
+                }
+
+                // プライムとカバーをリセット
+                std::fill(prime_col.begin(), prime_col.end(), -1);
+                std::fill(row_cover.begin(), row_cover.end(), false);
+                std::fill(col_cover.begin(), col_cover.end(), false);
+                break;  // Step 3 に戻る
+            } else {
+                // 同行のスター列をアンカバー、行をカバー
+                col_cover[star_col[pr]] = false;
+                row_cover[pr] = true;
+                // Step 4 を続行（内側ループの次の反復）
+            }
+        }
+    }
+
+    // 結果抽出（ゲートフィルタ付き）
+    for (int i = 0; i < n; i++) {
+        int j = star_col[i];
+        if (j >= 0 && j < m && cost_matrix[i * m + j] < 1e9f) {
+            assignments[i] = j;
         }
     }
 
@@ -278,10 +391,10 @@ __global__ void computeMahalanobisCostMatrix(
     }
 
     // 角度の正規化
-    if (innovation[1] > M_PI) innovation[1] -= 2.0f * M_PI;
-    if (innovation[1] < -M_PI) innovation[1] += 2.0f * M_PI;
+    if (innovation[1] > static_cast<float>(M_PI))  innovation[1] -= 2.0f * static_cast<float>(M_PI);
+    if (innovation[1] < -static_cast<float>(M_PI)) innovation[1] += 2.0f * static_cast<float>(M_PI);
 
-    // 正規化距離（各次元を観測ノイズ標準偏差で割る）
+    // 正規化距離（固定観測ノイズ）
     float distance_sq = 0.0f;
     for (int i = 0; i < MEAS_DIM; i++) {
         float normalized = innovation[i] / meas_noise_stds[i];
@@ -290,7 +403,7 @@ __global__ void computeMahalanobisCostMatrix(
 
     float distance = sqrtf(distance_sq);
 
-    // ゲーティング（正規化距離でのゲート）
+    // ゲーティング
     if (distance > gate_threshold) {
         cost_matrix[tid] = 1e10f;
     } else {

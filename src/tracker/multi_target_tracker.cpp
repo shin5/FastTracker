@@ -31,15 +31,17 @@ MultiTargetTracker::MultiTargetTracker(
 
     // IMMフィルタ初期化（ハイブリッド: CPU版とGPU版の両方）
     if (use_imm_) {
-        imm_cpu_ = std::make_unique<IMMFilter>(3, max_targets);
+        imm_cpu_ = std::make_unique<IMMFilter>(3, max_targets, process_noise);
         imm_gpu_ = std::make_unique<IMMFilterGPU>(3, max_targets);
     }
 
     // トラック管理初期化
     track_manager_ = std::make_unique<TrackManager>(assoc_params);
+    track_manager_->setMeasurementNoise(meas_noise);
 
     // データアソシエーション初期化
     data_association_ = std::make_unique<DataAssociation>(max_targets, max_targets * 2, assoc_params);
+    data_association_->setMeasurementNoise(meas_noise);
 
     std::cout << "MultiTargetTracker initialized" << std::endl;
     std::cout << "  Max targets: " << max_targets << std::endl;

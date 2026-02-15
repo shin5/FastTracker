@@ -112,6 +112,13 @@ public:
                 int num_measurements,
                 double timestamp);
 
+    // フレーム更新（安定的なGT目標IDつき）
+    void update(const std::vector<Track>& tracks,
+                const std::vector<StateVector>& ground_truth,
+                const std::vector<int>& gt_target_ids,
+                int num_measurements,
+                double timestamp);
+
     // メトリクス計算
     AccuracyMetrics computeAccuracyMetrics() const;
     TrackQualityMetrics computeTrackQualityMetrics() const;
@@ -138,6 +145,13 @@ private:
     // 履歴データ
     std::vector<FrameResult> history_;
     std::map<int, TrackHistory> track_histories_;
+
+    // GT目標ごとの追尾統計（安定IDベース）
+    struct GtTargetStats {
+        int total_frames = 0;       // この目標が存在したフレーム数
+        int tracked_frames = 0;     // 確定トラックが割り当てられたフレーム数
+    };
+    std::map<int, GtTargetStats> gt_target_stats_;
 
     // 内部処理
     void assignTracksToTruth(const std::vector<Track>& tracks,

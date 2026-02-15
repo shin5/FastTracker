@@ -32,6 +32,7 @@ std::vector<Measurement> RadarSimulator::generate(double time) {
 
     // 真の目標状態を取得
     std::vector<StateVector> true_states = target_gen_.generateStates(time);
+    std::vector<int> active_ids = target_gen_.getActiveTargets(time);
     total_targets_ += static_cast<int>(true_states.size());
 
     // 各目標からの観測を生成
@@ -40,6 +41,14 @@ std::vector<Measurement> RadarSimulator::generate(double time) {
 
         // 視野内チェック
         if (!isInFieldOfView(state)) continue;
+
+        // ビームステアリング: アクティブビーム内かチェック
+        {
+            float dx = state(0) - params_.sensor_x;
+            float dy = state(1) - params_.sensor_y;
+            float az = std::atan2(dy, dx);
+            if (!isOnBeam(az)) continue;
+        }
 
         // 検出判定
         if (!isDetected(state)) {
@@ -54,13 +63,15 @@ std::vector<Measurement> RadarSimulator::generate(double time) {
         meas.sensor_id = sensor_id_;
 
         measurements.push_back(meas);
-        true_associations_.push_back(static_cast<int>(i));
+        int target_id = (i < active_ids.size()) ? active_ids[i] : static_cast<int>(i);
+        true_associations_.push_back(target_id);
         total_detections_++;
     }
 
     // クラッタ生成
     auto clutter = generateClutter(time);
-    for (const auto& c : clutter) {
+    for (auto& c : clutter) {
+        c.is_clutter = true;
         measurements.push_back(c);
         true_associations_.push_back(-1);  // -1 = クラッタ
     }
@@ -144,7 +155,14 @@ std::vector<Measurement> RadarSimulator::generateClutter(double time) {
     std::vector<Measurement> clutter;
 
     // 監視領域の面積
-    float surveillance_area = M_PI * params_.max_range * params_.max_range;
+    float surveillance_area;
+    if (!beam_directions_.empty()) {
+        // ビームステアリング時: ビームセクタの合計面積
+        surveillance_area = static_cast<float>(beam_directions_.size()) *
+                           0.5f * params_.beam_width * params_.max_range * params_.max_range;
+    } else {
+        surveillance_area = M_PI * params_.max_range * params_.max_range;
+    }
 
     // クラッタ数の期待値
     float lambda = params_.false_alarm_rate * surveillance_area;
@@ -158,7 +176,21 @@ std::vector<Measurement> RadarSimulator::generateClutter(double time) {
 
         // ランダムな位置にクラッタを生成
         float r = params_.max_range * std::sqrt(uniform_dist_(rng_));
-        float theta = (uniform_dist_(rng_) - 0.5f) * params_.field_of_view;
+        float theta;
+
+        if (!beam_directions_.empty()) {
+            // ビーム内にクラッタを配置
+            int beam_idx = static_cast<int>(uniform_dist_(rng_) * beam_directions_.size());
+            if (beam_idx >= static_cast<int>(beam_directions_.size()))
+                beam_idx = static_cast<int>(beam_directions_.size()) - 1;
+            float offset = (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
+            theta = beam_directions_[beam_idx] + offset;
+            // [-π, π] に正規化
+            while (theta > static_cast<float>(M_PI)) theta -= 2.0f * static_cast<float>(M_PI);
+            while (theta < -static_cast<float>(M_PI)) theta += 2.0f * static_cast<float>(M_PI);
+        } else {
+            theta = (uniform_dist_(rng_) - 0.5f) * params_.field_of_view;
+        }
 
         meas.range = r;
         meas.azimuth = theta;
@@ -210,7 +242,25 @@ bool RadarSimulator::isInFieldOfView(const StateVector& state) const {
     float azimuth = std::atan2(dy, dx);
     float half_fov = params_.field_of_view / 2.0f;
 
-    return (azimuth >= -half_fov && azimuth <= half_fov);
+    // アンテナ中心方位からの角度差
+    float diff = azimuth - params_.antenna_boresight;
+    while (diff > static_cast<float>(M_PI)) diff -= 2.0f * static_cast<float>(M_PI);
+    while (diff < -static_cast<float>(M_PI)) diff += 2.0f * static_cast<float>(M_PI);
+
+    return (std::fabs(diff) <= half_fov);
+}
+
+bool RadarSimulator::isOnBeam(float azimuth) const {
+    if (beam_directions_.empty()) return false;
+
+    float half_bw = params_.beam_width / 2.0f;
+    for (float beam_center : beam_directions_) {
+        float diff = azimuth - beam_center;
+        while (diff > static_cast<float>(M_PI)) diff -= 2.0f * static_cast<float>(M_PI);
+        while (diff < -static_cast<float>(M_PI)) diff += 2.0f * static_cast<float>(M_PI);
+        if (std::fabs(diff) <= half_bw) return true;
+    }
+    return false;
 }
 
 void RadarSimulator::resetStatistics() {

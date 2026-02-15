@@ -21,7 +21,7 @@ public:
      * @param num_models モデル数（通常3: 等速度、高加速度、重力）
      * @param max_targets 最大目標数
      */
-    IMMFilter(int num_models, int max_targets);
+    IMMFilter(int num_models, int max_targets, const ProcessNoise& external_noise);
 
     /**
      * @brief 予測ステップ（全モデル）

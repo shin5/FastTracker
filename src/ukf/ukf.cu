@@ -142,9 +142,9 @@ void UKF::predict(float* states, float* covariances, int num_targets, float dt) 
         d_pred_cov_.get(), num_targets, STATE_DIM
     );
 
-    // 5. プロセスノイズ加算
+    // 5. プロセスノイズ加算（dtスケーリング）
     cuda::addNoiseCov<<<grid_size, block_size, 0, stream_predict_.get()>>>(
-        d_pred_cov_.get(), d_process_cov_.get(), num_targets, STATE_DIM
+        d_pred_cov_.get(), d_process_cov_.get(), num_targets, STATE_DIM, dt
     );
 
     // 予測結果をstatesとcovariancesにコピー

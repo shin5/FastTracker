@@ -75,6 +75,37 @@ void TrackingEvaluator::update(const std::vector<Track>& tracks,
     history_.push_back(result);
 }
 
+void TrackingEvaluator::update(const std::vector<Track>& tracks,
+                               const std::vector<StateVector>& ground_truth,
+                               const std::vector<int>& gt_target_ids,
+                               int num_measurements,
+                               double timestamp)
+{
+    // 基本処理は既存メソッドに委譲
+    update(tracks, ground_truth, num_measurements, timestamp);
+
+    // GT目標ごとの追尾統計を更新
+    // track_to_truth を再計算（直前の update() で history_ に追加済み）
+    std::vector<int> track_to_truth;
+    std::vector<int> truth_to_track;
+    assignTracksToTruth(tracks, ground_truth, track_to_truth, truth_to_track);
+
+    for (size_t j = 0; j < gt_target_ids.size(); j++) {
+        int gt_id = gt_target_ids[j];
+        auto& stats = gt_target_stats_[gt_id];
+        stats.total_frames++;
+
+        // この GT 目標に確定トラックが割り当てられているか
+        if (j < truth_to_track.size() && truth_to_track[j] >= 0) {
+            int trk_idx = truth_to_track[j];
+            if (trk_idx < static_cast<int>(tracks.size()) &&
+                tracks[trk_idx].track_state == TrackState::CONFIRMED) {
+                stats.tracked_frames++;
+            }
+        }
+    }
+}
+
 void TrackingEvaluator::assignTracksToTruth(
     const std::vector<Track>& tracks,
     const std::vector<StateVector>& ground_truth,
@@ -102,7 +133,7 @@ void TrackingEvaluator::assignTracksToTruth(
     // 貪欲法で割り当て（簡易版）
     std::vector<bool> track_assigned(n_tracks, false);
     std::vector<bool> truth_assigned(n_truth, false);
-    float threshold = 5000.0f;  // 5km以内なら同一目標とみなす（長距離追尾対応）
+    float threshold = ospa_cutoff_;  // OSPA cutoffと同じ閾値で割り当て判定
 
     // 距離が近い順にマッチング
     for (int iter = 0; iter < std::min(n_tracks, n_truth); iter++) {
@@ -234,13 +265,31 @@ TrackQualityMetrics TrackingEvaluator::computeTrackQualityMetrics() const {
             false_tracks++;
         }
 
-        // トラック継続性分類（簡易版）
-        if (hist.num_updates > history_.size() * 0.8) {
-            metrics.mostly_tracked++;
-        } else if (hist.num_updates > history_.size() * 0.2) {
-            metrics.partially_tracked++;
-        } else {
-            metrics.mostly_lost++;
+        // トラック継続性分類（トラック単位フォールバック）
+        if (gt_target_stats_.empty()) {
+            if (hist.num_updates > history_.size() * 0.8) {
+                metrics.mostly_tracked++;
+            } else if (hist.num_updates > history_.size() * 0.2) {
+                metrics.partially_tracked++;
+            } else {
+                metrics.mostly_lost++;
+            }
+        }
+    }
+
+    // GT目標単位の MT/PT/ML（安定IDベースが利用可能な場合）
+    if (!gt_target_stats_.empty()) {
+        for (const auto& pair : gt_target_stats_) {
+            const auto& stats = pair.second;
+            if (stats.total_frames == 0) continue;
+            float ratio = static_cast<float>(stats.tracked_frames) / stats.total_frames;
+            if (ratio >= 0.8f) {
+                metrics.mostly_tracked++;
+            } else if (ratio >= 0.2f) {
+                metrics.partially_tracked++;
+            } else {
+                metrics.mostly_lost++;
+            }
         }
     }
 
@@ -349,8 +398,8 @@ void TrackingEvaluator::printSummary() const {
     std::cout << "=== Tracking Evaluation Summary ===" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    std::cout << "\n[データ統計]" << std::endl;
-    std::cout << "  総フレーム数: " << history_.size() << std::endl;
+    std::cout << "\n[Data Statistics]" << std::endl;
+    std::cout << "  Total Frames: " << history_.size() << std::endl;
 
     if (!history_.empty()) {
         int total_truth = 0;
@@ -359,42 +408,42 @@ void TrackingEvaluator::printSummary() const {
             total_truth += frame.num_ground_truth;
             total_tracks += frame.num_tracks;
         }
-        std::cout << "  平均真値目標数: " << (total_truth / (int)history_.size()) << std::endl;
-        std::cout << "  平均トラック数: " << (total_tracks / (int)history_.size()) << std::endl;
+        std::cout << "  Avg GT Targets: " << (total_truth / (int)history_.size()) << std::endl;
+        std::cout << "  Avg Tracks: " << (total_tracks / (int)history_.size()) << std::endl;
     }
 
-    // 精度メトリクス
+    // Accuracy metrics
     auto acc_metrics = computeAccuracyMetrics();
-    std::cout << "\n[精度メトリクス]" << std::endl;
+    std::cout << "\n[Accuracy]" << std::endl;
     std::cout << std::fixed << std::setprecision(2);
-    std::cout << "  位置RMSE: " << acc_metrics.position_rmse << " m" << std::endl;
-    std::cout << "  位置MAE:  " << acc_metrics.position_mae << " m" << std::endl;
-    std::cout << "  速度RMSE: " << acc_metrics.velocity_rmse << " m/s" << std::endl;
-    std::cout << "  速度MAE:  " << acc_metrics.velocity_mae << " m/s" << std::endl;
-    std::cout << "  平均OSPA距離: " << acc_metrics.ospa_distance << " m" << std::endl;
+    std::cout << "  Position RMSE: " << acc_metrics.position_rmse << " m" << std::endl;
+    std::cout << "  Position MAE: " << acc_metrics.position_mae << " m" << std::endl;
+    std::cout << "  Velocity RMSE: " << acc_metrics.velocity_rmse << " m/s" << std::endl;
+    std::cout << "  Velocity MAE: " << acc_metrics.velocity_mae << " m/s" << std::endl;
+    std::cout << "  Mean OSPA: " << acc_metrics.ospa_distance << " m" << std::endl;
 
-    // 検出メトリクス
+    // Detection metrics
     auto det_metrics = computeDetectionMetrics();
-    std::cout << "\n[検出メトリクス]" << std::endl;
-    std::cout << "  True Positives:  " << det_metrics.true_positives << std::endl;
+    std::cout << "\n[Detection]" << std::endl;
+    std::cout << "  True Positives: " << det_metrics.true_positives << std::endl;
     std::cout << "  False Positives: " << det_metrics.false_positives << std::endl;
     std::cout << "  False Negatives: " << det_metrics.false_negatives << std::endl;
     std::cout << std::setprecision(4);
-    std::cout << "  適合率（Precision）: " << (det_metrics.precision * 100.0f) << " %" << std::endl;
-    std::cout << "  再現率（Recall）:    " << (det_metrics.recall * 100.0f) << " %" << std::endl;
-    std::cout << "  F1スコア:            " << (det_metrics.f1_score * 100.0f) << " %" << std::endl;
+    std::cout << "  Precision: " << (det_metrics.precision * 100.0f) << " %" << std::endl;
+    std::cout << "  Recall: " << (det_metrics.recall * 100.0f) << " %" << std::endl;
+    std::cout << "  F1 Score: " << (det_metrics.f1_score * 100.0f) << " %" << std::endl;
 
-    // トラック品質メトリクス
+    // Track quality metrics
     auto quality_metrics = computeTrackQualityMetrics();
-    std::cout << "\n[トラック品質]" << std::endl;
+    std::cout << "\n[Track Quality]" << std::endl;
     std::cout << std::setprecision(2);
-    std::cout << "  平均トラック継続時間: " << quality_metrics.average_track_length << " s" << std::endl;
-    std::cout << "  トラック確定率: " << (quality_metrics.confirmation_rate * 100.0f) << " %" << std::endl;
-    std::cout << "  偽トラック率:   " << (quality_metrics.false_track_rate * 100.0f) << " %" << std::endl;
-    std::cout << "  トラック純度:   " << (quality_metrics.track_purity * 100.0f) << " %" << std::endl;
-    std::cout << "\n  ほぼ全期間追尾（MT）: " << quality_metrics.mostly_tracked << std::endl;
-    std::cout << "  部分的に追尾（PT）:   " << quality_metrics.partially_tracked << std::endl;
-    std::cout << "  ほとんど失敗（ML）:   " << quality_metrics.mostly_lost << std::endl;
+    std::cout << "  Avg Track Duration: " << quality_metrics.average_track_length << " s" << std::endl;
+    std::cout << "  Confirmation Rate: " << (quality_metrics.confirmation_rate * 100.0f) << " %" << std::endl;
+    std::cout << "  False Track Rate: " << (quality_metrics.false_track_rate * 100.0f) << " %" << std::endl;
+    std::cout << "  Track Purity: " << (quality_metrics.track_purity * 100.0f) << " %" << std::endl;
+    std::cout << "\n  Mostly Tracked (MT): " << quality_metrics.mostly_tracked << std::endl;
+    std::cout << "  Partially Tracked (PT): " << quality_metrics.partially_tracked << std::endl;
+    std::cout << "  Mostly Lost (ML): " << quality_metrics.mostly_lost << std::endl;
 
     std::cout << "\n========================================" << std::endl;
 }
@@ -428,12 +477,13 @@ void TrackingEvaluator::exportToCSV(const std::string& filename) const {
     }
 
     file.close();
-    std::cout << "評価結果をエクスポート: " << filename << std::endl;
+    std::cout << "Evaluation exported: " << filename << std::endl;
 }
 
 void TrackingEvaluator::reset() {
     history_.clear();
     track_histories_.clear();
+    gt_target_stats_.clear();
 }
 
 } // namespace fasttracker

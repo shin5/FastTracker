@@ -14,7 +14,7 @@ endif()
 
 # コンパイラフラグ
 if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3 /utf-8")
     set(CMAKE_CXX_FLAGS_RELEASE "/O2")
 else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")

@@ -21,6 +21,12 @@ struct RadarParameters {
     float sensor_y;                 // センサーY座標 [m]
     MeasurementNoise meas_noise;    // 観測ノイズ
 
+    // ビームステアリング
+    float beam_width;                // ビーム角度幅 [rad] (~3°)
+    int num_beams;                   // フレームあたりのビーム数
+    float antenna_boresight;         // アンテナ中心方位 [rad] (atan2系: 0=East, π/2=North)
+    float search_elevation;          // サーチビーム仰角 [rad]
+
     RadarParameters()
         : detection_probability(0.95f),
           false_alarm_rate(1e-8f),      // より現実的なクラッタ密度
@@ -28,7 +34,11 @@ struct RadarParameters {
           field_of_view(static_cast<float>(M_PI)),  // 180度
           snr_ref(60.0f),              // 監視レーダー想定
           sensor_x(0.0f),
-          sensor_y(0.0f) {}
+          sensor_y(0.0f),
+          beam_width(0.052f),
+          num_beams(10),
+          antenna_boresight(0.0f),
+          search_elevation(0.0f) {}
 };
 
 /**
@@ -91,6 +101,26 @@ public:
     const RadarParameters& getParams() const { return params_; }
 
     /**
+     * @brief 乱数シードを設定
+     */
+    void setSeed(uint32_t seed) { rng_.seed(seed); }
+
+    /**
+     * @brief ビーム方向を設定（ビームステアリングモード用）
+     * @param directions ビーム中心方位角のリスト [rad]
+     */
+    void setBeamDirections(const std::vector<float>& directions) {
+        beam_directions_ = directions;
+    }
+
+    /**
+     * @brief 現在のビーム方向を取得
+     */
+    const std::vector<float>& getBeamDirections() const {
+        return beam_directions_;
+    }
+
+    /**
      * @brief 統計情報をリセット
      */
     void resetStatistics();
@@ -117,6 +147,9 @@ private:
     int total_detections_;
     int total_clutter_;
     int total_missed_;
+
+    // ビームステアリング状態
+    std::vector<float> beam_directions_;  // 現フレームのビーム中心方位角 [rad]
 
     /**
      * @brief 状態ベクトルからレーダー観測を計算
@@ -151,6 +184,13 @@ private:
      * @return 視野内の場合true
      */
     bool isInFieldOfView(const StateVector& state) const;
+
+    /**
+     * @brief 目標がアクティブビーム内にあるかチェック
+     * @param azimuth 目標の方位角 [rad]
+     * @return ビーム内の場合true
+     */
+    bool isOnBeam(float azimuth) const;
 };
 
 } // namespace fasttracker

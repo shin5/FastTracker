@@ -47,9 +47,7 @@ void TargetGenerator::initializeDefaultScenario() {
 }
 
 void TargetGenerator::initializeCustomScenario(const std::vector<TargetParameters>& target_params) {
-    if (static_cast<int>(target_params.size()) != num_targets_) {
-        throw std::runtime_error("Target parameters size mismatch");
-    }
+    num_targets_ = static_cast<int>(target_params.size());
     target_params_ = target_params;
 }
 
@@ -130,6 +128,26 @@ std::vector<StateVector> TargetGenerator::generateStates(double time) const {
                 break;
             case MotionModel::HYPERSONIC_GLIDE:
                 state = propagateHypersonicGlide(param, time);
+                // HGVもキャッシュから高度を取得（弾道ミサイルと同パターン）
+                if (param.trajectory_computed && !param.trajectory_cache.empty()) {
+                    double elapsed = time - param.birth_time;
+                    int lo = 0, hi = static_cast<int>(param.trajectory_cache.size()) - 1;
+                    if (elapsed <= param.trajectory_cache.front().time) {
+                        last_altitudes_[i] = param.trajectory_cache.front().z;
+                    } else if (elapsed >= param.trajectory_cache.back().time) {
+                        last_altitudes_[i] = param.trajectory_cache.back().z;
+                    } else {
+                        while (lo < hi - 1) {
+                            int mid = (lo + hi) / 2;
+                            if (param.trajectory_cache[mid].time <= elapsed) lo = mid; else hi = mid;
+                        }
+                        float frac = static_cast<float>(
+                            (elapsed - param.trajectory_cache[lo].time) /
+                            (param.trajectory_cache[hi].time - param.trajectory_cache[lo].time));
+                        last_altitudes_[i] = param.trajectory_cache[lo].z +
+                            frac * (param.trajectory_cache[hi].z - param.trajectory_cache[lo].z);
+                    }
+                }
                 break;
         }
 
