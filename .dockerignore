@@ -1,0 +1,12 @@
+build/
+external/eigen.tar.gz
+*.pyc
+__pycache__
+.git
+docs/
+tests/
+benchmarks/
+scripts/
+0{print}
+60{print}
+FastTracker/
