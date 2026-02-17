@@ -146,6 +146,59 @@ def add_table_caption(doc, caption):
     set_run_font(run, size=9, bold=True, color=RGBColor(0x1F, 0x4E, 0x79))
 
 
+def add_symbol_legend(doc, entries):
+    """Add a compact 4-column symbol/definition legend table after equations.
+
+    Args:
+        doc:     Document object.
+        entries: list of (symbol_str, definition_str) tuples.
+    """
+    # Section label
+    p_hdr = doc.add_paragraph()
+    p_hdr.paragraph_format.space_before = Pt(2)
+    p_hdr.paragraph_format.space_after = Pt(1)
+    run_hdr = p_hdr.add_run("【記号の定義】")
+    set_run_font(run_hdr, size=8.5, bold=True, color=RGBColor(0x1F, 0x4E, 0x79))
+
+    n = len(entries)
+    half = (n + 1) // 2  # number of rows
+
+    tbl = doc.add_table(rows=half, cols=4)
+    tbl.alignment = WD_TABLE_ALIGNMENT.LEFT
+
+    for i in range(half):
+        for pair_offset, entry_idx in [(0, i), (2, i + half)]:
+            if entry_idx < n:
+                sym, defn = entries[entry_idx]
+                sym_cell = tbl.rows[i].cells[pair_offset]
+                def_cell = tbl.rows[i].cells[pair_offset + 1]
+
+                set_cell_shading(sym_cell, "D6E8FF")
+                p_s = sym_cell.paragraphs[0]
+                p_s.paragraph_format.space_before = Pt(1)
+                p_s.paragraph_format.space_after = Pt(1)
+                run_s = p_s.add_run(sym)
+                set_run_font(run_s, size=8.5, bold=True,
+                             color=RGBColor(0x1F, 0x4E, 0x79))
+
+                set_cell_shading(def_cell, "F4F8FF")
+                p_d = def_cell.paragraphs[0]
+                p_d.paragraph_format.space_before = Pt(1)
+                p_d.paragraph_format.space_after = Pt(1)
+                run_d = p_d.add_run(defn)
+                set_run_font(run_d, size=8.5)
+
+    # Column widths: sym=1.8cm, def=4.8cm (×2 pairs)
+    for row in tbl.rows:
+        row.cells[0].width = Cm(1.8)
+        row.cells[1].width = Cm(4.8)
+        row.cells[2].width = Cm(1.8)
+        row.cells[3].width = Cm(4.8)
+
+    p_after = doc.add_paragraph()
+    p_after.paragraph_format.space_after = Pt(4)
+
+
 # ---------------------------------------------------------------------------
 # Document helpers
 # ---------------------------------------------------------------------------
@@ -1071,6 +1124,13 @@ def add_section_target_generator(doc):
         r"\mathbf{x}_{gt} = [x,\ y,\ z,\ v_x,\ v_y,\ v_z,\ a_x,\ a_y,\ a_z]^T",
         fontsize=16,
     )
+    add_symbol_legend(doc, [
+        ("x_{gt}", "目標の状態ベクトル（9次元）"),
+        ("x, y, z", "位置（東・北・高度） [m]"),
+        ("v_x, v_y, v_z", "速度成分 [m/s]"),
+        ("a_x, a_y, a_z", "加速度成分 [m/s²]"),
+        ("T (上付き)", "転置（列ベクトルを表す）"),
+    ])
 
     # --- 2.3 Ballistic missile model ---
     doc.add_heading("2.3 弾道ミサイルモデル（RK4）", level=2)
@@ -1124,6 +1184,13 @@ def add_section_target_generator(doc):
         "getPosition(t)呼び出しは補間で高速に返す。",
         size=10,
     )
+    add_symbol_legend(doc, [
+        ("k_1, k_2, k_3, k_4", "RK4の各段の勾配ベクトル"),
+        ("f(x)", "運動方程式（重力＋大気抵抗）"),
+        ("x_n", "タイムステップ n における状態ベクトル"),
+        ("x_{n+1}", "次ステップの状態ベクトル"),
+        ("Delta t", "積分タイムステップ [s]"),
+    ])
 
     # --- 2.4 HGV ---
     doc.add_heading("2.4 HGV（極超音速滑空体）モデル", level=2)
@@ -1210,6 +1277,20 @@ def add_section_target_generator(doc):
         "ρ₀ = 1.225 kg/m³（海面密度）、H = 8,500 m（スケール高度）。",
         size=10,
     )
+    add_symbol_legend(doc, [
+        ("dot{x}, dot{y}, dot{z}", "位置の時間微分（速度成分） [m/s]"),
+        ("v_x, v_y, v_z", "速度成分 [m/s]"),
+        ("dot{v}_x, dot{v}_y, dot{v}_z", "速度の時間微分（加速度成分） [m/s²]"),
+        ("F_{D,x/y/z}", "抗力ベクトルの各成分 [N]"),
+        ("F_{L,x/y/z}", "揚力ベクトルの各成分 [N]"),
+        ("m", "機体質量 [kg]"),
+        ("g(z)", "高度 z における重力加速度 [m/s²]"),
+        ("g_0", "標準重力加速度 = 9.80665 m/s²"),
+        ("R_E", "地球半径 = 6,371,000 m"),
+        ("rho(z)", "高度 z における大気密度 [kg/m³]"),
+        ("rho_0", "海面大気密度 = 1.225 kg/m³"),
+        ("H", "大気スケール高度 = 8,500 m"),
+    ])
 
     # 2.4.3 揚力・抗力モデル
     doc.add_heading("2.4.3 抗力と揚力", level=3)
@@ -1242,6 +1323,22 @@ def add_section_target_generator(doc):
     add_math_image(doc,
         r"\mathbf{F}_{lift} = L\,(\cos\sigma\;\hat{n}_{up} + \sin\sigma\;\hat{n}_{lat})",
         fontsize=14)
+    add_symbol_legend(doc, [
+        ("F_{drag}", "抗力ベクトル（速度逆方向） [N]"),
+        ("rho(z)", "高度依存大気密度 [kg/m³]"),
+        ("v", "速度の大きさ [m/s]"),
+        ("C_D", "抗力係数 [-]"),
+        ("A", "代表断面積 [m²]"),
+        ("hat{v}", "速度方向の単位ベクトル"),
+        ("L", "揚力の大きさ [N]"),
+        ("C_L", "揚力係数（= C_D × L/D）[-]"),
+        ("L/D", "揚抗比（= 2.0）[-]"),
+        ("hat{n}_{up}", "鉛直面内の上向き単位ベクトル"),
+        ("hat{z}", "鉛直（高度）方向の単位ベクトル"),
+        ("hat{n}_{lat}", "横方向単位ベクトル（= v × n_up）"),
+        ("F_{lift}", "揚力ベクトル [N]"),
+        ("sigma", "バンク角（機体ロール角） [rad]"),
+    ])
 
     # 2.4.4 バンク角制御
     doc.add_heading("2.4.4 バンク角制御則", level=3)
@@ -1430,6 +1527,22 @@ def add_section_radar_simulator(doc):
         "各P_FA値に対するP_D vs SNRの関係を図3-2に示す。",
         size=10,
     )
+    add_symbol_legend(doc, [
+        ("SNR_{avg}(r)", "距離 r における平均SNR [dB]"),
+        ("SNR_{ref}", "基準距離1 km での平均SNR [dB]"),
+        ("r", "目標までのスラントレンジ [m]"),
+        ("log_{10}", "常用対数"),
+        ("gamma_T", "CFAR検出閾値（= -ln P_FA）"),
+        ("P_{FA}", "誤警報確率 [-]"),
+        ("ln", "自然対数"),
+        ("SNR_{avg}^{lin}", "線形スケールの平均SNR"),
+        ("R_{ref}", "ユーザ設定の基準距離 [m]"),
+        ("P_D^{ref}", "基準距離における所望検出確率 [-]"),
+        ("SNR_{inst}", "パルスごとの瞬時SNR（ランダム変動）"),
+        ("xi", "指数分布乱数（RCS変動を模擬）"),
+        ("Exp(1)", "平均1の指数分布"),
+        ("P_D", "パルス当たりの検出確率 [-]"),
+    ])
 
     # Figure: P(D) vs SNR
     fig_pd = _make_swerling_pd_figure()
@@ -1490,6 +1603,11 @@ def add_section_radar_simulator(doc):
         r"N_{clutter} \sim \mathrm{Poisson}(\lambda_c)",
         fontsize=14,
     )
+    add_symbol_legend(doc, [
+        ("N_{clutter}", "1フレームに生成されるクラッタ点数"),
+        ("lambda_c", "クラッタ発生期待点数（ポアソン分布の平均） [点/フレーム]"),
+        ("Poisson(lambda_c)", "期待値 λ_c のポアソン分布"),
+    ])
 
     add_table_caption(doc, "表3-3  クラッタモデルパラメータ")
     add_table_with_header(
@@ -1590,6 +1708,14 @@ def add_section_2(doc):
         r"R = \mathrm{diag}(\sigma_r^2,\ \sigma_\theta^2,\ \sigma_\phi^2,\ \sigma_{\dot{d}}^2)",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("R", "観測ノイズ共分散行列（4×4対角行列）"),
+        ("diag(...)", "対角行列コンストラクタ"),
+        ("sigma_r", "距離観測の標準偏差（= 10 m）"),
+        ("sigma_theta", "方位角観測の標準偏差（= 0.01 rad）"),
+        ("sigma_phi", "仰角観測の標準偏差（= 0.01 rad）"),
+        ("sigma_{dot{d}}", "ドップラー観測の標準偏差（= 2 m/s）"),
+    ])
 
     doc.add_page_break()
 
@@ -1626,6 +1752,13 @@ def add_section_3(doc):
     doc.add_paragraph()
     add_paragraph_with_font(doc, "λの計算式:", size=10, bold=True)
     add_math_image(doc, r"\lambda = \alpha^2 (n + \kappa) - n", fontsize=16)
+    add_symbol_legend(doc, [
+        ("lambda", "UKFスケーリングパラメータ（= α²(n+κ)−n）"),
+        ("alpha", "シグマポイント拡散パラメータ（= 0.5）"),
+        ("n", "状態次元数（= 9）"),
+        ("kappa", "二次スケーリングパラメータ（= 0.0）"),
+        ("beta", "分布パラメータ（ガウス分布では 2.0 が最適）"),
+    ])
 
     # --- Sigma points ---
     doc.add_heading("5.2 シグマポイント", level=2)
@@ -1648,6 +1781,16 @@ def add_section_3(doc):
         r"\quad (i=1,\ldots,n)",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("chi_0", "中心シグマポイント（= 状態推定値）"),
+        ("chi_i  (i=1..n)", "正側シグマポイント"),
+        ("chi_{i+n} (i=1..n)", "負側シグマポイント"),
+        ("bar{x}", "現在の状態推定値（平均）"),
+        ("sqrt{(n+lambda)P}_i", "行列の平方根（コレスキー分解）のi列目"),
+        ("P", "現在の推定誤差共分散行列"),
+        ("n", "状態次元数（= 9）、シグマポイント総数 = 2n+1 = 19"),
+        ("lambda", "スケーリングパラメータ（= −6.75）"),
+    ])
 
     # --- Weights ---
     doc.add_heading("5.3 重み係数", level=2)
@@ -1670,6 +1813,15 @@ def add_section_3(doc):
         r"W_i^c = \frac{1}{2(n + \lambda)} \quad (i=1,\ldots,2n)",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("W_0^m", "中心シグマポイントの平均用重み"),
+        ("W_i^m  (i=1..2n)", "正負シグマポイントの平均用重み（各 1/(2(n+λ))）"),
+        ("W_0^c", "中心シグマポイントの共分散用重み（ベータ補正を含む）"),
+        ("W_i^c  (i=1..2n)", "正負シグマポイントの共分散用重み（= W_i^m と同値）"),
+        ("beta", "分布パラメータ（= 2.0）。共分散重みの尖度補正に使用"),
+        ("lambda", "スケーリングパラメータ"),
+        ("n", "状態次元数（= 9）"),
+    ])
 
     # --- Prediction ---
     doc.add_heading("5.4 予測ステップ", level=2)
@@ -1699,6 +1851,17 @@ def add_section_3(doc):
         r"(\chi_i^* - \hat{\mathbf{x}}^-)(\chi_i^* - \hat{\mathbf{x}}^-)^T + \mathbf{Q} \cdot \Delta t",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("chi_i^*", "運動モデル適用後の伝播済みシグマポイント"),
+        ("f(chi_i, Delta t)", "運動モデル関数（CV / 弾道 / CT）"),
+        ("Delta t", "タイムステップ [s]"),
+        ("hat{x}^-", "予測状態推定値（更新前）"),
+        ("W_i^m", "平均用重み係数"),
+        ("P^-", "予測誤差共分散行列"),
+        ("W_i^c", "共分散用重み係数"),
+        ("Q", "プロセスノイズ共分散行列"),
+        ("T (上付き)", "行列転置"),
+    ])
 
     # --- Update ---
     doc.add_heading("5.5 更新ステップ", level=2)
@@ -1745,6 +1908,19 @@ def add_section_3(doc):
         r"\mathbf{P} = \mathbf{P}^- - \mathbf{K} \cdot \mathbf{S} \cdot \mathbf{K}^T",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("Z_i", "観測空間に投影されたシグマポイント"),
+        ("h(chi_i^*)", "観測モデル関数（距離・方位・仰角・ドップラーに変換）"),
+        ("hat{z}", "予測観測値（シグマポイントの重み付き平均）"),
+        ("S", "イノベーション共分散行列"),
+        ("R", "観測ノイズ共分散行列"),
+        ("P_{xz}", "状態-観測間クロス共分散行列"),
+        ("K", "カルマンゲイン行列（= P_xz S^{-1}）"),
+        ("z", "実際の観測値ベクトル"),
+        ("hat{x}", "更新後の状態推定値"),
+        ("P", "更新後の誤差共分散行列"),
+        ("S^{-1}", "イノベーション共分散の逆行列"),
+    ])
 
     # --- Process noise ---
     doc.add_heading("5.6 プロセスノイズ", level=2)
@@ -1775,6 +1951,13 @@ def add_section_3(doc):
         r"\sigma_{acc}^2, \sigma_{acc}^2, \sigma_{acc}^2)",
         fontsize=13,
     )
+    add_symbol_legend(doc, [
+        ("Q", "プロセスノイズ共分散行列（9×9対角行列）"),
+        ("sigma_{pos}", "位置成分のプロセスノイズ標準偏差（= 160 m）"),
+        ("sigma_{vel}", "速度成分のプロセスノイズ標準偏差（= 65 m/s）"),
+        ("sigma_{acc}", "加速度成分のプロセスノイズ標準偏差（= 160 m/s²）"),
+        ("diag(...)", "対角行列コンストラクタ（非対角要素 = 0）"),
+    ])
 
     doc.add_page_break()
 
@@ -1898,6 +2081,19 @@ def add_section_4(doc):
         "特定モデルの確率が0に収束することを防止する。",
         size=10,
     )
+    add_symbol_legend(doc, [
+        ("mu_k", "モデル k の現在の確率（更新前）"),
+        ("pi(k->j)", "モデル k からモデル j への遷移確率"),
+        ("c_j", "混合ステップでのモデル j の予測確率"),
+        ("hat{x}", "IMM統合後の状態推定値"),
+        ("hat{x}_j", "モデル j のUKF状態推定値"),
+        ("P", "IMM統合後の誤差共分散行列"),
+        ("P_j", "モデル j の誤差共分散行列"),
+        ("L_j", "モデル j の尤度（イノベーションの正規分布確率密度）"),
+        ("N(v; 0, S)", "平均0・共分散 S のガウス分布"),
+        ("S_j", "モデル j のイノベーション共分散行列"),
+        ("mu_j", "モデル j の更新後確率（規格化済み）"),
+    ])
 
     doc.add_page_break()
 
@@ -1928,6 +2124,14 @@ def add_section_5(doc):
         r"\quad (\tau = 5\ \mathrm{s})",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("p(t)", "時刻 t における位置ベクトル [m]"),
+        ("v(t)", "時刻 t における速度ベクトル [m/s]"),
+        ("a(t)", "時刻 t における加速度ベクトル [m/s²]"),
+        ("Delta t", "タイムステップ [s]"),
+        ("tau", "加速度の指数減衰時定数（= 5 s）"),
+        ("exp(...)", "指数関数"),
+    ])
 
     # --- 5.2 Ballistic ---
     doc.add_heading("7.2 弾道（RK4）モデル", level=2)
@@ -2002,6 +2206,20 @@ def add_section_5(doc):
         "上記の微分方程式をRK4（4段ルンゲ・クッタ法）で各タイムステップごとに数値積分する。",
         size=10,
     )
+    add_symbol_legend(doc, [
+        ("g(h)", "高度 h における重力加速度 [m/s²]"),
+        ("g_0", "標準重力加速度 = 9.80665 m/s²"),
+        ("R_E", "地球半径 = 6,371,000 m"),
+        ("h", "目標の高度（= z） [m]"),
+        ("rho(h)", "高度 h における大気密度 [kg/m³]"),
+        ("rho_0", "海面大気密度 = 1.225 kg/m³"),
+        ("H", "大気スケール高度 = 7,400 m"),
+        ("F_{drag}", "抗力ベクトル [N]"),
+        ("beta", "弾道係数（= C_d A / (2m) = 0.001 m²/kg）"),
+        ("|v|", "速度の大きさ [m/s]"),
+        ("ddot{x}, ddot{y}", "水平面内の加速度成分（抗力のみ） [m/s²]"),
+        ("ddot{z}", "鉛直方向加速度（重力＋抗力） [m/s²]"),
+    ])
 
     # --- 5.3 CT ---
     doc.add_heading("7.3 CT（旋回）モデル", level=2)
@@ -2069,6 +2287,18 @@ def add_section_5(doc):
         r"z(t+\Delta t) = z + v_z \cdot \Delta t + \frac{1}{2} a_z \cdot \Delta t^2",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("omega", "旋回角速度（= (v_x a_y - v_y a_x) / (v_x²+v_y²)） [rad/s]"),
+        ("v_x, v_y", "水平面内の速度成分 [m/s]"),
+        ("a_x, a_y", "水平面内の加速度成分 [m/s²]"),
+        ("v_x', v_y'", "旋回後の速度成分 [m/s]"),
+        ("x, y", "水平位置成分 [m]"),
+        ("Delta t", "タイムステップ [s]"),
+        ("z", "高度 [m]"),
+        ("v_z", "鉛直速度成分 [m/s]"),
+        ("a_z", "鉛直加速度成分 [m/s²]"),
+        ("sin, cos", "三角関数"),
+    ])
 
     doc.add_page_break()
 
@@ -2098,6 +2328,15 @@ def add_section_6(doc):
         r"\left(\frac{z_k^{meas} - z_k^{pred}}{\sigma_k}\right)^2",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("d^2(i,j)", "航跡 i と観測 j の正規化イノベーション距離（NID）"),
+        ("k", "観測成分インデックス（r: 距離, az: 方位, el: 仰角, dop: ドップラー）"),
+        ("z_k^{meas}", "観測値の第 k 成分"),
+        ("z_k^{pred}", "航跡 i の予測観測値の第 k 成分"),
+        ("sigma_k", "第 k 観測成分のノイズ標準偏差"),
+        ("i", "航跡インデックス"),
+        ("j", "観測インデックス"),
+    ])
 
     # --- Gating ---
     doc.add_heading("8.2 ゲーティング", level=2)
@@ -2209,6 +2448,14 @@ def add_section_7(doc):
         r"z = r \sin(\phi) + z_{sensor}",
         fontsize=14,
     )
+    add_symbol_legend(doc, [
+        ("x, y, z", "直交座標（東・北・高度） [m]"),
+        ("r", "スラントレンジ（観測距離） [m]"),
+        ("phi", "仰角 [rad]"),
+        ("theta", "方位角 [rad]"),
+        ("x_{sensor}, y_{sensor}, z_{sensor}", "センサの位置座標 [m]"),
+        ("sin, cos", "三角関数"),
+    ])
 
     add_paragraph_with_font(
         doc,
@@ -2263,6 +2510,18 @@ def add_section_8(doc):
         r"\|\mathbf{v}_{track,i} - \mathbf{v}_{truth,i}\|^2}",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("RMSE_{pos}", "位置の二乗平均平方根誤差 [m]"),
+        ("RMSE_{vel}", "速度の二乗平均平方根誤差 [m/s]"),
+        ("N", "評価サンプル数（タイムステップ数）"),
+        ("p_{track,i}", "タイムステップ i の追尾位置ベクトル [m]"),
+        ("p_{truth,i}", "タイムステップ i の真値位置ベクトル [m]"),
+        ("v_{track,i}", "タイムステップ i の追尾速度ベクトル [m/s]"),
+        ("v_{truth,i}", "タイムステップ i の真値速度ベクトル [m/s]"),
+        ("||...||", "ユークリッドノルム（3次元距離）"),
+        ("sqrt{...}", "平方根"),
+        ("sum_{i=1}^N", "i = 1 から N までの総和"),
+    ])
 
     # --- OSPA ---
     doc.add_heading("10.2 OSPA（Optimal SubPattern Assignment）", level=2)
@@ -2279,6 +2538,18 @@ def add_section_8(doc):
         r"\right]^{1/p}",
         fontsize=14,
     )
+    add_symbol_legend(doc, [
+        ("d_{OSPA}^{(p)}(X,Y)", "集合 X（追尾）と Y（真値）間のOSPA距離"),
+        ("p", "ノルム次数（= 1）"),
+        ("c", "カットオフ距離（= 10,000 m）。個数誤差のペナルティ上限"),
+        ("m", "追尾集合 X の要素数（航跡数）"),
+        ("n", "真値集合 Y の要素数（目標数）"),
+        ("x_i, y_j", "集合 X, Y の各要素（位置ベクトル）"),
+        ("pi(i)", "最適割当によるインデックスの対応付け"),
+        ("d(x_i, y_j)", "x_i と y_j のユークリッド距離 [m]"),
+        ("min, max", "最小値・最大値演算"),
+        ("|m-n|", "追尾数と目標数の差（個数誤差）"),
+    ])
 
     add_table_caption(doc, "表10-1  OSPAパラメータ")
     add_table_with_header(
@@ -2315,6 +2586,14 @@ def add_section_8(doc):
         r"{\mathrm{Precision} + \mathrm{Recall}}",
         fontsize=15,
     )
+    add_symbol_legend(doc, [
+        ("TP (True Positive)", "正しく追尾された目標数（航跡と真値が対応）"),
+        ("FP (False Positive)", "誤追尾数（真値に対応しない余剰な航跡）"),
+        ("FN (False Negative)", "追尾漏れ数（航跡が対応しない未追尾の真値）"),
+        ("Precision", "適合率（追尾航跡のうち正しいものの割合）"),
+        ("Recall", "再現率（真値目標のうち追尾されたものの割合）"),
+        ("F_1", "F1スコア（適合率と再現率の調和平均）"),
+    ])
 
     add_table_caption(doc, "表10-2  検出指標の定義")
     add_table_with_header(
@@ -2428,6 +2707,13 @@ def add_section_gpu_acceleration(doc):
     add_math_image(doc,
         r"\text{Throughput} \propto \frac{N_{targets} \times 19}{\text{blockDim}=256}",
         fontsize=13)
+    add_symbol_legend(doc, [
+        ("N_{targets}", "追尾対象の目標数（並列処理のバッチサイズ）"),
+        ("19", "シグマポイント総数（= 2n+1 = 2×9+1）"),
+        ("blockDim", "CUDAスレッドブロックサイズ（= 256スレッド）"),
+        ("Throughput", "GPU処理スループット（ブロック数 ∝ N × 19 / 256）"),
+        ("N_targets x 19", "1ステップ全シグマポイント総数"),
+    ])
 
     # 11.2 IMM parallel streams
     doc.add_heading("11.2 IMMフィルタのストリーム並列化", level=2)
@@ -2476,6 +2762,16 @@ def add_section_gpu_acceleration(doc):
     add_math_image(doc,
         r"d^2_{ij} = (\mathbf{z}_j - \hat{\mathbf{z}}_i)^\top S_i^{-1} (\mathbf{z}_j - \hat{\mathbf{z}}_i)",
         fontsize=14)
+    add_symbol_legend(doc, [
+        ("d^2_{ij}", "航跡 i と観測 j 間のマハラノビス距離の二乗"),
+        ("z_j", "j 番目の観測値ベクトル（距離・方位・仰角・ドップラー）"),
+        ("hat{z}_i", "航跡 i の予測観測値ベクトル"),
+        ("S_i", "航跡 i のイノベーション共分散行列（観測空間4×4）"),
+        ("S_i^{-1}", "S_i の逆行列（ホワイトニング変換）"),
+        ("T (上付き)", "ベクトル転置"),
+        ("i", "航跡インデックス（i = 1 ... N_tracks）"),
+        ("j", "観測インデックス（j = 1 ... N_meas）"),
+    ])
     add_paragraph_with_font(
         doc,
         "ここで z_j は j 番目の観測値、ẑ_i は i 番目の航跡の予測観測値、"
