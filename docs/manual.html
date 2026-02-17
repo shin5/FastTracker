@@ -315,6 +315,7 @@ td code { font-size: 12px; }
         <a href="#sec2-requirements" class="sub">2.1 動作環境</a>
         <a href="#sec2-build" class="sub">2.2 ビルド手順</a>
         <a href="#sec2-flask" class="sub">2.3 Web GUI起動</a>
+        <a href="#sec2-docker" class="sub">2.4 Dockerオフライン配布</a>
         <a href="#sec3">3. Web GUI操作ガイド</a>
         <a href="#sec3-layout" class="sub">3.1 画面構成</a>
         <a href="#sec3-map" class="sub">3.2 地図操作</a>
@@ -461,6 +462,76 @@ python app.py</code></pre>
 <p>ブラウザで <code>http://localhost:5000</code> にアクセスするとGUIが表示されます。</p>
 <div class="warn-box">
 <strong>注意:</strong> <code>fasttracker</code> 実行ファイルのビルドが完了していない場合、Web GUIからの軌道生成・追尾は実行できません。
+</div>
+
+
+<h3 id="sec2-docker">2.4 Dockerオフライン配布</h3>
+<p>
+Dockerイメージを使用すると、Python・Flask・CUDAランタイム等の依存関係をすべてイメージに含めた状態で配布できます。
+インターネット接続なしで実行環境を構築できるため、閉域網環境への展開に適しています。
+</p>
+
+<h4>前提条件（実行環境側）</h4>
+<table>
+    <tr><th>必要なもの</th><th>備考</th></tr>
+    <tr><td>Docker Engine</td><td>20.10 以上</td></tr>
+    <tr><td>NVIDIA Container Toolkit</td><td>GPU使用時に必要 (<code>nvidia-ctk</code>)</td></tr>
+    <tr><td>NVIDIAドライバ</td><td>ホストOS側にインストール済みであること</td></tr>
+</table>
+<p>ビルドはインターネットあり環境で行い、生成したイメージを持ち出します。</p>
+
+<h4>Step 1: イメージのビルド（インターネットあり環境）</h4>
+<pre><code><span class="cmt"># リポジトリルートで実行</span>
+cd ~/FastTracker
+sudo docker build -t fasttracker:latest .</code></pre>
+<p>ビルドには初回10〜30分程度かかります。CUDA devel イメージ（約6GB）のダウンロードが含まれます。</p>
+
+<h4>Step 2: イメージの書き出し</h4>
+<pre><code><span class="cmt"># gzip圧縮付きでtarファイルに書き出し（約3GB）</span>
+sudo docker save fasttracker:latest | gzip > fasttracker.tar.gz
+
+<span class="cmt"># docker-compose.yml も一緒に持ち出す</span>
+cp docker-compose.yml /path/to/export/</code></pre>
+
+<h4>Step 3: オフライン環境への転送</h4>
+<p>USBメモリ・SCP等で以下の2ファイルを転送します。</p>
+<table>
+    <tr><th>ファイル</th><th>サイズ目安</th><th>用途</th></tr>
+    <tr><td><code>fasttracker.tar.gz</code></td><td>約 3 GB</td><td>Dockerイメージ本体</td></tr>
+    <tr><td><code>docker-compose.yml</code></td><td>数百バイト</td><td>起動設定</td></tr>
+</table>
+
+<h4>Step 4: オフライン環境での読み込みと起動</h4>
+<pre><code><span class="cmt"># イメージの読み込み</span>
+sudo docker load &lt; fasttracker.tar.gz
+
+<span class="cmt"># コンテナ起動（docker-compose.yml と同じディレクトリで実行）</span>
+sudo docker compose up -d
+
+<span class="cmt"># 停止</span>
+sudo docker compose down</code></pre>
+<p>起動後、ブラウザで <code>http://localhost:5000</code> にアクセスするとGUIが表示されます。</p>
+
+<h4>バージョン更新時の手順</h4>
+<pre><code><span class="cmt"># インターネットあり環境で再ビルド</span>
+sudo docker build -t fasttracker:latest .
+sudo docker save fasttracker:latest | gzip > fasttracker_v2.tar.gz
+
+<span class="cmt"># オフライン環境で入れ替え</span>
+sudo docker compose down
+sudo docker load &lt; fasttracker_v2.tar.gz
+sudo docker compose up -d</code></pre>
+
+<div class="info-box">
+<strong>ポート変更:</strong> ポート 5000 が使用中の場合、<code>docker-compose.yml</code> の <code>"5000:5000"</code> を
+<code>"8080:5000"</code> のように変更することで任意のポートにマッピングできます。
+</div>
+
+<div class="warn-box">
+<strong>GPU使用:</strong> NVIDIA Container Toolkit が未設定の場合、コンテナからGPUを認識できず
+<code>fasttracker</code> バイナリの実行に失敗します。
+<code>sudo nvidia-ctk runtime configure --runtime=docker &amp;&amp; sudo service docker restart</code>
+で設定後、再度起動してください。
 </div>
 
 
