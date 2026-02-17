@@ -466,6 +466,10 @@ def add_toc(doc):
         ("8.", "データアソシエーション"),
         ("9.", "航跡管理"),
         ("10.", "評価指標"),
+        ("11.", "GPU並列処理による高速化"),
+        ("  11.1", "UKFシグマポイントの並列化"),
+        ("  11.2", "IMMフィルタのストリーム並列化"),
+        ("  11.3", "コスト行列計算の並列化"),
     ]
     for num, title in toc_entries:
         p = doc.add_paragraph()
@@ -701,6 +705,240 @@ def _make_detection_chain_figure():
     return fig
 
 
+def _make_hgv_forces_figure():
+    """Diagram showing HGV lift, drag, and bank angle in 3D concept."""
+    import numpy as np
+    fig, axes = plt.subplots(1, 2, figsize=(7.5, 3.2))
+
+    # --- Left: side view with flight path angle γ ---
+    ax = axes[0]
+    ax.set_xlim(-0.5, 5.5)
+    ax.set_ylim(-1.0, 3.5)
+    ax.axis("off")
+    ax.set_facecolor("#F8F9FA")
+    ax.set_title("Side View (γ: flight path angle)", fontsize=9, fontweight="bold")
+
+    from matplotlib.patches import FancyArrowPatch
+    # Trajectory arc
+    t_arc = np.linspace(0, 0.8, 50)
+    x_arc = t_arc * 4.0
+    y_arc = 1.8 + 0.4 * np.sin(np.pi * t_arc / 0.8)
+    ax.plot(x_arc, y_arc, color="#E05A2B", lw=2.0, linestyle="--", label="Trajectory")
+
+    # At midpoint: draw velocity vector, drag, lift, gravity
+    mid = 25
+    px, py = x_arc[mid], y_arc[mid]
+    # Velocity direction (tangent to arc)
+    dx_v = (x_arc[mid+1] - x_arc[mid-1])
+    dy_v = (y_arc[mid+1] - y_arc[mid-1])
+    spd = np.sqrt(dx_v**2 + dy_v**2)
+    dx_v /= spd; dy_v /= spd
+
+    # Velocity vector
+    ax.annotate("", xy=(px + 0.9*dx_v, py + 0.9*dy_v), xytext=(px, py),
+                arrowprops=dict(arrowstyle="-|>", color="#2E75B6", lw=2.0))
+    ax.text(px + 0.9*dx_v + 0.05, py + 0.9*dy_v + 0.05, "v", color="#2E75B6",
+            fontsize=9, fontweight="bold")
+
+    # Drag vector (opposite to velocity)
+    ax.annotate("", xy=(px - 0.7*dx_v, py - 0.7*dy_v), xytext=(px, py),
+                arrowprops=dict(arrowstyle="-|>", color="#E05A2B", lw=2.0))
+    ax.text(px - 0.85*dx_v - 0.15, py - 0.7*dy_v, r"$F_{drag}$", color="#E05A2B", fontsize=8)
+
+    # Lift vector (perpendicular to velocity, upward)
+    lx, ly = -dy_v, dx_v  # Perpendicular (upward component)
+    ax.annotate("", xy=(px + 0.8*lx, py + 0.8*ly), xytext=(px, py),
+                arrowprops=dict(arrowstyle="-|>", color="#2EB67D", lw=2.0))
+    ax.text(px + 0.85*lx - 0.1, py + 0.85*ly + 0.05, r"$F_{lift}$", color="#2EB67D", fontsize=8)
+
+    # Gravity
+    ax.annotate("", xy=(px, py - 0.7), xytext=(px, py),
+                arrowprops=dict(arrowstyle="-|>", color="#9B59B6", lw=2.0))
+    ax.text(px + 0.05, py - 0.75, "mg", color="#9B59B6", fontsize=8)
+
+    # Flight path angle arc
+    angle_arc = np.linspace(0, np.arctan2(dy_v, dx_v), 30)
+    ax.plot(px + 0.4*np.cos(angle_arc), py + 0.4*np.sin(angle_arc), color="#888", lw=1.2)
+    ax.text(px + 0.5, py - 0.15, r"$\gamma$", fontsize=9, color="#555")
+
+    ax.legend(fontsize=7, loc="lower right")
+
+    # --- Right: front view showing bank angle σ ---
+    ax2 = axes[1]
+    ax2.set_xlim(-2.5, 2.5)
+    ax2.set_ylim(-1.5, 2.5)
+    ax2.axis("off")
+    ax2.set_facecolor("#F8F9FA")
+    ax2.set_title("Front View (σ: bank angle)", fontsize=9, fontweight="bold")
+
+    # Horizon line
+    ax2.axhline(0, color="#CCC", lw=1.0, linestyle="--")
+    ax2.text(2.1, 0.05, "horiz.", fontsize=7, color="#888")
+
+    # Vehicle dot (coming toward viewer)
+    ax2.plot(0, 0.5, "o", ms=12, color="#E05A2B", zorder=5)
+    ax2.text(0.15, 0.5, "HGV\n(front)", fontsize=7)
+
+    # Bank angle = 30°
+    sigma = np.radians(35)
+    # Wing span
+    ax2.annotate("", xy=(-1.5*np.cos(sigma), 0.5 - 1.5*np.sin(sigma)),
+                xytext=(0, 0.5), arrowprops=dict(arrowstyle="-", color="#555", lw=2.0))
+    ax2.annotate("", xy=(1.5*np.cos(sigma), 0.5 + 1.5*np.sin(sigma)),
+                xytext=(0, 0.5), arrowprops=dict(arrowstyle="-", color="#555", lw=2.0))
+
+    # Lift direction (perpendicular to wing)
+    lx2 = np.sin(sigma); ly2 = np.cos(sigma)
+    ax2.annotate("", xy=(0 + 1.0*lx2, 0.5 + 1.0*ly2), xytext=(0, 0.5),
+                arrowprops=dict(arrowstyle="-|>", color="#2EB67D", lw=2.0))
+    ax2.text(0 + 1.0*lx2 + 0.1, 0.5 + 1.0*ly2, r"$F_{lift}$", color="#2EB67D", fontsize=8)
+
+    # Gravity
+    ax2.annotate("", xy=(0, 0.5 - 0.8), xytext=(0, 0.5),
+                arrowprops=dict(arrowstyle="-|>", color="#9B59B6", lw=2.0))
+    ax2.text(0.05, 0.5 - 0.9, "mg", color="#9B59B6", fontsize=8)
+
+    # Bank angle arc
+    bank_arc = np.linspace(np.pi/2, np.pi/2 - sigma, 40)
+    r_arc = 0.55
+    ax2.plot(0 + r_arc*np.cos(bank_arc), 0.5 + r_arc*np.sin(bank_arc), color="#E05A2B", lw=1.5)
+    ax2.text(-0.05, 0.5 + 0.65, r"$\sigma$", fontsize=9, color="#E05A2B", fontweight="bold")
+
+    fig.tight_layout()
+    return fig
+
+
+def _make_hgv_skimming_figure():
+    """Illustrate HGV skip-glide oscillation pattern."""
+    import numpy as np
+    fig, ax = plt.subplots(figsize=(7, 3.5))
+
+    t = np.linspace(0, 1, 500)
+    x = t * 1400
+
+    # Boost phase
+    t_boost = 0.04
+    t_pullup = 0.10
+    t_glide_start = 0.15
+    t_terminal = 0.88
+
+    # Boost (0 → t_boost): steep ascent
+    boost_mask = t < t_boost
+    # Pullup: t_boost → t_glide_start
+    pullup_mask = (t >= t_boost) & (t < t_glide_start)
+    # Glide with skip oscillation
+    glide_mask = (t >= t_glide_start) & (t < t_terminal)
+    # Terminal
+    terminal_mask = t >= t_terminal
+
+    alt = np.zeros_like(t)
+    # Boost ascent
+    alt[boost_mask] = np.linspace(0, 35, boost_mask.sum())
+    # Pullup transition
+    alt[pullup_mask] = np.linspace(35, 42, pullup_mask.sum())
+    # Skip-glide: slow oscillation around cruise altitude
+    t_g = (t[glide_mask] - t_glide_start) / (t_terminal - t_glide_start)
+    alt[glide_mask] = 40 + 6 * np.exp(-1.5*t_g) * np.sin(3.5 * np.pi * t_g) - 3 * t_g
+    # Terminal dive
+    t_term = (t[terminal_mask] - t_terminal) / (1 - t_terminal)
+    alt[terminal_mask] = alt[terminal_mask][0] * (1 - t_term**1.5)
+
+    ax.plot(x, alt, color="#2E75B6", lw=2.5)
+
+    # Phase labels
+    ax.axvspan(0, t_boost * 1400, alpha=0.15, color="#FF8C00", label="Boost")
+    ax.axvspan(t_boost * 1400, t_glide_start * 1400, alpha=0.08, color="#9B59B6",
+               label="Pull-up")
+    ax.axvspan(t_glide_start * 1400, t_terminal * 1400, alpha=0.08, color="#2E75B6",
+               label="Skip-Glide (bank angle control)")
+    ax.axvspan(t_terminal * 1400, 1400, alpha=0.15, color="#E05A2B",
+               label="Terminal")
+
+    ax.set_xlabel("Horizontal Range (km)", fontsize=10)
+    ax.set_ylabel("Altitude (km)", fontsize=10)
+    ax.set_title("HGV Skip-Glide Trajectory", fontsize=12, fontweight="bold")
+    ax.legend(fontsize=8, loc="upper right")
+    ax.set_xlim(0, 1400)
+    ax.set_ylim(-3, 58)
+    ax.grid(True, alpha=0.3)
+    ax.set_facecolor("#F8F9FA")
+    fig.tight_layout()
+    return fig
+
+
+def _make_gpu_arch_figure():
+    """Illustrate GPU parallelization architecture."""
+    import numpy as np
+    fig, ax = plt.subplots(figsize=(7.5, 4.0))
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 6.5)
+    ax.axis("off")
+    ax.set_facecolor("white")
+
+    from matplotlib.patches import FancyBboxPatch
+
+    def draw_box(cx, cy, w, h, color, text, fontsize=8.5, alpha=0.88):
+        rect = FancyBboxPatch((cx - w/2, cy - h/2), w, h,
+                              boxstyle="round,pad=0.06",
+                              facecolor=color, edgecolor="white",
+                              linewidth=1.5, alpha=alpha)
+        ax.add_patch(rect)
+        ax.text(cx, cy, text, ha="center", va="center",
+                fontsize=fontsize, color="white", fontweight="bold",
+                linespacing=1.35)
+
+    # CPU section
+    draw_box(1.5, 5.5, 2.6, 0.85, "#555555", "CPU (Host)", fontsize=9)
+
+    # GPU outer box
+    rect_gpu = FancyBboxPatch((3.2, 0.3), 6.5, 5.8,
+                              boxstyle="round,pad=0.1",
+                              facecolor="#F0F4FA", edgecolor="#2E75B6",
+                              linewidth=2.0, alpha=1.0)
+    ax.add_patch(rect_gpu)
+    ax.text(6.45, 5.85, "GPU (Device)", ha="center", fontsize=9,
+            color="#2E75B6", fontweight="bold")
+
+    # Stream 0: CV UKF
+    draw_box(4.4, 4.6, 2.0, 0.8, "#4472C4", "Stream 0\nCV-UKF", fontsize=8)
+    # Stream 1: Ballistic UKF
+    draw_box(6.45, 4.6, 2.0, 0.8, "#4472C4", "Stream 1\nBallistic-UKF", fontsize=8)
+    # Stream 2: CT UKF
+    draw_box(8.5, 4.6, 2.0, 0.8, "#4472C4", "Stream 2\nCT-UKF", fontsize=8)
+
+    # Inside each stream: parallel sigma point processing
+    for cx_s in [4.4, 6.45, 8.5]:
+        draw_box(cx_s - 0.5, 3.55, 0.7, 0.65, "#2E75B6", "19×N\nthreads", fontsize=6.5)
+        draw_box(cx_s + 0.5, 3.55, 0.7, 0.65, "#2E75B6", "motion\nmodel", fontsize=6.5)
+        ax.annotate("", xy=(cx_s+0.12, 3.55), xytext=(cx_s-0.12, 3.55),
+                    arrowprops=dict(arrowstyle="-|>", color="#AAA", lw=1.0))
+
+    ax.text(6.45, 2.85, "Parallel sigma point propagation\n(N_targets x 19 threads per kernel)",
+            ha="center", fontsize=7.5, color="#444", style="italic")
+
+    # Sync + IMM combine
+    draw_box(6.45, 2.0, 4.5, 0.75, "#2EB67D",
+             "Stream sync + IMM weight combination (N_targets threads)", fontsize=7.5)
+
+    # Data association
+    draw_box(6.45, 1.05, 4.5, 0.75, "#E05A2B",
+             "Cost matrix kernel: N_tracks x N_meas threads", fontsize=7.5)
+
+    # Constant memory
+    draw_box(3.75, 2.5, 0.9, 1.2, "#9B59B6", "__const__\nmemory\ng0, Re\nrho0, H", fontsize=6.5)
+
+    # Arrows CPU -> GPU
+    ax.annotate("", xy=(3.3, 5.2), xytext=(2.8, 5.2),
+                arrowprops=dict(arrowstyle="-|>", color="#555", lw=1.5))
+    ax.text(3.05, 5.4, "H2D", fontsize=7.5, color="#555", ha="center")
+    ax.annotate("", xy=(2.8, 4.8), xytext=(3.3, 4.8),
+                arrowprops=dict(arrowstyle="-|>", color="#555", lw=1.5))
+    ax.text(3.05, 4.6, "D2H", fontsize=7.5, color="#555", ha="center")
+
+    fig.tight_layout(rect=[0, 0, 1, 1])
+    return fig
+
+
 def _make_measurement_geometry_figure():
     """Create a 2D diagram showing radar measurement geometry."""
     import numpy as np
@@ -891,22 +1129,181 @@ def add_section_target_generator(doc):
     doc.add_heading("2.4 HGV（極超音速滑空体）モデル", level=2)
     add_paragraph_with_font(
         doc,
-        "HGVはブーストフェーズ後、大気圏上層で滑空する。"
-        "揚力・抗力を考慮した運動方程式に基づき軌道を生成する。"
-        "主要パラメータを表2-2に示す。",
+        "HGV（Hypersonic Glide Vehicle）は、ロケットブーストで大気圏外へ射出された後、"
+        "大気圏上層で揚力を利用してスキップ・グライドしながら目標へ向かう。"
+        "本システムのHGVモデルは、揚力・抗力・重力を考慮した完全3次元運動方程式を"
+        "4次ルンゲ・クッタ法で数値積分し、フェーズごとにバンク角を制御する。",
         size=10,
     )
 
-    add_table_caption(doc, "表2-2  HGVモデルパラメータ")
+    # 2.4.1 飛翔フェーズ
+    doc.add_heading("2.4.1 飛翔フェーズ", level=3)
+    add_paragraph_with_font(
+        doc,
+        "HGVの飛翔は5つのフェーズに分けられる。各フェーズの特性と遷移条件を表2-3に示す。",
+        size=10,
+    )
+
+    add_table_caption(doc, "表2-3  HGV飛翔フェーズ一覧")
+    add_table_with_header(
+        doc,
+        ["フェーズ", "状態", "特性", "遷移条件"],
+        [
+            ("BOOST", "ブースト上昇",
+             "推力 F_thrust を鉛直・水平に配分。\n重力ターン制御。",
+             "燃焼時間 t_boost が終了"),
+            ("PULLUP", "プルアップ",
+             "ブースト終了後の姿勢回復。\nバンク角で揚力を利用し仰角を 0 へ収束。",
+             "|γ| < 0.08 rad かつ L/W > 0.5\nかつ経過時間 > 10 s"),
+            ("GLIDE", "スキップ滑空",
+             "揚力・抗力・重力の3力で軌道制御。\nバンク角で横方向誘導。\n大気密度変動によりスキップ振動が生じる。",
+             "目標までの距離 < 15～30 km"),
+            ("TERMINAL", "終末突入",
+             "急降下で目標に向かう。\n0.3 rad のサイン波型機動を重畳。",
+             "目標到達または高度 < 1 km"),
+            ("MIDCOURSE", "弾道中間",
+             "推力・揚力なし。重力・抗力のみ（弾道飛翔）。",
+             "—（非 HGV 用）"),
+        ],
+        col_widths=[2.2, 2.5, 5.8, 4.5],
+    )
+
+    # 2.4.2 運動方程式
+    doc.add_heading("2.4.2 運動方程式（3次元）", level=3)
+    add_paragraph_with_font(
+        doc,
+        "状態ベクトルは位置と速度の6成分 [x, y, z, vx, vy, vz] である。"
+        "重力加速度 g(z)、大気密度 ρ(z) はいずれも高度に依存する。"
+        "HGVに作用する力と幾何学的関係を図2-3に示す。",
+        size=10,
+    )
+
+    # Figure: HGV forces
+    fig_forces = _make_hgv_forces_figure()
+    fig_forces_path = save_figure(fig_forces, "hgv_forces.png")
+    add_figure_to_doc(
+        doc, fig_forces_path,
+        caption="図2-3  HGVに作用する力（左: 飛翔経路面, 右: バンク角）",
+        width_inches=6.5,
+    )
+
+    add_paragraph_with_font(doc, "位置微分:", size=10, bold=True)
+    add_math_image(doc,
+        r"\dot{x} = v_x, \quad \dot{y} = v_y, \quad \dot{z} = v_z",
+        fontsize=14)
+
+    add_paragraph_with_font(doc, "速度微分:", size=10, bold=True)
+    add_math_image(doc,
+        r"\dot{v}_x = \frac{F_{D,x} + F_{L,x}}{m}, \quad"
+        r"\dot{v}_y = \frac{F_{D,y} + F_{L,y}}{m}, \quad"
+        r"\dot{v}_z = \frac{F_{D,z} + F_{L,z}}{m} - g(z)",
+        fontsize=13)
+
+    add_paragraph_with_font(doc, "高度依存の重力と大気密度:", size=10, bold=True)
+    add_math_image(doc,
+        r"g(z) = g_0 \left(\frac{R_E}{R_E + z}\right)^2, \quad"
+        r"\rho(z) = \rho_0 \exp\left(-\frac{z}{H}\right)",
+        fontsize=14)
+    add_paragraph_with_font(
+        doc,
+        "ここで g₀ = 9.80665 m/s²、R_E = 6,371,000 m（地球半径）、"
+        "ρ₀ = 1.225 kg/m³（海面密度）、H = 8,500 m（スケール高度）。",
+        size=10,
+    )
+
+    # 2.4.3 揚力・抗力モデル
+    doc.add_heading("2.4.3 抗力と揚力", level=3)
+    add_paragraph_with_font(doc, "抗力（速度方向逆向き）:", size=10, bold=True)
+    add_math_image(doc,
+        r"\mathbf{F}_{drag} = -\frac{1}{2}\rho(z)\,v^2\,C_D\,A\;\hat{v}",
+        fontsize=14)
+    add_paragraph_with_font(doc, "揚力の大きさ:", size=10, bold=True)
+    add_math_image(doc,
+        r"L = \frac{1}{2}\rho(z)\,v^2\,C_L\,A, \quad C_L = C_D \cdot (L/D)",
+        fontsize=14)
+    add_paragraph_with_font(
+        doc,
+        "揚力方向は速度ベクトル v̂ に垂直な2方向から合成される。"
+        "まず鉛直面内の上向き単位ベクトル n̂_up を次式で定義する。",
+        size=10,
+    )
+    add_math_image(doc,
+        r"\hat{n}_{up} = \frac{\hat{z} - (\hat{z}\cdot\hat{v})\hat{v}}{|\hat{z} - (\hat{z}\cdot\hat{v})\hat{v}|}",
+        fontsize=14)
+    add_paragraph_with_font(
+        doc,
+        "横方向単位ベクトル n̂_lat は次式で得られる。",
+        size=10,
+    )
+    add_math_image(doc,
+        r"\hat{n}_{lat} = \hat{v} \times \hat{n}_{up}",
+        fontsize=14)
+    add_paragraph_with_font(doc, "揚力ベクトル（バンク角 σ を反映）:", size=10, bold=True)
+    add_math_image(doc,
+        r"\mathbf{F}_{lift} = L\,(\cos\sigma\;\hat{n}_{up} + \sin\sigma\;\hat{n}_{lat})",
+        fontsize=14)
+
+    # 2.4.4 バンク角制御
+    doc.add_heading("2.4.4 バンク角制御則", level=3)
+    add_paragraph_with_font(
+        doc,
+        "バンク角 σ はフェーズごとに異なる制御則で決定される。"
+        "γ は飛翔経路角（仰角）、Δψ は目標方位との偏差、"
+        "K_hdg = 2.0 rad⁻¹ は方位誘導ゲイン、L/W は揚力／重力比、"
+        "f は機動周波数、amp は機動振幅（0.3 rad）。",
+        size=10,
+    )
+    add_table_caption(doc, "表2-4  フェーズ別バンク角制御則")
+    add_table_with_header(
+        doc,
+        ["フェーズ", "バンク角 σ の計算式", "説明"],
+        [
+            ("PULLUP",
+             "cos(σ) = mg·cos(γ) / L",
+             "揚力水平分力で仰角をゼロへ回復"),
+            ("GLIDE",
+             "σ = −K_hdg · Δψ",
+             "横方向バンクで方位偏差を修正（K_hdg = 2.0 rad⁻¹）"),
+            ("TERMINAL",
+             "σ = π/2 + σ_hdg + 0.3·amp·sin(2π·f·t)",
+             "方位誘導＋サイン波機動で被撃墜率を低減"),
+        ],
+        col_widths=[2.5, 6.0, 7.5],
+    )
+
+    # 2.4.5 主要パラメータ
+    doc.add_heading("2.4.5 主要パラメータ", level=3)
+    add_paragraph_with_font(
+        doc,
+        "HGVモデルの主要パラメータを表2-5に示す。"
+        "スキップ滑空の典型的な高度プロファイルを図2-4に示す。",
+        size=10,
+    )
+    add_table_caption(doc, "表2-5  HGVモデルパラメータ")
     add_table_with_header(
         doc,
         ["パラメータ", "記号", "代表値", "説明"],
         [
-            ("揚力係数×面積/質量", "β_L", "0.002 m²/kg", "揚力項スケール"),
-            ("抗力係数×面積/質量", "β_D", "0.001 m²/kg", "抗力項スケール"),
-            ("最大滑空高度", "h_max", "60,000 m", "滑空フェーズ開始高度"),
+            ("抗力係数×面積", "C_D·A", "0.5 m²", "抗力計算に使用する有効面積"),
+            ("揚抗比", "L/D", "2.0", "揚力係数 / 抗力係数"),
+            ("質量", "m", "1,000 kg", "機体質量"),
+            ("ブースト推力", "F_thrust", "200,000 N", "ブーストフェーズの推力"),
+            ("燃焼時間", "t_boost", "60 s", "ブーストフェーズ継続時間"),
+            ("方位誘導ゲイン", "K_hdg", "2.0 rad⁻¹", "GLIDEフェーズの横方向制御ゲイン"),
+            ("終末機動振幅", "amp", "0.3 rad", "TERMINALフェーズのバンク角振幅"),
+            ("終末機動周波数", "f", "0.1 Hz", "TERMINALフェーズのサイン波周波数"),
         ],
-        col_widths=[5.0, 2.5, 3.0, 5.5],
+        col_widths=[4.5, 2.5, 3.0, 6.0],
+    )
+
+    # Figure: skip-glide
+    doc.add_paragraph()
+    fig_skim = _make_hgv_skimming_figure()
+    fig_skim_path = save_figure(fig_skim, "hgv_skimming.png")
+    add_figure_to_doc(
+        doc, fig_skim_path,
+        caption="図2-4  HGVスキップ滑空の典型的な高度プロファイル",
+        width_inches=6.0,
     )
 
     doc.add_page_break()
@@ -1954,6 +2351,159 @@ def add_section_8(doc):
     doc.add_page_break()
 
 
+def add_section_gpu_acceleration(doc):
+    """Section 11: GPU Parallel Processing."""
+    doc.add_heading("11. GPU並列処理による高速化", level=1)
+
+    add_paragraph_with_font(
+        doc,
+        "FastTrackerはNVIDIA CUDAを活用し、UKFシグマポイント演算・IMM並列処理・"
+        "コスト行列計算を GPU 上で並列実行する。"
+        "これにより多数の目標を同時にリアルタイム追尾することが可能となる。"
+        "GPU並列化アーキテクチャの概要を図11-1に示す。",
+        size=10,
+    )
+
+    fig_gpu = _make_gpu_arch_figure()
+    fig_gpu_path = save_figure(fig_gpu, "gpu_arch.png")
+    add_figure_to_doc(
+        doc, fig_gpu_path,
+        caption="図11-1  GPU並列処理アーキテクチャ",
+        width_inches=6.5,
+    )
+
+    # 11.1 UKF sigma point parallelism
+    doc.add_heading("11.1 UKFシグマポイントの並列化", level=2)
+    add_paragraph_with_font(
+        doc,
+        "UKFは状態次元 n=9 に対し 2n+1=19 個のシグマポイントを用いる。"
+        "N 個の目標に対するシグマポイント生成・予測・観測モデル計算は、"
+        "N × 19 個のスレッドが同時実行するよう設計されている。"
+        "主要 CUDAカーネルと並列化戦略を表11-1に示す。",
+        size=10,
+    )
+
+    add_table_caption(doc, "表11-1  UKF CUDAカーネル一覧")
+    add_table_with_header(
+        doc,
+        ["カーネル名", "グリッド／ブロック構成", "処理内容"],
+        [
+            ("generateSigmaPoints",
+             "grid = (N×19+255)/256\nblock = 256",
+             "コレスキー分解済み P から全目標のシグマポイントを生成"),
+            ("predictSigmaPoints",
+             "grid = (N×19+255)/256\nblock = 256",
+             "各シグマポイントに対して運動モデル（CV/弾道/CT）を適用"),
+            ("measurementModel",
+             "grid = (N×19+255)/256\nblock = 256",
+             "シグマポイントを観測空間（距離・方位角・仰角・ドップラー）に投影"),
+            ("computeWeightedMean",
+             "grid = N\nblock = 19",
+             "重み付き平均 x̄, z̄ を共有メモリでリダクション計算"),
+            ("computeCovariance",
+             "grid = N\nblock = 19",
+             "共分散 P_pred および S（観測共分散）を計算"),
+            ("computeCrossCovariance",
+             "grid = N\nblock = 19",
+             "クロス共分散行列 P_xz を計算"),
+            ("computeKalmanGain",
+             "grid = N\nblock = 1",
+             "カルマンゲイン K = P_xz · S⁻¹ を計算（S の逆行列は CPU）"),
+            ("updateState",
+             "grid = N\nblock = 1",
+             "状態更新 x̂ = x̄ + K·(z − z̄) を適用"),
+            ("updateCovariance",
+             "grid = N\nblock = 1",
+             "共分散更新 P = P_pred − K·S·Kᵀ を適用"),
+        ],
+        col_widths=[4.0, 4.5, 7.5],
+    )
+
+    add_paragraph_with_font(
+        doc,
+        "物理定数（g₀, R_E, ρ₀, H, BALLISTIC_BETA 等）はすべて "
+        "__constant__ メモリに配置され、全スレッドからキャッシュを通じて高速にアクセスできる。",
+        size=10,
+    )
+    add_math_image(doc,
+        r"\text{Throughput} \propto \frac{N_{targets} \times 19}{\text{blockDim}=256}",
+        fontsize=13)
+
+    # 11.2 IMM parallel streams
+    doc.add_heading("11.2 IMMフィルタのストリーム並列化", level=2)
+    add_paragraph_with_font(
+        doc,
+        "IMMフィルタは CV・弾道・CT の3モデルを管理する。"
+        "各モデルのUKF predict/updateは独立した CUDAストリームで同時実行される。"
+        "これにより3モデルの逐次実行に比べ、最大3倍の並列度を達成する。"
+        "IMM並列化の処理フローを表11-2に示す。",
+        size=10,
+    )
+
+    add_table_caption(doc, "表11-2  IMM CUDAストリーム並列化フロー")
+    add_table_with_header(
+        doc,
+        ["ステップ", "処理", "実行ストリーム"],
+        [
+            ("1. 混合初期化",
+             "computeMixingProbabilitiesKernel\n混合確率 μ_ij と混合推定値 x̃₀ⱼ を計算",
+             "Stream 0（同期）"),
+            ("2. モデル並列 UKF",
+             "各モデル（CV, 弾道, CT）の UKF predict + update を実行",
+             "Stream 0 / 1 / 2\n（3ストリーム並列）"),
+            ("3. cudaDeviceSynchronize",
+             "全ストリームの完了を待機",
+             "—"),
+            ("4. 確率更新",
+             "updateModelProbabilitiesKernel\n尤度 Λⱼ からモデル確率 μⱼ を更新",
+             "Stream 0（同期）"),
+            ("5. 推定統合",
+             "combineEstimatesKernel\n最終推定値 x̂ = Σⱼ μⱼ x̂ⱼ を計算",
+             "Stream 0（同期）"),
+        ],
+        col_widths=[3.0, 7.5, 5.5],
+    )
+
+    # 11.3 Cost matrix parallelism
+    doc.add_heading("11.3 コスト行列計算の並列化", level=2)
+    add_paragraph_with_font(
+        doc,
+        "データアソシエーションでは N_tracks × N_meas 個のマハラノビス距離を計算する必要がある。"
+        "各要素 (i, j) を独立したスレッドで並列計算することで、"
+        "逐次ループと比べてほぼ線形なスループット向上を実現する。",
+        size=10,
+    )
+    add_math_image(doc,
+        r"d^2_{ij} = (\mathbf{z}_j - \hat{\mathbf{z}}_i)^\top S_i^{-1} (\mathbf{z}_j - \hat{\mathbf{z}}_i)",
+        fontsize=14)
+    add_paragraph_with_font(
+        doc,
+        "ここで z_j は j 番目の観測値、ẑ_i は i 番目の航跡の予測観測値、"
+        "S_i は革新共分散行列。ゲーティング閾値 d² > 500.0 の組み合わせは"
+        "コスト行列から除外し，ハンガリアン法（Munkres）の処理量を削減する。",
+        size=10,
+    )
+
+    add_table_caption(doc, "表11-3  データアソシエーション GPU設定")
+    add_table_with_header(
+        doc,
+        ["設定項目", "値", "説明"],
+        [
+            ("コスト行列カーネルスレッド数", "blockDim = 256",
+             "1ブロックあたりのスレッド数"),
+            ("グリッドサイズ", "(N_tracks×N_meas+255)/256",
+             "全要素を網羅するブロック数"),
+            ("ゲーティング閾値", "d² = 500.0",
+             "マハラノビス距離の二乗によるゲーティング"),
+            ("__constant__メモリ対象", "g₀, R_E, ρ₀, H, BALLISTIC_BETA",
+             "全カーネルから参照される物理定数"),
+        ],
+        col_widths=[5.0, 3.5, 7.5],
+    )
+
+    doc.add_page_break()
+
+
 def add_revision_history(doc):
     """Add revision history table."""
     doc.add_heading("変更履歴", level=1)
@@ -1981,45 +2531,48 @@ def generate_document():
 
     doc = Document()
 
-    print("[1/13] Setting up page layout and styles...")
+    print("[1/14] Setting up page layout and styles...")
     setup_page(doc)
     setup_styles(doc)
 
-    print("[2/13] Creating title page...")
+    print("[2/14] Creating title page...")
     add_title_page(doc)
 
-    print("[3/13] Adding table of contents...")
+    print("[3/14] Adding table of contents...")
     add_toc(doc)
 
-    print("[4/13] Section 1: System Overview...")
+    print("[4/14] Section 1: System Overview...")
     add_section_1(doc)
 
-    print("[5/13] Section 2: Target Generator...")
+    print("[5/14] Section 2: Target Generator...")
     add_section_target_generator(doc)
 
-    print("[6/13] Section 3: Radar Simulator...")
+    print("[6/14] Section 3: Radar Simulator...")
     add_section_radar_simulator(doc)
 
-    print("[7/13] Section 4: State-Space Model...")
+    print("[7/14] Section 4: State-Space Model...")
     add_section_2(doc)
 
-    print("[8/13] Section 5: UKF...")
+    print("[8/14] Section 5: UKF...")
     add_section_3(doc)
 
-    print("[9/13] Section 6: IMM Filter...")
+    print("[9/14] Section 6: IMM Filter...")
     add_section_4(doc)
 
-    print("[10/13] Section 7: Motion Models...")
+    print("[10/14] Section 7: Motion Models...")
     add_section_5(doc)
 
-    print("[11/13] Section 8-9: Data Association & Track Management...")
+    print("[11/14] Section 8-9: Data Association & Track Management...")
     add_section_6(doc)
     add_section_7(doc)
 
-    print("[12/13] Section 10: Evaluation Metrics...")
+    print("[12/14] Section 10: Evaluation Metrics...")
     add_section_8(doc)
 
-    print("[13/13] Adding revision history...")
+    print("[13/14] Section 11: GPU Acceleration...")
+    add_section_gpu_acceleration(doc)
+
+    print("[14/14] Adding revision history...")
     add_revision_history(doc)
 
     # Save
