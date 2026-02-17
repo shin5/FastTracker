@@ -22,6 +22,16 @@ from webapp.trajectory_gen import latlon_to_meters
 
 app = Flask(__name__)
 
+
+@app.after_request
+def add_no_cache_headers(response):
+    """Prevent browser caching of HTML/JS/JSON to ensure latest data is always served."""
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
+
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 FASTTRACKER_EXE = PROJECT_ROOT / 'build' / 'Release' / 'fasttracker.exe'
@@ -227,15 +237,20 @@ def run_tracker():
         return jsonify({'success': False, 'error': f'FastTracker executable not found at {FASTTRACKER_EXE}'})
 
     # Determine simulation parameters from trajectory
-    duration = trajectory[-1]['time']
+    # Use warhead (object_id=0) entries only — trajectory may contain booster data
+    warhead_traj = [t for t in trajectory if t.get('object_id', 0) == 0]
+    if not warhead_traj:
+        warhead_traj = trajectory  # fallback if no object_id field
+
+    duration = warhead_traj[-1]['time']
     dt = trajectory[1]['time'] - trajectory[0]['time'] if len(trajectory) > 1 else 0.1
     framerate = 1.0 / dt
 
-    # Extract launch/target positions from trajectory data
-    launch_x = trajectory[0]['x']
-    launch_y = trajectory[0]['y']
-    target_x = trajectory[-1]['x']
-    target_y = trajectory[-1]['y']
+    # Extract launch/target positions from warhead trajectory data
+    launch_x = warhead_traj[0]['x']
+    launch_y = warhead_traj[0]['y']
+    target_x = warhead_traj[-1]['x']
+    target_y = warhead_traj[-1]['y']
 
     # Missile parameters from frontend
     missile_type = params.get('missile_type', 'ballistic')
@@ -301,18 +316,27 @@ def run_tracker():
     search_elevation_deg = float(params.get('search_elevation', 0))
     search_elevation_rad = math.radians(search_elevation_deg)
 
-    # Convert sensor lat/lon to meters (target = origin)
+    # Convert sensor lat/lon to meters (warhead impact = origin)
     sensor_x_m = 0.0
     sensor_y_m = 0.0
     if sensor_lat is not None and sensor_lon is not None:
-        # Get target lat/lon from trajectory (last point has lat/lon)
-        target_lat_traj = trajectory[-1].get('lat')
-        target_lon_traj = trajectory[-1].get('lon')
+        # Use warhead's last point (not booster) for coordinate reference
+        target_lat_traj = warhead_traj[-1].get('lat')
+        target_lon_traj = warhead_traj[-1].get('lon')
         if target_lat_traj is not None and target_lon_traj is not None:
             sensor_x_m, sensor_y_m = latlon_to_meters(
                 float(target_lat_traj), float(target_lon_traj),
                 float(sensor_lat), float(sensor_lon)
             )
+
+    # Debug logging for coordinate tracing
+    print(f"[run_tracker DEBUG] warhead_traj[0]: x={warhead_traj[0].get('x')}, y={warhead_traj[0].get('y')}, object_id={warhead_traj[0].get('object_id')}")
+    print(f"[run_tracker DEBUG] warhead_traj[-1]: x={warhead_traj[-1].get('x')}, y={warhead_traj[-1].get('y')}, lat={warhead_traj[-1].get('lat')}, lon={warhead_traj[-1].get('lon')}, object_id={warhead_traj[-1].get('object_id')}")
+    if len(warhead_traj) < len(trajectory):
+        print(f"[run_tracker DEBUG] NOTE: {len(trajectory)-len(warhead_traj)} booster entries filtered out")
+    print(f"[run_tracker DEBUG] sensor_lat={sensor_lat}, sensor_lon={sensor_lon}")
+    print(f"[run_tracker DEBUG] sensor_x_m={sensor_x_m}, sensor_y_m={sensor_y_m}")
+    print(f"[run_tracker DEBUG] launch_x={launch_x}, launch_y={launch_y}, target_x={target_x}, target_y={target_y}")
 
     # HGV-specific parameters
     hgv_cruise_alt = float(params.get('cruise_altitude', 40000.0))
@@ -420,6 +444,21 @@ def run_tracker():
     cmd.extend(['--antenna-boresight', str(antenna_boresight_rad)])
     cmd.extend(['--search-elevation', str(search_elevation_rad)])
 
+    # Log the C++ command for debugging — write to file to avoid stdout buffering
+    debug_log = PROJECT_ROOT / 'debug_run_tracker.log'
+    with open(debug_log, 'w') as dbg:
+        dbg.write(f"=== run_tracker debug ===\n")
+        dbg.write(f"Full command ({len(cmd)} args):\n")
+        dbg.write(' '.join(cmd) + '\n\n')
+        dbg.write(f"sensor_x_m = {sensor_x_m}\n")
+        dbg.write(f"sensor_y_m = {sensor_y_m}\n")
+        dbg.write(f"launch_x = {launch_x}\n")
+        dbg.write(f"launch_y = {launch_y}\n")
+        dbg.write(f"target_x = {target_x}\n")
+        dbg.write(f"target_y = {target_y}\n")
+        dbg.write(f"sensor_lat = {sensor_lat}\n")
+        dbg.write(f"sensor_lon = {sensor_lon}\n")
+
     try:
         timeout = 120 * max(num_runs, 1) * max(1, 1 + cluster_count // 3)
         result = subprocess.run(
@@ -436,6 +475,21 @@ def run_tracker():
 
         # Parse evaluation summary from stdout
         eval_summary = parse_eval_summary(result.stdout)
+
+        # Debug: append post-run data to log file
+        with open(debug_log, 'a') as dbg:
+            dbg.write(f"\n=== Post-run ===\n")
+            dbg.write(f"returncode = {result.returncode}\n")
+            dbg.write(f"stdout (last 500): {result.stdout[-500:] if result.stdout else 'EMPTY'}\n")
+            dbg.write(f"stderr (last 200): {result.stderr[-200:] if result.stderr else 'EMPTY'}\n")
+            if gt_data:
+                g0 = gt_data[0]
+                dbg.write(f"gt_data[0]: x={g0.get('x')}, y={g0.get('y')}, z={g0.get('z')}\n")
+            if meas_data:
+                m0 = next((m for m in meas_data if m.get('is_clutter', 0) == 0), meas_data[0])
+                dbg.write(f"first_meas: range={m0.get('range')}, az={m0.get('azimuth')}, el={m0.get('elevation')}\n")
+            dbg.write(f"JSON sensor_x={sensor_x_m}, sensor_y={sensor_y_m}\n")
+            dbg.write(f"gt_data count={len(gt_data)}, meas_data count={len(meas_data)}\n")
 
         return jsonify({
             'success': True,

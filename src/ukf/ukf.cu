@@ -75,21 +75,29 @@ void UKF::initializeWeights() {
 }
 
 void UKF::initializeProcessCov() {
-    // プロセスノイズ共分散行列 Q
+    // プロセスノイズ共分散行列 Q (9×9)
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     Eigen::Matrix<float, STATE_DIM, STATE_DIM> Q;
     Q.setZero();
 
-    // 位置ノイズ
-    Q(0, 0) = process_noise_.position_noise * process_noise_.position_noise;
-    Q(1, 1) = process_noise_.position_noise * process_noise_.position_noise;
+    float pos_var = process_noise_.position_noise * process_noise_.position_noise;
+    float vel_var = process_noise_.velocity_noise * process_noise_.velocity_noise;
+    float acc_var = process_noise_.accel_noise * process_noise_.accel_noise;
 
-    // 速度ノイズ
-    Q(2, 2) = process_noise_.velocity_noise * process_noise_.velocity_noise;
-    Q(3, 3) = process_noise_.velocity_noise * process_noise_.velocity_noise;
+    // 位置ノイズ (x, y, z)
+    Q(0, 0) = pos_var;
+    Q(1, 1) = pos_var;
+    Q(2, 2) = pos_var;
 
-    // 加速度ノイズ
-    Q(4, 4) = process_noise_.accel_noise * process_noise_.accel_noise;
-    Q(5, 5) = process_noise_.accel_noise * process_noise_.accel_noise;
+    // 速度ノイズ (vx, vy, vz)
+    Q(3, 3) = vel_var;
+    Q(4, 4) = vel_var;
+    Q(5, 5) = vel_var;
+
+    // 加速度ノイズ (ax, ay, az)
+    Q(6, 6) = acc_var;
+    Q(7, 7) = acc_var;
+    Q(8, 8) = acc_var;
 
     // デバイスへコピー
     d_process_cov_.copyFrom(Q.data(), STATE_DIM * STATE_DIM);
@@ -109,7 +117,8 @@ void UKF::initializeMeasCov() {
     d_meas_cov_.copyFrom(R.data(), MEAS_DIM * MEAS_DIM);
 }
 
-void UKF::predict(float* states, float* covariances, int num_targets, float dt) {
+void UKF::predict(float* states, float* covariances, int num_targets, float dt,
+                  int model_id) {
     if (num_targets > max_targets_) {
         throw std::runtime_error("Number of targets exceeds maximum");
     }
@@ -127,7 +136,7 @@ void UKF::predict(float* states, float* covariances, int num_targets, float dt) 
     int sigma_block_size = 256;
     int sigma_grid_size = (num_targets * SIGMA_POINTS + sigma_block_size - 1) / sigma_block_size;
     cuda::predictSigmaPoints<<<sigma_grid_size, sigma_block_size, 0, stream_predict_.get()>>>(
-        d_sigma_points_.get(), d_pred_sigma_points_.get(), num_targets, dt
+        d_sigma_points_.get(), d_pred_sigma_points_.get(), num_targets, dt, model_id
     );
 
     // 3. 予測平均計算
@@ -162,7 +171,7 @@ void UKF::predict(float* states, float* covariances, int num_targets, float dt) 
 
 void UKF::update(float* states, float* covariances,
                  const float* measurements, int num_targets,
-                 float sensor_x, float sensor_y) {
+                 float sensor_x, float sensor_y, float sensor_z) {
     if (num_targets > max_targets_) {
         throw std::runtime_error("Number of targets exceeds maximum");
     }
@@ -181,7 +190,7 @@ void UKF::update(float* states, float* covariances,
     int sigma_grid_size = (num_targets * SIGMA_POINTS + sigma_block_size - 1) / sigma_block_size;
     cuda::measurementModel<<<sigma_grid_size, sigma_block_size, 0, stream_update_.get()>>>(
         d_sigma_points_.get(), d_pred_measurements_.get(), num_targets,
-        sensor_x, sensor_y
+        sensor_x, sensor_y, sensor_z
     );
 
     // 3. 予測観測の平均計算

@@ -910,20 +910,20 @@ StateVector TargetGenerator::propagateBallisticMissile(const TargetParameters& p
     // キャッシュから補間
     auto tp = interpolateCache(params.trajectory_cache, elapsed);
 
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     state(0) = tp.x;
     state(1) = tp.y;
-    state(2) = tp.vx;
-    state(3) = tp.vy;
+    state(2) = tp.z;
+    state(3) = tp.vx;
+    state(4) = tp.vy;
+    state(5) = tp.vz;
 
     // 加速度は有限差分で計算
     double dt_fd = 0.1;
     auto tp_prev = interpolateCache(params.trajectory_cache, std::max(0.0, elapsed - dt_fd));
-    state(4) = (tp.vx - tp_prev.vx) / static_cast<float>(dt_fd);
-    state(5) = (tp.vy - tp_prev.vy) / static_cast<float>(dt_fd);
-
-    // 高度を保存（外部から参照用）
-    // target_idxを直接知らないので、last_altitudes_をresizeして格納
-    // generateStates()側で target_idx を使って保存する
+    state(6) = (tp.vx - tp_prev.vx) / static_cast<float>(dt_fd);
+    state(7) = (tp.vy - tp_prev.vy) / static_cast<float>(dt_fd);
+    state(8) = (tp.vz - tp_prev.vz) / static_cast<float>(dt_fd);
 
     return state;
 }
@@ -1061,16 +1061,20 @@ StateVector TargetGenerator::propagateHypersonicGlide(const TargetParameters& pa
     // キャッシュから補間
     auto tp = interpolateCache(params.trajectory_cache, elapsed);
 
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     state(0) = tp.x;
     state(1) = tp.y;
-    state(2) = tp.vx;
-    state(3) = tp.vy;
+    state(2) = tp.z;
+    state(3) = tp.vx;
+    state(4) = tp.vy;
+    state(5) = tp.vz;
 
     // 加速度は有限差分で計算
     double dt_fd = 0.1;
     auto tp_prev = interpolateCache(params.trajectory_cache, std::max(0.0, elapsed - dt_fd));
-    state(4) = (tp.vx - tp_prev.vx) / static_cast<float>(dt_fd);
-    state(5) = (tp.vy - tp_prev.vy) / static_cast<float>(dt_fd);
+    state(6) = (tp.vx - tp_prev.vx) / static_cast<float>(dt_fd);
+    state(7) = (tp.vy - tp_prev.vy) / static_cast<float>(dt_fd);
+    state(8) = (tp.vz - tp_prev.vz) / static_cast<float>(dt_fd);
 
     return state;
 }

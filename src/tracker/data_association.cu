@@ -106,7 +106,7 @@ void DataAssociation::computeCostMatrix(int num_tracks, int num_measurements) {
     grid_size = (num_tracks + block_size - 1) / block_size;
     cuda::predictMeasurements<<<grid_size, block_size>>>(
         d_track_states_.get(), d_pred_meas_.get(), num_tracks,
-        sensor_x_, sensor_y_
+        sensor_x_, sensor_y_, sensor_z_
     );
 
     // 観測ノイズ標準偏差をデバイスに渡す（正規化距離計算用）
@@ -295,28 +295,32 @@ std::vector<int> DataAssociation::hungarianAlgorithm(
 
 float DataAssociation::computeMahalanobisDistance(const Track& track,
                                                   const Measurement& meas) {
-    // 予測観測
+    // 予測観測（3D）
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     MeasVector z_pred;
     float x = track.state(0);
     float y = track.state(1);
-    float vx = track.state(2);
-    float vy = track.state(3);
+    float z = track.state(2);
+    float vx = track.state(3);
+    float vy = track.state(4);
+    float vz = track.state(5);
 
-    float range = std::sqrt(x * x + y * y);
+    float range_horiz = std::sqrt(x * x + y * y);
+    float range = std::sqrt(x * x + y * y + z * z);
     z_pred(0) = range;
     z_pred(1) = std::atan2(y, x);
-    z_pred(2) = 0.0f;
-    z_pred(3) = (range > 1e-6f) ? ((x * vx + y * vy) / range) : 0.0f;
+    z_pred(2) = (range_horiz > 1e-6f) ? std::atan2(z, range_horiz) : 0.0f;
+    z_pred(3) = (range > 1e-6f) ? ((x * vx + y * vy + z * vz) / range) : 0.0f;
 
     // 実際の観測
-    MeasVector z;
-    z(0) = meas.range;
-    z(1) = meas.azimuth;
-    z(2) = meas.elevation;
-    z(3) = meas.doppler;
+    MeasVector z_meas;
+    z_meas(0) = meas.range;
+    z_meas(1) = meas.azimuth;
+    z_meas(2) = meas.elevation;
+    z_meas(3) = meas.doppler;
 
     // イノベーション
-    MeasVector innovation = z - z_pred;
+    MeasVector innovation = z_meas - z_pred;
 
     // 角度の正規化
     while (innovation(1) > M_PI) innovation(1) -= 2.0f * M_PI;
@@ -340,24 +344,29 @@ __global__ void predictMeasurements(
     float* pred_measurements,
     int num_tracks,
     float sensor_x,
-    float sensor_y)
+    float sensor_y,
+    float sensor_z)
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= num_tracks) return;
 
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     const float* state = &track_states[tid * STATE_DIM];
     float* pred_meas = &pred_measurements[tid * MEAS_DIM];
 
-    // センサーからの相対座標
+    // センサーからの相対座標（3D）
     float dx = state[0] - sensor_x;
     float dy = state[1] - sensor_y;
-    float vx = state[2];
-    float vy = state[3];
+    float dz = state[2] - sensor_z;
+    float vx = state[3];
+    float vy = state[4];
+    float vz = state[5];
 
-    float range = sqrtf(dx * dx + dy * dy);
+    float range_horiz = sqrtf(dx * dx + dy * dy);
+    float range = sqrtf(dx * dx + dy * dy + dz * dz);
     float azimuth = atan2f(dy, dx);
-    float elevation = 0.0f;
-    float doppler = (range > 1e-6f) ? ((dx * vx + dy * vy) / range) : 0.0f;
+    float elevation = (range_horiz > 1e-6f) ? atan2f(dz, range_horiz) : 0.0f;
+    float doppler = (range > 1e-6f) ? ((dx * vx + dy * vy + dz * vz) / range) : 0.0f;
 
     pred_meas[0] = range;
     pred_meas[1] = azimuth;

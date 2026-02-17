@@ -341,17 +341,21 @@ DetectionMetrics TrackingEvaluator::computeDetectionMetrics() const {
 float TrackingEvaluator::computePositionError(const StateVector& state1,
                                               const StateVector& state2) const
 {
+    // 3D位置誤差: [x, y, z] = state[0,1,2]
     float dx = state1(0) - state2(0);
     float dy = state1(1) - state2(1);
-    return std::sqrt(dx * dx + dy * dy);
+    float dz = state1(2) - state2(2);
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
 float TrackingEvaluator::computeVelocityError(const StateVector& state1,
                                               const StateVector& state2) const
 {
-    float dvx = state1(2) - state2(2);
-    float dvy = state1(3) - state2(3);
-    return std::sqrt(dvx * dvx + dvy * dvy);
+    // 3D速度誤差: [vx, vy, vz] = state[3,4,5]
+    float dvx = state1(3) - state2(3);
+    float dvy = state1(4) - state2(4);
+    float dvz = state1(5) - state2(5);
+    return std::sqrt(dvx * dvx + dvy * dvy + dvz * dvz);
 }
 
 float TrackingEvaluator::computeDistance(const StateVector& state1,

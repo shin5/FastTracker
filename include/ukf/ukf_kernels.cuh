@@ -30,19 +30,16 @@ __global__ void generateSigmaPoints(
 /**
  * @brief 状態遷移関数（予測モデル）カーネル
  *
- * 等加速度運動モデル: x_{k+1} = F * x_k + w
- * 状態: [x, y, vx, vy, ax, ay]
- *
- * @param sigma_points 入力シグマポイント [num_targets * SIGMA_POINTS * STATE_DIM]
- * @param predicted_sigma_points 出力シグマポイント [num_targets * SIGMA_POINTS * STATE_DIM]
- * @param num_targets 目標数
- * @param dt 時間差分 [s]
+ * 運動モデルに応じたシグマポイント予測
+ * 状態: [x, y, z, vx, vy, vz, ax, ay, az]
+ * model_id: 0=CV, 1=弾道, 2=旋回(CT)
  */
 __global__ void predictSigmaPoints(
     const float* sigma_points,
     float* predicted_sigma_points,
     int num_targets,
-    float dt
+    float dt,
+    int model_id = 0
 );
 
 /**
@@ -63,7 +60,8 @@ __global__ void measurementModel(
     float* meas_sigma_points,
     int num_targets,
     float sensor_x = 0.0f,
-    float sensor_y = 0.0f
+    float sensor_y = 0.0f,
+    float sensor_z = 0.0f
 );
 
 /**
@@ -229,7 +227,8 @@ __global__ void fusedPredict(
     const float* weights_cov,
     int num_targets,
     float dt,
-    float lambda
+    float lambda,
+    int model_id = 0
 );
 
 } // namespace cuda

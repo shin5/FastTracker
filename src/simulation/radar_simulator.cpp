@@ -102,24 +102,27 @@ std::vector<StateVector> RadarSimulator::getTrueStates(double time) const {
 Measurement RadarSimulator::stateToMeasurement(const StateVector& state) const {
     Measurement meas;
 
-    // センサーからの相対座標
+    // センサーからの相対座標（3D）
     float dx = state(0) - params_.sensor_x;
     float dy = state(1) - params_.sensor_y;
-    float vx = state(2);
-    float vy = state(3);
+    float dz = state(2) - params_.sensor_z;
+    float vx = state(3);
+    float vy = state(4);
+    float vz = state(5);
 
-    // Range（センサーからの距離）
-    meas.range = std::sqrt(dx * dx + dy * dy);
+    // Range（センサーからの3D距離）
+    meas.range = std::sqrt(dx * dx + dy * dy + dz * dz);
 
     // Azimuth（センサーから見た方位）
     meas.azimuth = std::atan2(dy, dx);
 
-    // Elevation（2D追尾では0）
-    meas.elevation = 0.0f;
+    // Elevation（仰角）
+    float r_horiz = std::sqrt(dx * dx + dy * dy);
+    meas.elevation = std::atan2(dz, r_horiz);
 
-    // Doppler（視線方向の速度成分）
+    // Doppler（視線方向の速度成分, 3D）
     if (meas.range > 1e-6f) {
-        meas.doppler = (dx * vx + dy * vy) / meas.range;
+        meas.doppler = (dx * vx + dy * vy + dz * vz) / meas.range;
     } else {
         meas.doppler = 0.0f;
     }
@@ -215,10 +218,11 @@ std::vector<Measurement> RadarSimulator::generateClutter(double time) {
 bool RadarSimulator::isDetected(const StateVector& state) const {
     float detection_prob = params_.detection_probability;
 
-    // センサーからの相対距離
+    // センサーからの3D相対距離
     float dx = state(0) - params_.sensor_x;
     float dy = state(1) - params_.sensor_y;
-    float range = std::sqrt(dx * dx + dy * dy);
+    float dz = state(2) - params_.sensor_z;
+    float range = std::sqrt(dx * dx + dy * dy + dz * dz);
 
     if (range > params_.max_range) {
         return false;
@@ -232,11 +236,12 @@ bool RadarSimulator::isDetected(const StateVector& state) const {
 }
 
 bool RadarSimulator::isInFieldOfView(const StateVector& state) const {
-    // センサーからの相対座標
+    // センサーからの3D相対座標
     float dx = state(0) - params_.sensor_x;
     float dy = state(1) - params_.sensor_y;
+    float dz = state(2) - params_.sensor_z;
 
-    float range = std::sqrt(dx * dx + dy * dy);
+    float range = std::sqrt(dx * dx + dy * dy + dz * dz);
     if (range > params_.max_range) return false;
 
     float azimuth = std::atan2(dy, dx);

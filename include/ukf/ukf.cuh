@@ -41,8 +41,10 @@ public:
      * @param covariances 共分散行列配列 [num_targets * STATE_DIM * STATE_DIM]
      * @param num_targets 目標数
      * @param dt 時間差分 [s]
+     * @param model_id 運動モデルID (0=CV, 1=弾道, 2=CT)
      */
-    void predict(float* states, float* covariances, int num_targets, float dt);
+    void predict(float* states, float* covariances, int num_targets, float dt,
+                 int model_id = 0);
 
     /**
      * @brief 更新ステップ（バッチ処理）
@@ -53,7 +55,8 @@ public:
      */
     void update(float* states, float* covariances,
                 const float* measurements, int num_targets,
-                float sensor_x = 0.0f, float sensor_y = 0.0f);
+                float sensor_x = 0.0f, float sensor_y = 0.0f,
+                float sensor_z = 0.0f);
 
     /**
      * @brief 予測+更新を一度に実行（最適化版）

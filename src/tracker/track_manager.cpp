@@ -148,26 +148,29 @@ int TrackManager::getNumConfirmedTracks() const {
 StateVector TrackManager::measurementToState(const Measurement& meas) const {
     StateVector state;
 
-    // レーダー観測を直交座標に変換（センサー位置オフセットを加算）
+    // レーダー観測を直交座標に変換（3D、センサー位置オフセットを加算）
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     float r = meas.range;
     float az = meas.azimuth;
+    float el = meas.elevation;
 
-    float x = r * std::cos(az) + sensor_x_;
-    float y = r * std::sin(az) + sensor_y_;
+    float r_horiz = r * std::cos(el);
+    float x = r_horiz * std::cos(az) + sensor_x_;
+    float y = r_horiz * std::sin(az) + sensor_y_;
+    float z = r * std::sin(el) + sensor_z_;
 
     // 速度はドップラーから推定（視線方向のみ）
-    float vx = meas.doppler * std::cos(az);
-    float vy = meas.doppler * std::sin(az);
+    float vx = meas.doppler * std::cos(el) * std::cos(az);
+    float vy = meas.doppler * std::cos(el) * std::sin(az);
+    float vz = meas.doppler * std::sin(el);
 
-    // 加速度は初期値0
-    float ax = 0.0f;
-    float ay = 0.0f;
-
-    state << x, y, vx, vy, ax, ay;
+    state << x, y, z, vx, vy, vz, 0.0f, 0.0f, 0.0f;
     return state;
 }
 
 StateCov TrackManager::getInitialCovariance(float range) const {
+    // 9×9 対角共分散行列
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     StateCov cov;
     cov.setZero();
 
@@ -179,18 +182,25 @@ StateCov TrackManager::getInitialCovariance(float range) const {
     pos_std = std::max(pos_std, 100.0f);  // 最低100m
 
     // 速度: ドップラーは視線方向のみなので横方向速度は不明
-    // レンジが大きいほど速度不確かさも大きい
     float vel_std = std::max(50.0f, range * 0.001f);  // レンジの0.1% or 最低50m/s
 
     // 加速度: 弾道ミサイルでは大きな加速度が期待される
     float accel_std = 30.0f;
 
+    // 位置 (x, y, z)
     cov(0, 0) = pos_std * pos_std;
     cov(1, 1) = pos_std * pos_std;
-    cov(2, 2) = vel_std * vel_std;
+    cov(2, 2) = pos_std * pos_std;
+
+    // 速度 (vx, vy, vz)
     cov(3, 3) = vel_std * vel_std;
-    cov(4, 4) = accel_std * accel_std;
-    cov(5, 5) = accel_std * accel_std;
+    cov(4, 4) = vel_std * vel_std;
+    cov(5, 5) = vel_std * vel_std;
+
+    // 加速度 (ax, ay, az)
+    cov(6, 6) = accel_std * accel_std;
+    cov(7, 7) = accel_std * accel_std;
+    cov(8, 8) = accel_std * accel_std;
 
     return cov;
 }

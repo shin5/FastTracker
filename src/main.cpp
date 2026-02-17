@@ -984,8 +984,10 @@ static int runTrackerMode(
                 booster.initial_state.setZero();
                 booster.initial_state(0) = warhead.booster_trajectory_cache.front().x;
                 booster.initial_state(1) = warhead.booster_trajectory_cache.front().y;
-                booster.initial_state(2) = warhead.booster_trajectory_cache.front().vx;
-                booster.initial_state(3) = warhead.booster_trajectory_cache.front().vy;
+                booster.initial_state(2) = warhead.booster_trajectory_cache.front().z;
+                booster.initial_state(3) = warhead.booster_trajectory_cache.front().vx;
+                booster.initial_state(4) = warhead.booster_trajectory_cache.front().vy;
+                booster.initial_state(5) = warhead.booster_trajectory_cache.front().vz;
                 booster.trajectory_cache = warhead.booster_trajectory_cache;
                 double booster_t0 = booster.birth_time;
                 for (auto& tp : booster.trajectory_cache) {
@@ -1137,7 +1139,9 @@ static int runTrackerMode(
     if (cli_process_vel >= 0) process_noise.velocity_noise = cli_process_vel;
     if (cli_process_acc >= 0) process_noise.accel_noise = cli_process_acc;
 
-    int max_tracks = std::max(num_targets * 2, 10);
+    // max_tracks must accommodate: actual targets, clutter-generated tentative tracks,
+    // and multiple detections per target from beam steering (each beam can detect the target)
+    int max_tracks = std::max({num_targets * 2, 10, num_beams * 3, (1 + cluster_count) * num_beams});
     UKFParams ukf_params;
     float ospa_cutoff = (scenario == "single-ballistic") ? 10000.0f : 100.0f;
 
@@ -1217,10 +1221,10 @@ static int runTrackerMode(
             out_file << "frame,time,num_tracks,num_confirmed,num_measurements,processing_time_ms,beam_track,beam_search,beam_demand" << std::endl;
 
             track_file.open("track_details.csv");
-            track_file << "frame,time,track_id,x,y,vx,vy,ax,ay,state,model_prob_cv,model_prob_high,model_prob_med,misses,miss_reason" << std::endl;
+            track_file << "frame,time,track_id,x,y,z,vx,vy,vz,ax,ay,az,state,model_prob_cv,model_prob_ballistic,model_prob_ct,misses,miss_reason" << std::endl;
 
             ground_truth_file.open("ground_truth.csv");
-            ground_truth_file << "frame,time,target_id,x,y,vx,vy,ax,ay,altitude" << std::endl;
+            ground_truth_file << "frame,time,target_id,x,y,z,vx,vy,vz,ax,ay,az" << std::endl;
 
             meas_file.open("measurements.csv");
             meas_file << "frame,time,range,azimuth,elevation,doppler,snr,is_clutter" << std::endl;
@@ -1243,14 +1247,12 @@ static int runTrackerMode(
                 for (size_t i = 0; i < ground_truth.size(); i++) {
                     const auto& gt = ground_truth[i];
                     int target_id = (i < active_ids.size()) ? active_ids[i] : static_cast<int>(i);
-                    float altitude = target_gen.getLastAltitude(target_id);
                     ground_truth_file << frame << ","
                                     << current_time << ","
                                     << target_id << ","
-                                    << gt(0) << "," << gt(1) << ","
-                                    << gt(2) << "," << gt(3) << ","
-                                    << gt(4) << "," << gt(5) << ","
-                                    << altitude << std::endl;
+                                    << gt(0) << "," << gt(1) << "," << gt(2) << ","
+                                    << gt(3) << "," << gt(4) << "," << gt(5) << ","
+                                    << gt(6) << "," << gt(7) << "," << gt(8) << std::endl;
                 }
             }
 
@@ -1392,9 +1394,9 @@ static int runTrackerMode(
 
                     track_file << frame << "," << current_time << ","
                               << track.id << ","
-                              << track.state(0) << "," << track.state(1) << ","
-                              << track.state(2) << "," << track.state(3) << ","
-                              << track.state(4) << "," << track.state(5) << ","
+                              << track.state(0) << "," << track.state(1) << "," << track.state(2) << ","
+                              << track.state(3) << "," << track.state(4) << "," << track.state(5) << ","
+                              << track.state(6) << "," << track.state(7) << "," << track.state(8) << ","
                               << state_value << ","
                               << prob_cv << "," << prob_high << "," << prob_med << ","
                               << track.misses << "," << reason << std::endl;

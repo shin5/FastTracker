@@ -22,6 +22,7 @@ MultiTargetTracker::MultiTargetTracker(
       imm_gpu_threshold_(200),  // トラック数200以下はCPU、200超過はGPU
       sensor_x_(0.0f),
       sensor_y_(0.0f),
+      sensor_z_(0.0f),
       total_updates_(0),
       total_processing_time_(0.0),
       total_measurements_processed_(0)
@@ -40,7 +41,9 @@ MultiTargetTracker::MultiTargetTracker(
     track_manager_->setMeasurementNoise(meas_noise);
 
     // データアソシエーション初期化
-    data_association_ = std::make_unique<DataAssociation>(max_targets, max_targets * 2, assoc_params);
+    // max_measurements must handle all beams detecting + clutter per frame
+    int max_measurements = std::max(max_targets * 5, 200);
+    data_association_ = std::make_unique<DataAssociation>(max_targets, max_measurements, assoc_params);
     data_association_->setMeasurementNoise(meas_noise);
 
     std::cout << "MultiTargetTracker initialized" << std::endl;
@@ -143,13 +146,53 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
                    num_assoc * MEAS_DIM * sizeof(float),
                    cudaMemcpyHostToDevice);
 
-        // UKF更新ステップ実行（センサー位置を渡す）
+        // UKF更新ステップ実行（センサー位置を渡す、3D）
         ukf_->update(ukf_->getDeviceStates(), ukf_->getDeviceCovariances(),
-                     d_meas, num_assoc, sensor_x_, sensor_y_);
+                     d_meas, num_assoc, sensor_x_, sensor_y_, sensor_z_);
 
         // 結果をホストに戻す
         ukf_->copyToHost(assoc_states, assoc_covs, num_assoc);
         cudaFree(d_meas);
+
+        // === IMM モデル確率更新（観測尤度ベース） ===
+        if (use_imm_ && imm_cpu_ && static_cast<int>(tracks.size()) < imm_gpu_threshold_) {
+            // track_indices: IMM predict時のインデックス = tracks配列内のインデックス
+            std::vector<int> imm_track_indices(num_assoc);
+            std::vector<Measurement> assoc_measurements(num_assoc);
+            for (int j = 0; j < num_assoc; j++) {
+                imm_track_indices[j] = associated_track_indices[j];
+                assoc_measurements[j] = measurements[associated_meas_indices[j]];
+            }
+
+            // トラックのモデル確率を一括取得
+            std::vector<float> all_model_probs(tracks.size() * 3);
+            for (size_t ti = 0; ti < tracks.size(); ti++) {
+                if (tracks[ti].model_probs.size() == 3) {
+                    all_model_probs[ti * 3 + 0] = tracks[ti].model_probs[0];
+                    all_model_probs[ti * 3 + 1] = tracks[ti].model_probs[1];
+                    all_model_probs[ti * 3 + 2] = tracks[ti].model_probs[2];
+                } else {
+                    all_model_probs[ti * 3 + 0] = 1.0f / 3.0f;
+                    all_model_probs[ti * 3 + 1] = 1.0f / 3.0f;
+                    all_model_probs[ti * 3 + 2] = 1.0f / 3.0f;
+                }
+            }
+
+            imm_cpu_->updateModelProbabilities(
+                imm_track_indices, assoc_measurements,
+                all_model_probs, sensor_x_, sensor_y_, sensor_z_);
+
+            // 更新されたモデル確率をトラックに書き戻し
+            for (int j = 0; j < num_assoc; j++) {
+                int ti = associated_track_indices[j];
+                Track& track = track_manager_->getTrackMutable(tracks[ti].id);
+                track.model_probs = {
+                    all_model_probs[ti * 3 + 0],
+                    all_model_probs[ti * 3 + 1],
+                    all_model_probs[ti * 3 + 2]
+                };
+            }
+        }
 
         // トラックマネージャに反映
         for (int j = 0; j < num_assoc; j++) {

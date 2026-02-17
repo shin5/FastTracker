@@ -195,23 +195,26 @@ IMMFilterGPU::IMMFilterGPU(int num_models, int max_targets)
     UKFParams ukf_params;
     MeasurementNoise meas_noise;
 
-    // モデル1: 等速度モデル（巡航・中間飛翔）
+    // デフォルトの外部ノイズ基準値
+    ProcessNoise ext_noise;  // デフォルト値を使用
+
+    // Model 0 (CV): 安定飛翔 — 外部ノイズの10%
     ProcessNoise noise1;
-    noise1.position_noise = 2.0f;
-    noise1.velocity_noise = 1.0f;
-    noise1.accel_noise = 0.5f;
+    noise1.position_noise = ext_noise.position_noise * 0.1f;
+    noise1.velocity_noise = ext_noise.velocity_noise * 0.1f;
+    noise1.accel_noise = ext_noise.accel_noise * 0.1f;
 
-    // モデル2: 高加速度モデル（ブースト段階）
+    // Model 1 (Ballistic): 物理モデルが正確なので低め — 外部ノイズの30%
     ProcessNoise noise2;
-    noise2.position_noise = 15.0f;
-    noise2.velocity_noise = 30.0f;
-    noise2.accel_noise = 20.0f;
+    noise2.position_noise = ext_noise.position_noise * 0.3f;
+    noise2.velocity_noise = ext_noise.velocity_noise * 0.3f;
+    noise2.accel_noise = ext_noise.accel_noise * 0.3f;
 
-    // モデル3: 中程度加速度モデル（終末・機動）
+    // Model 2 (CT): 機動中 — 外部ノイズの100%
     ProcessNoise noise3;
-    noise3.position_noise = 8.0f;
-    noise3.velocity_noise = 15.0f;
-    noise3.accel_noise = 8.0f;
+    noise3.position_noise = ext_noise.position_noise * 1.0f;
+    noise3.velocity_noise = ext_noise.velocity_noise * 1.0f;
+    noise3.accel_noise = ext_noise.accel_noise * 1.0f;
 
     process_noises_.push_back(noise1);
     process_noises_.push_back(noise2);
@@ -225,11 +228,15 @@ IMMFilterGPU::IMMFilterGPU(int num_models, int max_targets)
         );
     }
 
-    // モデル遷移確率行列（3x3）
+    // モデル遷移確率行列（CPU版と同一）
+    //        → CV    → Bal   → CT
+    // CV    [0.80   0.15    0.05]
+    // Bal   [0.10   0.85    0.05]
+    // CT    [0.05   0.10    0.85]
     h_transition_matrix_ = {
-        {0.85f, 0.10f, 0.05f},  // 等速度から
-        {0.05f, 0.90f, 0.05f},  // 高加速度から
-        {0.10f, 0.05f, 0.85f}   // 中加速度から
+        {0.80f, 0.15f, 0.05f},  // CVから
+        {0.10f, 0.85f, 0.05f},  // Ballisticから
+        {0.05f, 0.10f, 0.85f}   // CTから
     };
 
     // CUDAストリーム作成（モデル並列化用）
@@ -336,13 +343,10 @@ void IMMFilterGPU::predict(
                                     num_targets * sizeof(StateCov),
                                     cudaMemcpyDeviceToDevice, streams_[m]));
 
-        // 予測実行（各ストリームで並列）
-        // 注意: UKFのpredict()は内部でカーネルを起動するが、デフォルトストリームを使用
-        // 完全な並列化には、UKF::predict()もストリーム対応が必要
-        // 現状は逐次実行だが、メモリコピーは並列化されている
+        // 予測実行（各モデルのmodel_idを渡す: 0=CV, 1=Ballistic, 2=CT）
         model_ukfs_[m]->predict(model_ukfs_[m]->getDeviceStates(),
                                model_ukfs_[m]->getDeviceCovariances(),
-                               num_targets, dt);
+                               num_targets, dt, m);
 
         // 結果をd_pred_states_, d_pred_covs_にコピー（非同期）
         for (int t = 0; t < num_targets; t++) {

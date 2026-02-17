@@ -12,8 +12,15 @@
 
 namespace fasttracker {
 
-// 状態ベクトル次元 [x, y, vx, vy, ax, ay]
-constexpr int STATE_DIM = 6;
+// 状態ベクトル次元 [x, y, z, vx, vy, vz, ax, ay, az]
+constexpr int STATE_DIM = 9;
+
+// 運動モデルID
+enum class MotionModelID : int {
+    CV = 0,                // 等速直線（ミッドコース/巡航）
+    BALLISTIC = 1,         // 弾道（重力+大気抗力）
+    COORDINATED_TURN = 2   // 旋回（HGV機動）
+};
 
 // 観測ベクトル次元 [range, azimuth, elevation, doppler]
 constexpr int MEAS_DIM = 4;
@@ -104,7 +111,7 @@ struct AssociationParams {
           max_distance(100.0f),
           confirm_hits(2),
           confirm_window(5),
-          delete_misses(20),
+          delete_misses(90),       // 30Hzで3秒 — 弾道追尾での一時的検出欠落に対応
           min_snr_for_init(22.0f) {}
 };
 

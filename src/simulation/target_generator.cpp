@@ -33,8 +33,8 @@ void TargetGenerator::initializeDefaultScenario() {
             // 20%: 等加速度運動
             param.motion_model = MotionModel::CONSTANT_ACCELERATION;
             float accel_dir = uniform_dist_(rng_) * 2.0f * M_PI;
-            param.initial_state(4) = 2.0f * std::cos(accel_dir);  // ax
-            param.initial_state(5) = 2.0f * std::sin(accel_dir);  // ay
+            param.initial_state(6) = 2.0f * std::cos(accel_dir);  // ax
+            param.initial_state(7) = 2.0f * std::sin(accel_dir);  // ay
         } else {
             // 10%: 機動目標
             param.motion_model = MotionModel::MANEUVERING;
@@ -68,7 +68,7 @@ StateVector TargetGenerator::generateRandomInitialState() {
     float ax = 0.0f;
     float ay = 0.0f;
 
-    state << x, y, vx, vy, ax, ay;
+    state << x, y, 0.0f, vx, vy, 0.0f, ax, ay, 0.0f;
     return state;
 }
 
@@ -172,32 +172,35 @@ std::vector<int> TargetGenerator::getActiveTargets(double time) const {
 }
 
 StateVector TargetGenerator::propagateConstantVelocity(const StateVector& state, double dt) const {
-    StateVector new_state;
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
+    StateVector new_state = StateVector::Zero();
     float t = static_cast<float>(dt);
 
-    // x = x0 + vx * t
-    new_state(0) = state(0) + state(2) * t;
-    new_state(1) = state(1) + state(3) * t;
-    new_state(2) = state(2);
-    new_state(3) = state(3);
-    new_state(4) = 0.0f;
-    new_state(5) = 0.0f;
+    new_state(0) = state(0) + state(3) * t;  // x += vx*t
+    new_state(1) = state(1) + state(4) * t;  // y += vy*t
+    new_state(2) = state(2) + state(5) * t;  // z += vz*t
+    new_state(3) = state(3);   // vx
+    new_state(4) = state(4);   // vy
+    new_state(5) = state(5);   // vz
 
     return new_state;
 }
 
 StateVector TargetGenerator::propagateConstantAcceleration(const StateVector& state, double dt) const {
-    StateVector new_state;
+    // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
+    StateVector new_state = StateVector::Zero();
     float t = static_cast<float>(dt);
     float t2 = 0.5f * t * t;
 
-    // x = x0 + vx * t + 0.5 * ax * t^2
-    new_state(0) = state(0) + state(2) * t + state(4) * t2;
-    new_state(1) = state(1) + state(3) * t + state(5) * t2;
-    new_state(2) = state(2) + state(4) * t;
-    new_state(3) = state(3) + state(5) * t;
-    new_state(4) = state(4);
-    new_state(5) = state(5);
+    new_state(0) = state(0) + state(3) * t + state(6) * t2;  // x += vx*t + 0.5*ax*t²
+    new_state(1) = state(1) + state(4) * t + state(7) * t2;  // y += vy*t + 0.5*ay*t²
+    new_state(2) = state(2) + state(5) * t + state(8) * t2;  // z += vz*t + 0.5*az*t²
+    new_state(3) = state(3) + state(6) * t;   // vx += ax*t
+    new_state(4) = state(4) + state(7) * t;   // vy += ay*t
+    new_state(5) = state(5) + state(8) * t;   // vz += az*t
+    new_state(6) = state(6);   // ax
+    new_state(7) = state(7);   // ay
+    new_state(8) = state(8);   // az
 
     return new_state;
 }
@@ -213,10 +216,9 @@ StateVector TargetGenerator::propagateManeuver(const StateVector& state, double 
     float dt_step = t / steps;
 
     for (int i = 0; i < steps; i++) {
-        float x = new_state(0);
-        float y = new_state(1);
-        float vx = new_state(2);
-        float vy = new_state(3);
+        // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
+        float vx = new_state(3);
+        float vy = new_state(4);
 
         // 速度の向きに応じた加速度
         float speed = std::sqrt(vx * vx + vy * vy);
@@ -237,10 +239,10 @@ StateVector TargetGenerator::propagateManeuver(const StateVector& state, double 
         // オイラー法で更新
         new_state(0) += vx * dt_step;
         new_state(1) += vy * dt_step;
-        new_state(2) += ax * dt_step;
-        new_state(3) += ay * dt_step;
-        new_state(4) = ax;
-        new_state(5) = ay;
+        new_state(3) += ax * dt_step;
+        new_state(4) += ay * dt_step;
+        new_state(6) = ax;
+        new_state(7) = ay;
     }
 
     return new_state;

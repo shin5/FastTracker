@@ -11,20 +11,17 @@ namespace fasttracker {
 /**
  * @brief IMM（Interacting Multiple Model）フィルタ
  *
- * 複数の運動モデルを並行使用し、モデル確率を動的に更新
- * 弾道ミサイルの多段階飛翔に対応
+ * 3つの運動モデルを並行使用し、モデル確率を動的に更新
+ *   Model 0: CV  （等速直線 — ミッドコース/巡航）
+ *   Model 1: Ballistic（弾道 — 重力+大気抗力 RK4）
+ *   Model 2: CT  （旋回 — HGV機動）
  */
 class IMMFilter {
 public:
-    /**
-     * @brief コンストラクタ
-     * @param num_models モデル数（通常3: 等速度、高加速度、重力）
-     * @param max_targets 最大目標数
-     */
     IMMFilter(int num_models, int max_targets, const ProcessNoise& external_noise);
 
     /**
-     * @brief 予測ステップ（全モデル）
+     * @brief 予測ステップ（全モデル並行予測 + 重み付き統合）
      */
     void predict(const std::vector<StateVector>& states,
                 const std::vector<StateCov>& covariances,
@@ -46,6 +43,26 @@ public:
                std::vector<StateCov>& updated_covs,
                std::vector<float>& updated_probs);
 
+    /**
+     * @brief 観測尤度ベースのモデル確率更新
+     *
+     * UKF測定更新後、各モデルの予測観測と実観測の一致度（尤度）から
+     * モデル確率を更新する。正規IMMサイクルの核心部分。
+     *
+     * @param track_indices 更新対象トラックのインデックス（predict時の順序）
+     * @param measurements  対応する実測値
+     * @param model_probs   現在のモデル確率 [num_tracks * num_models]
+     * @param updated_probs 更新後のモデル確率（出力）
+     * @param sensor_x センサーX [m]
+     * @param sensor_y センサーY [m]
+     * @param sensor_z センサーZ [m]
+     */
+    void updateModelProbabilities(
+        const std::vector<int>& track_indices,
+        const std::vector<Measurement>& measurements,
+        std::vector<float>& model_probs,
+        float sensor_x, float sensor_y, float sensor_z);
+
     int getNumModels() const { return num_models_; }
 
 private:
@@ -61,30 +78,25 @@ private:
     // プロセスノイズ（各モデル用）
     std::vector<ProcessNoise> process_noises_;
 
-    /**
-     * @brief モデル間の混合
-     */
-    void mixModels(const std::vector<StateVector>& states,
-                  const std::vector<StateCov>& covariances,
-                  const std::vector<float>& model_probs,
-                  std::vector<StateVector>& mixed_states,
-                  std::vector<StateCov>& mixed_covs);
+    // 観測ノイズ（尤度計算用）
+    MeasurementNoise meas_noise_;
 
-    /**
-     * @brief モデル確率の更新
-     */
-    void updateModelProbabilities(const std::vector<float>& likelihoods,
-                                 const std::vector<float>& prior_probs,
-                                 std::vector<float>& posterior_probs);
+    // predict()で保存されるモデル別予測状態
+    // per_model_predictions_[target_idx][model_idx]
+    std::vector<std::array<StateVector, 3>> per_model_predictions_;
+    std::vector<std::array<StateCov, 3>> per_model_pred_covs_;
 
-    /**
-     * @brief 推定値の結合
-     */
-    void combineEstimates(const std::vector<std::vector<StateVector>>& model_states,
-                         const std::vector<std::vector<StateCov>>& model_covs,
-                         const std::vector<float>& model_probs,
-                         std::vector<StateVector>& combined_states,
-                         std::vector<StateCov>& combined_covs);
+    // CPU版運動モデル予測
+    static StateVector predictCV_CPU(const StateVector& state, float dt);
+    static StateVector predictBallistic_CPU(const StateVector& state, float dt);
+    static StateVector predictCT_CPU(const StateVector& state, float dt);
+
+    // 状態→観測への変換（CPU版、尤度計算用）
+    static MeasVector stateToMeas_CPU(const StateVector& state,
+                                       float sensor_x, float sensor_y, float sensor_z);
+
+    // 状態遷移ヤコビアン近似 (簡易線形化)
+    static StateCov computeApproxF(float dt);
 };
 
 } // namespace fasttracker

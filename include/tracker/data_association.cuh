@@ -53,7 +53,7 @@ public:
     /**
      * @brief センサー位置を設定
      */
-    void setSensorPosition(float x, float y) { sensor_x_ = x; sensor_y_ = y; }
+    void setSensorPosition(float x, float y, float z = 0.0f) { sensor_x_ = x; sensor_y_ = y; sensor_z_ = z; }
 
     /**
      * @brief 観測ノイズを設定
@@ -76,6 +76,7 @@ private:
     MeasurementNoise meas_noise_;
     float sensor_x_ = 0.0f;
     float sensor_y_ = 0.0f;
+    float sensor_z_ = 0.0f;
 
     // デバイスメモリ
     cuda::DeviceMemory<float> d_track_states_;      // [max_tracks * STATE_DIM]
@@ -123,7 +124,8 @@ __global__ void predictMeasurements(
     float* pred_measurements,
     int num_tracks,
     float sensor_x = 0.0f,
-    float sensor_y = 0.0f
+    float sensor_y = 0.0f,
+    float sensor_z = 0.0f
 );
 
 /**

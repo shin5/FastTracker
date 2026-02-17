@@ -19,6 +19,7 @@ struct RadarParameters {
     float snr_ref;                  // 基準SN比 [dB] @ 1km
     float sensor_x;                 // センサーX座標 [m]
     float sensor_y;                 // センサーY座標 [m]
+    float sensor_z;                 // センサーZ座標（高度） [m]
     MeasurementNoise meas_noise;    // 観測ノイズ
 
     // ビームステアリング
@@ -35,6 +36,7 @@ struct RadarParameters {
           snr_ref(60.0f),              // 監視レーダー想定
           sensor_x(0.0f),
           sensor_y(0.0f),
+          sensor_z(0.0f),
           beam_width(0.052f),
           num_beams(10),
           antenna_boresight(0.0f),
