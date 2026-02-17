@@ -1300,8 +1300,15 @@ def add_section_target_generator(doc):
         fontsize=14)
     add_paragraph_with_font(doc, "揚力の大きさ:", size=10, bold=True)
     add_math_image(doc,
-        r"L = \frac{1}{2}\rho(z)\,v^2\,C_L\,A, \quad C_L = C_D \cdot (L/D)",
+        r"L = \frac{1}{2}\rho(z)\,v^2\,C_L\,A, \quad C_L = C_D \cdot \varepsilon_{LD}",
         fontsize=14)
+    add_paragraph_with_font(
+        doc,
+        "ここで ε_LD は揚抗比（Lift-to-Drag ratio）を表す無次元パラメータ（代表値 2.0）。"
+        "L の記号は揚力の大きさ [N] と揚抗比の分子（L/D の L）で共用されるため、"
+        "本ドキュメントでは揚抗比を ε_LD と表記して区別する。",
+        size=10,
+    )
     add_paragraph_with_font(
         doc,
         "揚力方向は速度ベクトル v̂ に垂直な2方向から合成される。"
@@ -1332,7 +1339,7 @@ def add_section_target_generator(doc):
         ("hat{v}", "速度方向の単位ベクトル"),
         ("L", "揚力の大きさ [N]"),
         ("C_L", "揚力係数（= C_D × L/D）[-]"),
-        ("L/D", "揚抗比（= 2.0）[-]"),
+        ("epsilon_LD (= L/D)", "揚抗比（Lift-to-Drag ratio）= 2.0 [-]。Lとの記号衝突を避けるためε_LDと表記"),
         ("hat{n}_{up}", "鉛直面内の上向き単位ベクトル"),
         ("hat{z}", "鉛直（高度）方向の単位ベクトル"),
         ("hat{n}_{lat}", "横方向単位ベクトル（= v × n_up）"),
@@ -1357,13 +1364,13 @@ def add_section_target_generator(doc):
         [
             ("PULLUP",
              "cos(σ) = mg·cos(γ) / L",
-             "揚力水平分力で仰角をゼロへ回復"),
+             "速度方向と垂直な鉛直面内成分で揚力と重力を釣り合わせ、仰角変化率をゼロに収束させる条件"),
             ("GLIDE",
              "σ = −K_hdg · Δψ",
              "横方向バンクで方位偏差を修正（K_hdg = 2.0 rad⁻¹）"),
             ("TERMINAL",
-             "σ = π/2 + σ_hdg + 0.3·amp·sin(2π·f·t)",
-             "方位誘導＋サイン波機動で被撃墜率を低減"),
+             "σ = π/2 + σ_hdg + 0.3·amp·sin(2π·f·t + 0.5·cos(3.7t))",
+             "基準90°ダイブ＋方位誘導＋変調サイン波機動（実効振幅 ≈ 0.3×amp rad）"),
         ],
         col_widths=[2.5, 6.0, 7.5],
     )
@@ -1381,13 +1388,13 @@ def add_section_target_generator(doc):
         doc,
         ["パラメータ", "記号", "代表値", "説明"],
         [
-            ("抗力係数×面積", "C_D·A", "0.5 m²", "抗力計算に使用する有効面積"),
-            ("揚抗比", "L/D", "2.0", "揚力係数 / 抗力係数"),
+            ("抗力係数×代表面積", "C_D·A", "0.5 m²", "無次元の抗力係数 C_D と代表断面積 A [m²] の積。drag = ½ρv²(C_D·A)"),
+            ("揚抗比", "ε_LD", "2.0", "C_L/C_D（= 揚力係数/抗力係数）。L/Dとも表記するが本書では ε_LD と表記"),
             ("質量", "m", "1,000 kg", "機体質量"),
             ("ブースト推力", "F_thrust", "200,000 N", "ブーストフェーズの推力"),
             ("燃焼時間", "t_boost", "60 s", "ブーストフェーズ継続時間"),
             ("方位誘導ゲイン", "K_hdg", "2.0 rad⁻¹", "GLIDEフェーズの横方向制御ゲイン"),
-            ("終末機動振幅", "amp", "0.3 rad", "TERMINALフェーズのバンク角振幅"),
+            ("終末機動振幅スケール", "amp", "0.3", "TERMINALフェーズの機動振幅スケール係数。実効振幅 = 0.3×amp ≈ 0.09 rad"),
             ("終末機動周波数", "f", "0.1 Hz", "TERMINALフェーズのサイン波周波数"),
         ],
         col_widths=[4.5, 2.5, 3.0, 6.0],
@@ -1814,12 +1821,12 @@ def add_section_3(doc):
         fontsize=15,
     )
     add_symbol_legend(doc, [
-        ("W_0^m", "中心シグマポイントの平均用重み"),
-        ("W_i^m  (i=1..2n)", "正負シグマポイントの平均用重み（各 1/(2(n+λ))）"),
-        ("W_0^c", "中心シグマポイントの共分散用重み（ベータ補正を含む）"),
+        ("W_0^m", "中心シグマポイントの平均用重み = λ/(n+λ)。本実装では −3（負値になりうる）"),
+        ("W_i^m  (i=1..2n)", "正負シグマポイントの平均用重み = 1/(2(n+λ)) ≈ 0.222"),
+        ("W_0^c", "中心シグマポイントの共分散用重み = W_0^m + (1−α²+β) ≈ −0.25"),
         ("W_i^c  (i=1..2n)", "正負シグマポイントの共分散用重み（= W_i^m と同値）"),
         ("beta", "分布パラメータ（= 2.0）。共分散重みの尖度補正に使用"),
-        ("lambda", "スケーリングパラメータ"),
+        ("lambda", "スケーリングパラメータ（= −6.75）。全重みの和は必ず 1"),
         ("n", "状態次元数（= 9）"),
     ])
 
@@ -1859,7 +1866,8 @@ def add_section_3(doc):
         ("W_i^m", "平均用重み係数"),
         ("P^-", "予測誤差共分散行列"),
         ("W_i^c", "共分散用重み係数"),
-        ("Q", "プロセスノイズ共分散行列"),
+        ("Q", "連続時間プロセスノイズ強度行列。Q·Δt が1ステップ分の離散時間雑音共分散に相当"),
+        ("Q * Delta t", "離散時間プロセスノイズ共分散（Q は単位時間あたりの雑音強度）"),
         ("T (上付き)", "行列転置"),
     ])
 
@@ -2025,10 +2033,10 @@ def add_section_4(doc):
     # --- IMM Cycle ---
     doc.add_heading("6.3 IMMサイクル", level=2)
 
-    add_paragraph_with_font(doc, "手順1: 混合（Mixing）", size=10, bold=True)
+    add_paragraph_with_font(doc, "手順1: 混合確率の計算", size=10, bold=True)
     add_paragraph_with_font(
         doc,
-        "各モデルの予測確率を遷移確率と現在のモデル確率から計算する。",
+        "各モデルへの予測確率を遷移確率と現在のモデル確率から計算する。",
         size=10,
     )
     add_math_image(
@@ -2037,10 +2045,29 @@ def add_section_4(doc):
         fontsize=15,
     )
 
-    add_paragraph_with_font(doc, "手順2: モデル別予測", size=10, bold=True)
+    add_paragraph_with_font(doc, "手順1b: 各モデルへの混合初期値の計算", size=10, bold=True)
     add_paragraph_with_font(
         doc,
-        "各運動モデルがそれぞれ独立に状態予測を行う（CV, Ballistic, CTモデル）。",
+        "各モデル j の UKF 予測開始前に、他モデルの推定値を混合した初期状態を生成する。",
+        size=10,
+    )
+    add_math_image(
+        doc,
+        r"\tilde{\mathbf{x}}_{0j} = \sum_k \mu_{k|j} \cdot \hat{\mathbf{x}}_k, "
+        r"\quad \mu_{k|j} = \frac{\pi(k \to j) \cdot \mu_k}{c_j}",
+        fontsize=14,
+    )
+    add_paragraph_with_font(
+        doc,
+        "ここで μ_{k|j} は「モデル j を前提とした条件付き遷移確率」で、"
+        "条件付き確率となるよう c_j で規格化されている。",
+        size=10,
+    )
+
+    add_paragraph_with_font(doc, "手順2: モデル別 UKF 予測・更新", size=10, bold=True)
+    add_paragraph_with_font(
+        doc,
+        "各モデル j が初期状態 x̃₀ⱼ から独立に UKF predict/update を実行する（CV, Ballistic, CT）。",
         size=10,
     )
 
@@ -2084,9 +2111,11 @@ def add_section_4(doc):
     add_symbol_legend(doc, [
         ("mu_k", "モデル k の現在の確率（更新前）"),
         ("pi(k->j)", "モデル k からモデル j への遷移確率"),
-        ("c_j", "混合ステップでのモデル j の予測確率"),
-        ("hat{x}", "IMM統合後の状態推定値"),
-        ("hat{x}_j", "モデル j のUKF状態推定値"),
+        ("c_j", "手順1で計算されるモデル j への予測確率 = Σ_k π(k→j)μ_k"),
+        ("mu_{k|j}", "モデル j を前提とした条件付き遷移確率 = π(k→j)μ_k / c_j"),
+        ("tilde{x}_{0j}", "モデル j の UKF に入力する混合初期状態（手順1b）"),
+        ("hat{x}", "IMM統合後の状態推定値（手順3）"),
+        ("hat{x}_j", "モデル j の UKF 更新後状態推定値"),
         ("P", "IMM統合後の誤差共分散行列"),
         ("P_j", "モデル j の誤差共分散行列"),
         ("L_j", "モデル j の尤度（イノベーションの正規分布確率密度）"),
@@ -2180,15 +2209,16 @@ def add_section_5(doc):
     )
 
     doc.add_paragraph()
-    add_paragraph_with_font(doc, "抗力:", size=10, bold=True)
+    add_paragraph_with_font(doc, "比抗力（単位質量あたりの抗力加速度）:", size=10, bold=True)
     add_math_image(
         doc,
-        r"F_{drag} = \beta \cdot \rho(h) \cdot |\mathbf{v}| \cdot \mathbf{v}",
+        r"\mathbf{a}_{drag} = -\beta \cdot \rho(h) \cdot |\mathbf{v}| \cdot \mathbf{v}",
         fontsize=15,
     )
     add_paragraph_with_font(
         doc,
-        "ここで β = Cd·A/(2m) = 0.001 は代表的な弾道係数である。",
+        "ここで β = C_d·A/(2m) = 0.001 m²/kg は弾道係数（単位質量あたりの抗力係数）である。"
+        "a_drag は力 [N] ではなく加速度 [m/s²]（比力）であることに注意する。",
         size=10,
     )
 
@@ -2214,8 +2244,8 @@ def add_section_5(doc):
         ("rho(h)", "高度 h における大気密度 [kg/m³]"),
         ("rho_0", "海面大気密度 = 1.225 kg/m³"),
         ("H", "大気スケール高度 = 7,400 m"),
-        ("F_{drag}", "抗力ベクトル [N]"),
-        ("beta", "弾道係数（= C_d A / (2m) = 0.001 m²/kg）"),
+        ("a_{drag}", "比抗力（単位質量あたりの抗力加速度） [m/s²]（力ではない）"),
+        ("beta", "弾道係数 β = C_d·A/(2m) = 0.001 m²/kg"),
         ("|v|", "速度の大きさ [m/s]"),
         ("ddot{x}, ddot{y}", "水平面内の加速度成分（抗力のみ） [m/s²]"),
         ("ddot{z}", "鉛直方向加速度（重力＋抗力） [m/s²]"),
@@ -2319,14 +2349,18 @@ def add_section_6(doc):
     add_paragraph_with_font(
         doc,
         "コスト行列の各要素は、正規化イノベーション距離（NID）で計算される。"
-        "GPU上で各観測-航跡ペアを並列に計算する。",
+        "GPU上で各観測-航跡ペアを並列に計算する。"
+        "なお、本式は観測ノイズ共分散行列 S が対角行列（各観測成分が独立）である場合の"
+        "マハラノビス距離（セクション11.3参照）に等しい。",
         size=10,
     )
     add_math_image(
         doc,
         r"d^2(i,j) = \sum_{k \in \{r, az, el, dop\}} "
-        r"\left(\frac{z_k^{meas} - z_k^{pred}}{\sigma_k}\right)^2",
-        fontsize=15,
+        r"\left(\frac{z_k^{meas} - z_k^{pred}}{\sigma_k}\right)^2"
+        r"= (\mathbf{z}^{meas} - \mathbf{z}^{pred})^\top \mathrm{diag}(\sigma_k^{-2}) "
+        r"(\mathbf{z}^{meas} - \mathbf{z}^{pred})",
+        fontsize=13,
     )
     add_symbol_legend(doc, [
         ("d^2(i,j)", "航跡 i と観測 j の正規化イノベーション距離（NID）"),
@@ -2704,15 +2738,28 @@ def add_section_gpu_acceleration(doc):
         "__constant__ メモリに配置され、全スレッドからキャッシュを通じて高速にアクセスできる。",
         size=10,
     )
+    add_paragraph_with_font(
+        doc,
+        "スレッドブロック数（グリッドサイズ）とスループットの関係:",
+        size=10,
+    )
     add_math_image(doc,
-        r"\text{Throughput} \propto \frac{N_{targets} \times 19}{\text{blockDim}=256}",
+        r"\text{Grid size} = \left\lceil \frac{N_{targets} \times 19}{\text{blockDim}} \right\rceil, "
+        r"\quad \text{blockDim} = 256",
         fontsize=13)
+    add_paragraph_with_font(
+        doc,
+        "処理量は N_targets × 19 に比例して線形スケールする。"
+        "各スレッドが1つのシグマポイントを担当するため、"
+        "目標数が増えても同一の演算密度で GPU 利用率を維持できる。",
+        size=10,
+    )
     add_symbol_legend(doc, [
         ("N_{targets}", "追尾対象の目標数（並列処理のバッチサイズ）"),
         ("19", "シグマポイント総数（= 2n+1 = 2×9+1）"),
         ("blockDim", "CUDAスレッドブロックサイズ（= 256スレッド）"),
-        ("Throughput", "GPU処理スループット（ブロック数 ∝ N × 19 / 256）"),
-        ("N_targets x 19", "1ステップ全シグマポイント総数"),
+        ("Grid size", "CUDAカーネルに渡すブロック数 = ceil(N×19/256)"),
+        ("N_targets x 19", "1ステップ全シグマポイント総数（処理量）"),
     ])
 
     # 11.2 IMM parallel streams
