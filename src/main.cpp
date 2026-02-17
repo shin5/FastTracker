@@ -799,6 +799,8 @@ static float cli_elevation_noise = -1.0f;
 static float cli_doppler_noise = -1.0f;
 static float cli_pfa = -1.0f;
 static float cli_snr_ref = -1.0f;
+static float cli_pd_ref = -1.0f;        // 基準距離における検出確率（-1=自動）
+static float cli_pd_ref_range = -1.0f;  // 検出性能基準距離 [m]（-1=デフォルト10km）
 
 // ========================================
 // tracker mode: 従来のトラッカー実行
@@ -1050,8 +1052,6 @@ static int runTrackerMode(
 
         radar_params.field_of_view = radar_fov;
 
-        float snr_at_max = 20.0f;
-        radar_params.snr_ref = snr_at_max - 40.0f * std::log10(1000.0f / radar_params.max_range);
         radar_params.false_alarm_rate = 0.1f / (M_PI * radar_params.max_range * radar_params.max_range);
 
         std::cout << "  Sensor position: (" << (sensor_x / 1000.0f) << "km, " << (sensor_y / 1000.0f) << "km)" << std::endl;
@@ -1059,7 +1059,6 @@ static int runTrackerMode(
     } else if (scenario == "ballistic" || scenario == "hypersonic" || scenario == "mixed-threat") {
         radar_params.max_range = 150000.0f;
         radar_params.false_alarm_rate = 1e-10f;
-        radar_params.snr_ref = 110.0f;
     }
 
     // CLI上書き: センサーパラメータ
@@ -1068,17 +1067,24 @@ static int runTrackerMode(
     if (cli_azimuth_noise >= 0) radar_params.meas_noise.azimuth_noise = cli_azimuth_noise;
     if (cli_elevation_noise >= 0) radar_params.meas_noise.elevation_noise = cli_elevation_noise;
     if (cli_doppler_noise >= 0) radar_params.meas_noise.doppler_noise = cli_doppler_noise;
-    if (cli_snr_ref >= 0) radar_params.snr_ref = cli_snr_ref;
     if (cli_pfa >= 0) {
         // Pfa → クラッタ密度変換
-        // false_alarm_rate = Pfa / A_cell_avg
-        // A_cell_avg = range_resolution × azimuth_resolution × max_range / 2
         float dr = radar_params.meas_noise.range_noise;
         float dtheta = radar_params.meas_noise.azimuth_noise;
         float cell_area = dr * dtheta * radar_params.max_range * 0.5f;
         if (cell_area > 0.0f) {
             radar_params.false_alarm_rate = cli_pfa / cell_area;
         }
+        radar_params.pfa_per_pulse = cli_pfa;
+    }
+    if (cli_pd_ref >= 0)       radar_params.pd_at_ref_range = cli_pd_ref;
+    if (cli_pd_ref_range >= 0) radar_params.det_ref_range_m = cli_pd_ref_range;
+
+    // SNR Ref: --snr-ref が明示指定された場合のみ直接上書き、それ以外は P_FA / R_max / P(D) から自動計算
+    if (cli_snr_ref >= 0) {
+        radar_params.snr_ref = cli_snr_ref;
+    } else {
+        radar_params.computeSnrRef();
     }
 
     // ビームステアリング
@@ -1160,6 +1166,8 @@ static int runTrackerMode(
     std::cout << "\n[Resolved Parameters]" << std::endl;
     std::cout << "  radar_max_range: " << radar_params.max_range << std::endl;
     std::cout << "  snr_ref: " << radar_params.snr_ref << std::endl;
+    std::cout << "  pd_at_ref_range: " << radar_params.pd_at_ref_range << std::endl;
+    std::cout << "  det_ref_range_m: " << radar_params.det_ref_range_m << std::endl;
     std::cout << "  pfa: " << resolved_pfa << std::endl;
     std::cout << "  detect_prob: " << radar_params.detection_probability << std::endl;
     std::cout << "  range_noise: " << radar_params.meas_noise.range_noise << std::endl;
@@ -1662,6 +1670,8 @@ int main(int argc, char** argv) {
         else if (arg == "--doppler-noise" && i + 1 < argc) cli_doppler_noise = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--pfa" && i + 1 < argc) cli_pfa = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--snr-ref" && i + 1 < argc) cli_snr_ref = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--pd-ref" && i + 1 < argc) cli_pd_ref = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--pd-ref-range" && i + 1 < argc) cli_pd_ref_range = static_cast<float>(std::atof(argv[++i]));
         // 複数回実行
         else if (arg == "--num-runs" && i + 1 < argc) num_runs = std::atoi(argv[++i]);
         else if (arg == "--seed" && i + 1 < argc) seed = static_cast<uint32_t>(std::atoi(argv[++i]));

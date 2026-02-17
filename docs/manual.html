@@ -421,21 +421,46 @@ cmake --build . --config Release</code></pre>
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)</code></pre>
 
+<h4>WSL2 Ubuntu 22.04 (自動セットアップ)</h4>
+<p>WSL2環境では、付属のセットアップスクリプトで依存パッケージのインストールからビルドまで自動実行できます。</p>
+<pre><code><span class="cmt"># 1. Windows側のリポジトリをWSL2にコピー</span>
+cp -r /mnt/c/Users/&lt;ユーザー名&gt;/projects/FastTracker ~/FastTracker
+
+<span class="cmt"># 2. セットアップスクリプトを実行</span>
+cd ~/FastTracker
+bash scripts/setup_wsl2.sh</code></pre>
+<p>スクリプトは以下を自動実行します:</p>
+<ul>
+<li>build-essential, cmake, libeigen3-dev, python3-pip のインストール</li>
+<li>CUDA Toolkit のインストール (未導入の場合)</li>
+<li>GPUアーキテクチャの自動検出</li>
+<li>Python依存パッケージのインストール (<code>requirements.txt</code>)</li>
+<li>CMake + make によるビルド</li>
+<li>テスト実行</li>
+</ul>
+<div class="info-box">
+<strong>前提条件:</strong> Windows側にNVIDIAドライバ (Game Ready / Studio) がインストール済みであること。WSL2はWindows側のGPUドライバを経由してCUDAを使用します。WSL2内にNVIDIAドライバをインストールする必要はありません。
+</div>
+
 <div class="info-box">
 <strong>CUDAアーキテクチャの設定:</strong>
 <code>CMakeLists.txt</code> の <code>CMAKE_CUDA_ARCHITECTURES</code> を使用するGPUに合わせて変更してください。<br>
-RTX 3080/3090: <code>"86"</code> / RTX 4080/4090: <code>"89"</code> / V100: <code>"70"</code> / A100: <code>"80"</code>
+RTX 3080/3090: <code>"86"</code> / RTX 4080/4090: <code>"89"</code> / V100: <code>"70"</code> / A100: <code>"80"</code><br>
+<code>setup_wsl2.sh</code> を使用する場合は <code>nvidia-smi</code> から自動検出されます。
 </div>
 
 <p>ビルドが成功すると <code>build/Release/fasttracker.exe</code> (Windows) または <code>build/fasttracker</code> (Linux) が生成されます。</p>
 
 <h3 id="sec2-flask">2.3 Web GUI起動</h3>
-<pre><code>cd python/webapp
-pip install flask
+<pre><code><span class="cmt"># Python依存パッケージのインストール</span>
+pip install -r requirements.txt
+
+<span class="cmt"># Web GUI起動</span>
+cd python/webapp
 python app.py</code></pre>
 <p>ブラウザで <code>http://localhost:5000</code> にアクセスするとGUIが表示されます。</p>
 <div class="warn-box">
-<strong>注意:</strong> <code>fasttracker.exe</code> のビルドが完了していない場合、Web GUIからの軌道生成・追尾は実行できません。
+<strong>注意:</strong> <code>fasttracker</code> 実行ファイルのビルドが完了していない場合、Web GUIからの軌道生成・追尾は実行できません。
 </div>
 
 
@@ -1221,7 +1246,7 @@ Web GUI経由の場合はプロジェクトルートに生成され、FlaskがJS
     <tr>
         <td>Web GUIで「FastTracker executable not found」</td>
         <td>ビルドが完了していない、またはパスが異なる</td>
-        <td><code>build/Release/fasttracker.exe</code> が存在するか確認。ビルド手順を再実行</td>
+        <td>Windows: <code>build/Release/fasttracker.exe</code>、Linux: <code>build/fasttracker</code> が存在するか確認。ビルド手順を再実行</td>
     </tr>
     <tr>
         <td>「Copy size exceeds allocated size」エラー</td>

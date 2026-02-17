@@ -337,6 +337,51 @@
             font-size: 16px;
             color: #e94560;
         }
+        .loading .progress-container {
+            width: 320px;
+            margin-top: 14px;
+            display: none;
+        }
+        .loading .progress-bar-bg {
+            background: #333;
+            border-radius: 4px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .loading .progress-bar-fill {
+            height: 100%;
+            background: #e94560;
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+        .loading .progress-pct {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 4px;
+            text-align: right;
+        }
+        .loading .progress-detail {
+            font-size: 11px;
+            color: #888;
+            margin-top: 6px;
+            text-align: center;
+            font-family: monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .loading .btn-cancel {
+            margin-top: 16px;
+            padding: 6px 20px;
+            background: transparent;
+            border: 1px solid #e94560;
+            color: #e94560;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            display: none;
+        }
+        .loading .btn-cancel:hover { background: #e94560; color: #fff; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* Map instructions */
@@ -574,21 +619,18 @@
                                 <label title="Auto-compute antenna bearing from sensor-to-launch direction.">Auto Bearing</label>
                                 <input type="checkbox" id="auto-antenna-bearing" checked onchange="onAutoAntennaBearingChange()">
                             </div>
-                            <div style="color: #e94560; font-size: 11px; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 1px;">Performance</div>
+                            <div style="color: #e94560; font-size: 11px; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 1px;">Swerling II Detection</div>
                             <div class="control-row">
-                                <label title="Probability of detection (Pd). Chance a target in range is detected per scan. 1.0 = perfect detection.">Detect Prob</label>
-                                <input type="number" id="detect-prob" value="0.95" min="0.1" max="1.0" step="0.05">
+                                <label title="Per-pulse probability of false alarm. Sets CFAR threshold (γ = −ln(Pfa)) and clutter density.">Pfa</label>
+                                <input type="text" id="pfa" value="1e-6" style="width:70px;">
                             </div>
                             <div class="control-row">
-                                <label title="Probability of false alarm per resolution cell. Controls clutter density.">Pfa</label>
-                                <input type="text" id="pfa" value="1e-6" style="width:70px;" disabled>
-                                <label class="lock-label" title="Auto: compute from scenario geometry"><input type="checkbox" id="auto-pfa" checked onchange="toggleAutoParam(this, 'pfa')"> Auto</label>
-                                <span id="resolved-pfa" style="font-size:10px; color:#4ecdc4;"></span>
+                                <label title="Reference range for detection performance [km]. Radar power is set so that P(D) equals the value below at this range.">Ref Range</label>
+                                <input type="number" id="pd-ref-range" value="10" min="1" max="500" step="1"> km
                             </div>
                             <div class="control-row">
-                                <label title="Reference signal-to-noise ratio [dB] at 1km. Higher = better detection at long range.">SNR Ref</label>
-                                <input type="number" id="snr-ref" value="80" min="1" max="200" step="5" disabled> dB
-                                <label class="lock-label" title="Auto: compute from radar equation"><input type="checkbox" id="auto-snr-ref" checked onchange="toggleAutoParam(this, 'snr-ref')"> Auto</label>
+                                <label title="Detection probability at the reference range. Determines radar transmit power via Swerling II: SNR_avg(R_ref) = −ln(Pfa) / −ln(P(D)).">P(D)@Ref</label>
+                                <input type="number" id="pd-ref" value="0.9" min="0.05" max="0.99" step="0.05">
                                 <span id="resolved-snr-ref" style="font-size:10px; color:#4ecdc4;"></span>
                             </div>
                         </div>
@@ -742,8 +784,16 @@
 
 <!-- Loading Overlay -->
 <div class="loading" id="loading">
-    <div class="spinner"></div>
+    <div class="spinner" id="loading-spinner"></div>
     <div class="text" id="loading-text">Generating trajectory...</div>
+    <div class="progress-container" id="loading-progress-container">
+        <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="loading-progress-bar"></div>
+        </div>
+        <div class="progress-pct" id="loading-progress-pct">0%</div>
+        <div class="progress-detail" id="loading-progress-detail"></div>
+    </div>
+    <button class="btn-cancel" id="btn-cancel-tracker" onclick="cancelTracker()">Cancel</button>
 </div>
 
 <script>
@@ -1167,7 +1217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Restore previous state from localStorage
     restoreStateFromStorage();
     // Initialize auto param visual state (after restore so saved values take effect)
-    [['auto-max-range','radar-max-range'], ['auto-pfa','pfa'], ['auto-snr-ref','snr-ref']].forEach(([cbId, inputId]) => {
+    [['auto-max-range','radar-max-range']].forEach(([cbId, inputId]) => {
         const cb = document.getElementById(cbId);
         if (cb) toggleAutoParam(cb, inputId);
     });
@@ -1782,8 +1832,133 @@ function draw3DVisualization(data) {
 }
 
 // ========================================
-// Run Tracker
+// Run Tracker (async with progress + cancel)
 // ========================================
+let _currentTrackerJobId = null;
+let _trackerPollTimer = null;
+
+function _buildTrackerParams() {
+    const missileType = document.getElementById('missile-type').value;
+    const isHgv = missileType === 'hgv';
+    const p = {
+        missile_type: missileType,
+        launch_angle: parseFloat(document.getElementById('launch-angle').value) * Math.PI / 180,
+        boost_duration: parseFloat(document.getElementById('boost-duration').value),
+        boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
+        initial_mass: parseFloat(document.getElementById('initial-mass').value),
+        fuel_fraction: parseFloat(document.getElementById('fuel-fraction').value),
+        specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
+        drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
+        cross_section_area: parseFloat(document.getElementById('cross-section').value),
+        sensor_lat: getSensorLatLng()?.lat,
+        sensor_lon: getSensorLatLng()?.lon,
+        radar_max_range: document.getElementById('auto-max-range').checked ? 0 : parseFloat(document.getElementById('radar-max-range').value) * 1000,
+        radar_fov: parseFloat(document.getElementById('radar-fov').value) * Math.PI / 180,
+        enable_separation: document.getElementById('enable-separation').checked,
+        warhead_mass_fraction: parseFloat(document.getElementById('warhead-mass-frac').value) / 100.0,
+        cluster_count: parseInt(document.getElementById('cluster-count').value) || 0,
+        cluster_spread: parseFloat(document.getElementById('cluster-spread').value) * 1000,
+        launch_time_spread: parseFloat(document.getElementById('launch-time-spread').value) || 5,
+        beam_width: parseFloat(document.getElementById('beam-width').value) * Math.PI / 180,
+        num_beams: parseInt(document.getElementById('num-beams').value),
+        min_search_beams: parseInt(document.getElementById('min-search-beams').value),
+        track_confirmed_only: document.getElementById('track-priority').value === 'confirmed',
+        search_sector: (parseFloat(document.getElementById('search-sector').value) || 0) > 0
+            ? parseFloat(document.getElementById('search-sector').value) * Math.PI / 180 : -1,
+        search_center: parseFloat(document.getElementById('search-center').value) || 0,
+        antenna_boresight: parseFloat(document.getElementById('antenna-bearing').value) || 0,
+        search_elevation: parseFloat(document.getElementById('search-elevation').value) || 0,
+        pfa: parseFloat(document.getElementById('pfa').value) || 1e-6,
+        pd_ref: parseFloat(document.getElementById('pd-ref').value),
+        pd_ref_range_km: parseFloat(document.getElementById('pd-ref-range').value),
+        range_noise: parseFloat(document.getElementById('range-noise').value),
+        azimuth_noise: parseFloat(document.getElementById('azimuth-noise').value) * Math.PI / 180,
+        elevation_noise: parseFloat(document.getElementById('elevation-noise').value) * Math.PI / 180,
+        doppler_noise: parseFloat(document.getElementById('doppler-noise').value),
+        gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
+        confirm_hits: parseInt(document.getElementById('confirm-hits').value),
+        delete_misses: parseInt(document.getElementById('delete-misses').value),
+        min_snr: parseFloat(document.getElementById('min-snr').value),
+        process_pos_noise: parseFloat(document.getElementById('process-pos-noise').value),
+        process_vel_noise: parseFloat(document.getElementById('process-vel-noise').value),
+        process_acc_noise: parseFloat(document.getElementById('process-acc-noise').value),
+        num_runs: parseInt(document.getElementById('num-runs').value),
+        seed: parseInt(document.getElementById('random-seed').value),
+    };
+    if (isHgv) {
+        p.cruise_altitude = parseFloat(document.getElementById('cruise-altitude').value) * 1000;
+        p.glide_ratio = parseFloat(document.getElementById('glide-ratio').value);
+        p.terminal_dive_range = parseFloat(document.getElementById('terminal-dive-range').value) * 1000;
+        p.pullup_duration = 30.0;
+        p.bank_angle_max = parseFloat(document.getElementById('bank-angle-max').value) * Math.PI / 180;
+        p.num_skips = parseInt(document.getElementById('num-skips').value) || 0;
+    }
+    return p;
+}
+
+async function _renderTrackerResult(data) {
+    const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
+    updateStatus('Rendering 3D view...');
+    await yieldToUI();
+    draw3DWithTracks(data);
+    updateStatus('Rendering timeline...');
+    await yieldToUI();
+    drawTimeline(data);
+    updateStatus('Rendering evaluation...');
+    await yieldToUI();
+    await displayEvaluation(data);
+    showResolvedParams(data.eval_summary);
+    enableVizTab('tracking');
+    enableVizTab('evaluation');
+    enableVizTab('timeline');
+    switchVizTab('tracking');
+    const numRuns = parseInt(document.getElementById('num-runs').value);
+    updateStatus(`Tracker simulation complete${numRuns > 1 ? ` (${numRuns} runs)` : ''}`);
+    saveStateToStorage();
+}
+
+function _pollTrackerJob(jobId) {
+    return new Promise((resolve, reject) => {
+        _trackerPollTimer = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/run-tracker-status/${jobId}`);
+                const data = await res.json();
+                if (!data.success) {
+                    clearInterval(_trackerPollTimer);
+                    reject(new Error(data.error || 'Job failed'));
+                    return;
+                }
+                updateTrackerProgress(data.progress_pct, data.progress_msg);
+                if (data.status === 'complete') {
+                    clearInterval(_trackerPollTimer);
+                    resolve(data.result);
+                } else if (data.status === 'error') {
+                    clearInterval(_trackerPollTimer);
+                    reject(new Error(data.error || 'Job error'));
+                } else if (data.status === 'cancelled') {
+                    clearInterval(_trackerPollTimer);
+                    resolve(null);
+                }
+            } catch (err) {
+                clearInterval(_trackerPollTimer);
+                reject(err);
+            }
+        }, 500);
+    });
+}
+
+async function cancelTracker() {
+    if (!_currentTrackerJobId) return;
+    clearInterval(_trackerPollTimer);
+    try {
+        await fetch(`/api/run-tracker-cancel/${_currentTrackerJobId}`, { method: 'POST' });
+    } catch (_) {}
+    _currentTrackerJobId = null;
+    hideLoading();
+    document.getElementById('btn-run-tracker').disabled = false;
+    updateStatus('Tracker cancelled');
+}
+
 async function runTracker() {
     if (!currentTrajectory) return;
 
@@ -1794,115 +1969,42 @@ async function runTracker() {
         : clusterCount > 0
             ? `Running FastTracker (${clusterCount + 1} targets, cluster mode)...`
             : 'Running FastTracker simulation...';
-    showLoading(loadMsg);
+
+    showTrackerLoading(loadMsg);
     document.getElementById('btn-run-tracker').disabled = true;
 
     try {
-        const missileType = document.getElementById('missile-type').value;
-        const isHgv = missileType === 'hgv';
-        const trackerParams = {
-                    missile_type: missileType,
-                    launch_angle: parseFloat(document.getElementById('launch-angle').value) * Math.PI / 180,
-                    boost_duration: parseFloat(document.getElementById('boost-duration').value),
-                    boost_acceleration: parseFloat(document.getElementById('boost-accel').value),
-                    initial_mass: parseFloat(document.getElementById('initial-mass').value),
-                    fuel_fraction: parseFloat(document.getElementById('fuel-fraction').value),
-                    specific_impulse: parseFloat(document.getElementById('specific-impulse').value),
-                    drag_coefficient: parseFloat(document.getElementById('drag-coefficient').value),
-                    cross_section_area: parseFloat(document.getElementById('cross-section').value),
-                    sensor_lat: getSensorLatLng()?.lat,
-                    sensor_lon: getSensorLatLng()?.lon,
-                    radar_max_range: document.getElementById('auto-max-range').checked ? 0 : parseFloat(document.getElementById('radar-max-range').value) * 1000,
-                    radar_fov: parseFloat(document.getElementById('radar-fov').value) * Math.PI / 180,  // deg to rad
-                    enable_separation: document.getElementById('enable-separation').checked,
-                    warhead_mass_fraction: parseFloat(document.getElementById('warhead-mass-frac').value) / 100.0,
-                    cluster_count: parseInt(document.getElementById('cluster-count').value) || 0,
-                    cluster_spread: parseFloat(document.getElementById('cluster-spread').value) * 1000,  // km to m
-                    launch_time_spread: parseFloat(document.getElementById('launch-time-spread').value) || 5,
-                    // Beam steering
-                    beam_width: parseFloat(document.getElementById('beam-width').value) * Math.PI / 180,  // deg to rad
-                    num_beams: parseInt(document.getElementById('num-beams').value),
-                    min_search_beams: parseInt(document.getElementById('min-search-beams').value),
-                    track_confirmed_only: document.getElementById('track-priority').value === 'confirmed',
-                    search_sector: (parseFloat(document.getElementById('search-sector').value) || 0) > 0
-                        ? parseFloat(document.getElementById('search-sector').value) * Math.PI / 180 : -1,
-                    search_center: parseFloat(document.getElementById('search-center').value) || 0,
-                    antenna_boresight: parseFloat(document.getElementById('antenna-bearing').value) || 0,
-                    search_elevation: parseFloat(document.getElementById('search-elevation').value) || 0,
-        };
-        if (isHgv) {
-            trackerParams.cruise_altitude = parseFloat(document.getElementById('cruise-altitude').value) * 1000;
-            trackerParams.glide_ratio = parseFloat(document.getElementById('glide-ratio').value);
-            trackerParams.terminal_dive_range = parseFloat(document.getElementById('terminal-dive-range').value) * 1000;
-            trackerParams.pullup_duration = 30.0;
-            trackerParams.bank_angle_max = parseFloat(document.getElementById('bank-angle-max').value) * Math.PI / 180;
-            trackerParams.num_skips = parseInt(document.getElementById('num-skips').value) || 0;
-        }
-        const response = await fetch('/api/run-tracker', {
+        const params = _buildTrackerParams();
+        const startRes = await fetch('/api/run-tracker-start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                trajectory: currentTrajectory.trajectory,
-                params: {
-                    ...trackerParams,
-                    // Sensor performance params
-                    detect_prob: parseFloat(document.getElementById('detect-prob').value),
-                    pfa: document.getElementById('auto-pfa').checked ? 0 : parseFloat(document.getElementById('pfa').value),
-                    snr_ref: document.getElementById('auto-snr-ref').checked ? 0 : parseFloat(document.getElementById('snr-ref').value),
-                    range_noise: parseFloat(document.getElementById('range-noise').value),
-                    azimuth_noise: parseFloat(document.getElementById('azimuth-noise').value) * Math.PI / 180,
-                    elevation_noise: parseFloat(document.getElementById('elevation-noise').value) * Math.PI / 180,
-                    doppler_noise: parseFloat(document.getElementById('doppler-noise').value),
-                    // Tracker params
-                    gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
-                    confirm_hits: parseInt(document.getElementById('confirm-hits').value),
-                    delete_misses: parseInt(document.getElementById('delete-misses').value),
-                    min_snr: parseFloat(document.getElementById('min-snr').value),
-                    process_pos_noise: parseFloat(document.getElementById('process-pos-noise').value),
-                    process_vel_noise: parseFloat(document.getElementById('process-vel-noise').value),
-                    process_acc_noise: parseFloat(document.getElementById('process-acc-noise').value),
-                    // Multi-run params
-                    num_runs: parseInt(document.getElementById('num-runs').value),
-                    seed: parseInt(document.getElementById('random-seed').value),
-                }
-            }),
+            body: JSON.stringify({ trajectory: currentTrajectory.trajectory, params }),
         });
+        const startData = await startRes.json();
+        if (!startData.success) throw new Error(startData.error || 'Failed to start job');
 
-        const data = await response.json();
+        _currentTrackerJobId = startData.job_id;
+        const result = await _pollTrackerJob(startData.job_id);
+        _currentTrackerJobId = null;
 
-        if (data.success) {
-            // 描画を非同期化してブラウザの無応答を防止
-            const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
-
-            updateStatus('Rendering 3D view...');
-            await yieldToUI();
-            draw3DWithTracks(data);
-
-            updateStatus('Rendering timeline...');
-            await yieldToUI();
-            drawTimeline(data);
-
-            updateStatus('Rendering evaluation...');
-            await yieldToUI();
-            await displayEvaluation(data);
-
-            showResolvedParams(data.eval_summary);
-            enableVizTab('tracking');
-            enableVizTab('evaluation');
-            enableVizTab('timeline');
-            switchVizTab('tracking');
-            const numRuns = parseInt(document.getElementById('num-runs').value);
-            updateStatus(`Tracker simulation complete${numRuns > 1 ? ` (${numRuns} runs)` : ''}`);
-            saveStateToStorage();
+        if (result === null) {
+            // cancelled
+            return;
+        }
+        if (result.success) {
+            await _renderTrackerResult(result);
         } else {
-            alert('Tracker error: ' + (data.error || 'Unknown error'));
-            updateStatus('Tracker failed: ' + (data.error || ''));
+            alert('Tracker error: ' + (result.error || 'Unknown error'));
+            updateStatus('Tracker failed: ' + (result.error || ''));
         }
     } catch (err) {
+        _currentTrackerJobId = null;
         alert('Server error: ' + err.message);
+        updateStatus('Tracker failed: ' + err.message);
+    } finally {
+        hideLoading();
+        document.getElementById('btn-run-tracker').disabled = false;
     }
-    hideLoading();
-    document.getElementById('btn-run-tracker').disabled = false;
 }
 
 function toggleAutoParam(checkbox, inputId) {
@@ -1922,20 +2024,18 @@ function showResolvedParams(summary) {
     const defs = {
         radar_max_range: ['resolved-max-range', 'auto-max-range', 'radar-max-range',
                           v => `(=${(v/1000).toFixed(0)} km)`, v => (v/1000).toFixed(0)],
-        pfa:             ['resolved-pfa',        'auto-pfa',       'pfa',
-                          v => `(=${v.toExponential(1)})`,   v => v.toExponential(1)],
-        snr_ref:         ['resolved-snr-ref',    'auto-snr-ref',   'snr-ref',
-                          v => `(=${v.toFixed(1)} dB)`,      v => v.toFixed(1)],
+        snr_ref:         ['resolved-snr-ref',    null,             null,
+                          v => `(SNR Ref=${v.toFixed(1)} dB)`, null],
     };
     for (const [key, [spanId, autoId, inputId, fmtSpan, fmtInput]] of Object.entries(defs)) {
         const span = document.getElementById(spanId);
-        const autoCheck = document.getElementById(autoId);
-        const input = document.getElementById(inputId);
+        const autoCheck = autoId ? document.getElementById(autoId) : null;
+        const input = inputId ? document.getElementById(inputId) : null;
         if (!span) continue;
         if (r && r[key] != null) {
-            if (autoCheck && autoCheck.checked) {
+            if (autoCheck === null || autoCheck.checked) {
                 span.textContent = fmtSpan(r[key]);
-                if (input) input.value = fmtInput(r[key]);
+                if (input && fmtInput) input.value = fmtInput(r[key]);
             } else {
                 span.textContent = '';
             }
@@ -2324,7 +2424,7 @@ function drawTimeline(data) {
             type: 'rect', xref: 'x', yref: 'y',
             x0: tgt.birth, x1: tgt.death,
             y0: yPos - 0.35, y1: yPos + nTracks - 1 + 0.35,
-            fillcolor: 'rgba(255, 215, 0, 0.15)', line: { color: 'rgba(255, 215, 0, 0.4)', width: 1 },
+            fillcolor: 'rgba(30, 190, 200, 0.12)', line: { color: 'rgba(30, 190, 200, 0.45)', width: 1 },
         });
 
         // このターゲットに関連するトラック — 各トラックに個別サブ行
@@ -2360,11 +2460,11 @@ function drawTimeline(data) {
                     };
 
                     const colorMap = {
-                        det:       'rgba(0, 200, 100, 0.7)',    // 探知: 緑
-                        beam_miss: 'rgba(200, 100, 0, 0.5)',    // ビーム照射未探知: オレンジ
-                        no_beam:   'rgba(180, 50, 180, 0.5)',   // ビームリソース不足: 紫
-                        out_fov:   'rgba(200, 50, 50, 0.5)',    // 覆域外: 赤
-                        post:      'rgba(120, 120, 120, 0.4)',  // 着弾後: グレー
+                        det:       'rgba(0, 210, 90, 0.80)',    // 探知: 緑
+                        beam_miss: 'rgba(160, 60, 220, 0.80)',  // ビーム照射未探知: 紫
+                        no_beam:   'rgba(30, 150, 255, 0.80)',  // ビームリソース不足: 青
+                        out_fov:   'rgba(210, 30, 30, 0.80)',   // 覆域外: 赤
+                        post:      'rgba(90, 90, 90, 0.65)',    // 着弾後: 濃グレー
                     };
 
                     let segStart = confRows[0].time;
@@ -2399,12 +2499,12 @@ function drawTimeline(data) {
     // バー色分けの凡例用ダミートレース（shapesは凡例に出ないため）
     const barLegend = [
         { name: 'Tentative',       color: 'rgba(255, 200, 0, 0.6)' },
-        { name: 'Detected',        color: 'rgba(0, 200, 100, 0.7)' },
-        { name: 'Beam Miss',       color: 'rgba(200, 100, 0, 0.5)' },
-        { name: 'No Beam',         color: 'rgba(180, 50, 180, 0.5)' },
-        { name: 'Out of FOV',      color: 'rgba(200, 50, 50, 0.5)' },
-        { name: 'Post-Impact',     color: 'rgba(120, 120, 120, 0.4)' },
-        { name: 'GT Lifetime',     color: 'rgba(255, 215, 0, 0.15)' },
+        { name: 'Detected',        color: 'rgba(0, 210, 90, 0.80)' },
+        { name: 'Beam Miss',       color: 'rgba(160, 60, 220, 0.80)' },
+        { name: 'No Beam',         color: 'rgba(30, 150, 255, 0.80)' },
+        { name: 'Out of FOV',      color: 'rgba(210, 30, 30, 0.80)' },
+        { name: 'Post-Impact',     color: 'rgba(90, 90, 90, 0.65)' },
+        { name: 'GT Lifetime',     color: 'rgba(30, 190, 200, 0.40)' },
     ];
     barLegend.forEach(item => {
         traces.push({
@@ -2582,6 +2682,8 @@ async function displayEvaluation(data) {
     e += '<div class="eval-chart" id="eval-chart-detect"></div>';
     e += '<div class="eval-chart" id="eval-chart-perf"></div>';
     e += '<div class="eval-chart" id="eval-chart-beam"></div>';
+    e += '<div class="eval-chart" id="eval-chart-snr-density"></div>';
+    e += '<div class="eval-chart" id="eval-chart-det-range"></div>';
     e += '</div>';
 
     document.getElementById('eval-tab-content').innerHTML = e;
@@ -2591,6 +2693,12 @@ async function displayEvaluation(data) {
     const resultsRows = data.results || [];
     if (evalRows.length > 0) {
         await drawEvalCharts(evalRows, resultsRows);
+    }
+
+    // Detection Probability Density Diagram
+    const meas = data.measurements || [];
+    if (meas.length > 0) {
+        await drawDetectionDensityCharts(meas, data.ground_truth || [], data.sensor_x || 0, data.sensor_y || 0);
     }
 
     // Enable tabs (don't auto-switch here; runTracker controls which tab to show)
@@ -2692,6 +2800,126 @@ async function drawEvalCharts(rows, resultsRows) {
     }
 }
 
+async function drawDetectionDensityCharts(measurements, groundTruth, sensorX, sensorY) {
+    const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
+    const darkLayout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(15,52,96,0.5)',
+        font: { color: '#aaa', size: 9 },
+        margin: { l: 48, r: 40, t: 28, b: 32 },
+        legend: { x: 0.01, y: 0.99, bgcolor: 'rgba(0,0,0,0.4)', font: { size: 8 } },
+    };
+    const cfg = { responsive: true, displayModeBar: false };
+
+    const trueDet = measurements.filter(m => !(m.is_clutter === 1 || m.is_clutter === true));
+    const clutter  = measurements.filter(m =>  (m.is_clutter === 1 || m.is_clutter === true));
+
+    // ── Chart 1: SNR Probability Density ────────────────────────────────────
+    // Shows the SNR distribution under H0 (clutter) and H1 (target) hypothesis.
+    const snrBinSize = 2;
+    Plotly.newPlot('eval-chart-snr-density', [
+        {
+            x: trueDet.map(m => m.snr),
+            type: 'histogram', histnorm: 'probability density',
+            name: 'Target (H₁)',
+            marker: { color: 'rgba(0,255,136,0.65)', line: { color: '#00ff88', width: 1 } },
+            xbins: { start: -10, end: 80, size: snrBinSize },
+            opacity: 0.85,
+        },
+        {
+            x: clutter.map(m => m.snr),
+            type: 'histogram', histnorm: 'probability density',
+            name: 'Clutter (H₀)',
+            marker: { color: 'rgba(255,107,107,0.65)', line: { color: '#ff6b6b', width: 1 } },
+            xbins: { start: -10, end: 80, size: snrBinSize },
+            opacity: 0.85,
+        },
+    ], {
+        ...darkLayout,
+        barmode: 'overlay',
+        title: { text: 'SNR Probability Density  (H₀: Clutter / H₁: Target)', font: { size: 10, color: '#ffd700' } },
+        xaxis: { gridcolor: '#333', title: { text: 'SNR (dB)', font: { size: 9 } } },
+        yaxis: { gridcolor: '#333', title: { text: 'Density', font: { size: 9 } } },
+    }, cfg);
+    await yieldToUI();
+
+    // ── Chart 2: Detection Probability vs. Range ─────────────────────────────
+    // P(D) per range bin = detected / ground-truth targets in that bin
+    const N_BINS = 20;
+    const gtRangesKm = groundTruth.map(g => {
+        const dx = (g.x || 0) - sensorX;
+        const dy = (g.y || 0) - sensorY;
+        const dz = (g.z || 0);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz) / 1000;
+    }).filter(r => isFinite(r) && r >= 0);
+
+    const detRangesKm = trueDet.map(m => m.range / 1000);
+    const clutterRangesKm = clutter.map(m => m.range / 1000);
+
+    const allRanges = [...gtRangesKm, ...detRangesKm, ...clutterRangesKm];
+    const maxRange = allRanges.length > 0 ? Math.max(...allRanges) : 1;
+    const binSize = maxRange / N_BINS;
+
+    const gtCounts  = new Array(N_BINS).fill(0);
+    const detCounts = new Array(N_BINS).fill(0);
+    const clutCounts = new Array(N_BINS).fill(0);
+
+    gtRangesKm.forEach(r => {
+        const b = Math.min(Math.floor(r / binSize), N_BINS - 1);
+        if (b >= 0) gtCounts[b]++;
+    });
+    detRangesKm.forEach(r => {
+        const b = Math.min(Math.floor(r / binSize), N_BINS - 1);
+        if (b >= 0) detCounts[b]++;
+    });
+    clutterRangesKm.forEach(r => {
+        const b = Math.min(Math.floor(r / binSize), N_BINS - 1);
+        if (b >= 0) clutCounts[b]++;
+    });
+
+    const binCenters = Array.from({ length: N_BINS }, (_, i) => ((i + 0.5) * binSize).toFixed(2));
+    const pd = Array.from({ length: N_BINS }, (_, i) =>
+        gtCounts[i] > 0 ? Math.min(detCounts[i] / gtCounts[i], 1.0) : null
+    );
+
+    Plotly.newPlot('eval-chart-det-range', [
+        {
+            x: binCenters, y: detCounts,
+            type: 'bar', name: 'True Det.',
+            marker: { color: 'rgba(0,255,136,0.5)', line: { color: '#00ff88', width: 0.5 } },
+            yaxis: 'y2',
+        },
+        {
+            x: binCenters, y: clutCounts,
+            type: 'bar', name: 'Clutter',
+            marker: { color: 'rgba(255,107,107,0.5)', line: { color: '#ff6b6b', width: 0.5 } },
+            yaxis: 'y2',
+        },
+        {
+            x: binCenters, y: pd,
+            type: 'scatter', mode: 'lines+markers', name: 'P(D)',
+            line: { color: '#e94560', width: 2 },
+            marker: { size: 5, color: '#e94560' },
+            connectgaps: false,
+        },
+    ], {
+        ...darkLayout,
+        barmode: 'stack',
+        title: { text: 'Detection Probability vs. Range', font: { size: 10, color: '#e94560' } },
+        xaxis: { gridcolor: '#333', title: { text: 'Range (km)', font: { size: 9 } } },
+        yaxis: {
+            gridcolor: '#333',
+            title: { text: 'P(D)', font: { size: 9 } },
+            range: [0, 1.1], side: 'left',
+        },
+        yaxis2: {
+            overlaying: 'y', side: 'right',
+            title: { text: 'Count', font: { size: 9 } },
+            showgrid: false, color: '#aaa',
+        },
+    }, cfg);
+}
+
 function parseStdoutMetrics(stdout) {
     const m = {};
     if (!stdout) return m;
@@ -2764,11 +2992,9 @@ function saveStateToStorage() {
                 max_range: document.getElementById('radar-max-range').value,
                 auto_max_range: document.getElementById('auto-max-range').checked,
                 fov: document.getElementById('radar-fov').value,
-                detect_prob: document.getElementById('detect-prob').value,
                 pfa: document.getElementById('pfa').value,
-                auto_pfa: document.getElementById('auto-pfa').checked,
-                snr_ref: document.getElementById('snr-ref').value,
-                auto_snr_ref: document.getElementById('auto-snr-ref').checked,
+                pd_ref: document.getElementById('pd-ref').value,
+                pd_ref_range_km: document.getElementById('pd-ref-range').value,
                 range_noise: document.getElementById('range-noise').value,
                 azimuth_noise: document.getElementById('azimuth-noise').value,
                 elevation_noise: document.getElementById('elevation-noise').value,
@@ -2859,9 +3085,9 @@ function restoreStateFromStorage() {
         if (s.radar) {
             if (s.radar.max_range != null) document.getElementById('radar-max-range').value = s.radar.max_range;
             if (s.radar.fov != null) document.getElementById('radar-fov').value = s.radar.fov;
-            if (s.radar.detect_prob != null) document.getElementById('detect-prob').value = s.radar.detect_prob;
             if (s.radar.pfa != null) document.getElementById('pfa').value = s.radar.pfa;
-            if (s.radar.snr_ref != null) document.getElementById('snr-ref').value = s.radar.snr_ref;
+            if (s.radar.pd_ref != null) document.getElementById('pd-ref').value = s.radar.pd_ref;
+            if (s.radar.pd_ref_range_km != null) document.getElementById('pd-ref-range').value = s.radar.pd_ref_range_km;
             if (s.radar.range_noise != null) document.getElementById('range-noise').value = s.radar.range_noise;
             if (s.radar.azimuth_noise != null) document.getElementById('azimuth-noise').value = s.radar.azimuth_noise;
             if (s.radar.elevation_noise != null) document.getElementById('elevation-noise').value = s.radar.elevation_noise;
@@ -2885,14 +3111,6 @@ function restoreStateFromStorage() {
             if (s.radar.auto_max_range != null) {
                 document.getElementById('auto-max-range').checked = s.radar.auto_max_range;
                 toggleAutoParam(document.getElementById('auto-max-range'), 'radar-max-range');
-            }
-            if (s.radar.auto_pfa != null) {
-                document.getElementById('auto-pfa').checked = s.radar.auto_pfa;
-                toggleAutoParam(document.getElementById('auto-pfa'), 'pfa');
-            }
-            if (s.radar.auto_snr_ref != null) {
-                document.getElementById('auto-snr-ref').checked = s.radar.auto_snr_ref;
-                toggleAutoParam(document.getElementById('auto-snr-ref'), 'snr-ref');
             }
         }
 
@@ -2978,11 +3196,9 @@ function saveScenario() {
             max_range_km: parseFloat(document.getElementById('radar-max-range').value),
             auto_max_range: document.getElementById('auto-max-range').checked,
             fov_deg: parseFloat(document.getElementById('radar-fov').value),
-            detect_prob: parseFloat(document.getElementById('detect-prob').value),
             pfa: document.getElementById('pfa').value,
-            auto_pfa: document.getElementById('auto-pfa').checked,
-            snr_ref: parseFloat(document.getElementById('snr-ref').value),
-            auto_snr_ref: document.getElementById('auto-snr-ref').checked,
+            pd_ref: parseFloat(document.getElementById('pd-ref').value),
+            pd_ref_range_km: parseFloat(document.getElementById('pd-ref-range').value),
             range_noise: parseFloat(document.getElementById('range-noise').value),
             azimuth_noise: parseFloat(document.getElementById('azimuth-noise').value),
             elevation_noise: parseFloat(document.getElementById('elevation-noise').value),
@@ -3093,10 +3309,6 @@ function loadScenario(event) {
                 if (scenario.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = scenario.tracker.confirm_hits;
                 if (scenario.tracker.delete_misses != null) document.getElementById('delete-misses').value = scenario.tracker.delete_misses;
                 if (scenario.tracker.min_snr != null) document.getElementById('min-snr').value = scenario.tracker.min_snr;
-                // Legacy: detect_prob was in tracker section in older scenario files
-                if (scenario.tracker.detect_prob != null && !(scenario.radar && scenario.radar.detect_prob != null)) {
-                    document.getElementById('detect-prob').value = scenario.tracker.detect_prob;
-                }
                 if (scenario.tracker.process_pos_noise != null) document.getElementById('process-pos-noise').value = scenario.tracker.process_pos_noise;
                 if (scenario.tracker.process_vel_noise != null) document.getElementById('process-vel-noise').value = scenario.tracker.process_vel_noise;
                 if (scenario.tracker.process_acc_noise != null) document.getElementById('process-acc-noise').value = scenario.tracker.process_acc_noise;
@@ -3108,11 +3320,11 @@ function loadScenario(event) {
             if (scenario.radar) {
                 if (scenario.radar.max_range_km != null) document.getElementById('radar-max-range').value = scenario.radar.max_range_km;
                 if (scenario.radar.fov_deg != null) document.getElementById('radar-fov').value = scenario.radar.fov_deg;
-                if (scenario.radar.detect_prob != null) document.getElementById('detect-prob').value = scenario.radar.detect_prob;
                 if (scenario.radar.pfa != null) document.getElementById('pfa').value = scenario.radar.pfa;
                 // 旧形式の後方互換
                 if (scenario.radar.clutter_per_scan != null && scenario.radar.pfa == null) document.getElementById('pfa').value = scenario.radar.clutter_per_scan;
-                if (scenario.radar.snr_ref != null) document.getElementById('snr-ref').value = scenario.radar.snr_ref;
+                if (scenario.radar.pd_ref != null) document.getElementById('pd-ref').value = scenario.radar.pd_ref;
+                if (scenario.radar.pd_ref_range_km != null) document.getElementById('pd-ref-range').value = scenario.radar.pd_ref_range_km;
                 if (scenario.radar.range_noise != null) document.getElementById('range-noise').value = scenario.radar.range_noise;
                 if (scenario.radar.azimuth_noise != null) document.getElementById('azimuth-noise').value = scenario.radar.azimuth_noise;
                 if (scenario.radar.elevation_noise != null) document.getElementById('elevation-noise').value = scenario.radar.elevation_noise;
@@ -3121,12 +3333,6 @@ function loadScenario(event) {
                 const autoMaxRange = scenario.radar.auto_max_range !== false;
                 document.getElementById('auto-max-range').checked = autoMaxRange;
                 toggleAutoParam(document.getElementById('auto-max-range'), 'radar-max-range');
-                const autoPfa = scenario.radar.auto_pfa !== false;
-                document.getElementById('auto-pfa').checked = autoPfa;
-                toggleAutoParam(document.getElementById('auto-pfa'), 'pfa');
-                const autoSnr = scenario.radar.auto_snr_ref !== false;
-                document.getElementById('auto-snr-ref').checked = autoSnr;
-                toggleAutoParam(document.getElementById('auto-snr-ref'), 'snr-ref');
                 // Beam steering
                 if (scenario.radar.beam_width_deg != null) document.getElementById('beam-width').value = scenario.radar.beam_width_deg;
                 if (scenario.radar.num_beams != null) document.getElementById('num-beams').value = scenario.radar.num_beams;
@@ -3195,11 +3401,34 @@ function updateStatus(text) {
 
 function showLoading(text) {
     document.getElementById('loading-text').textContent = text;
+    document.getElementById('loading-progress-container').style.display = 'none';
+    document.getElementById('btn-cancel-tracker').style.display = 'none';
     document.getElementById('loading').classList.add('active');
+}
+
+function showTrackerLoading(text) {
+    document.getElementById('loading-text').textContent = text;
+    document.getElementById('loading-progress-container').style.display = 'block';
+    document.getElementById('loading-progress-bar').style.width = '0%';
+    document.getElementById('loading-progress-pct').textContent = '0%';
+    document.getElementById('loading-progress-detail').textContent = '';
+    document.getElementById('btn-cancel-tracker').style.display = 'inline-block';
+    document.getElementById('loading').classList.add('active');
+}
+
+function updateTrackerProgress(pct, detail) {
+    const p = Math.max(0, Math.min(100, pct || 0));
+    document.getElementById('loading-progress-bar').style.width = p.toFixed(1) + '%';
+    document.getElementById('loading-progress-pct').textContent = p.toFixed(0) + '%';
+    if (detail) {
+        document.getElementById('loading-progress-detail').textContent = detail;
+    }
 }
 
 function hideLoading() {
     document.getElementById('loading').classList.remove('active');
+    document.getElementById('loading-progress-container').style.display = 'none';
+    document.getElementById('btn-cancel-tracker').style.display = 'none';
 }
 
 function clearAll() {
@@ -3224,13 +3453,13 @@ function clearAll() {
     document.getElementById('range-display').textContent = '-';
     document.getElementById('btn-run-tracker').disabled = true;
     // Reset auto checkboxes and resolved hints
-    ['auto-max-range', 'auto-pfa', 'auto-snr-ref'].forEach(id => {
+    ['auto-max-range'].forEach(id => {
         document.getElementById(id).checked = true;
     });
-    [['auto-max-range','radar-max-range'], ['auto-pfa','pfa'], ['auto-snr-ref','snr-ref']].forEach(([cbId, inputId]) => {
+    [['auto-max-range','radar-max-range']].forEach(([cbId, inputId]) => {
         toggleAutoParam(document.getElementById(cbId), inputId);
     });
-    ['resolved-max-range', 'resolved-pfa', 'resolved-snr-ref'].forEach(id => {
+    ['resolved-max-range', 'resolved-snr-ref'].forEach(id => {
         document.getElementById(id).textContent = '';
     });
     document.getElementById('eval-results').innerHTML = '<div class="eval-item"><span class="label">Status:</span> <span class="value">Waiting</span></div>';

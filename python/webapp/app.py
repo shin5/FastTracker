@@ -8,9 +8,12 @@ import os
 import sys
 import json
 import math
+import re
 import subprocess
 import tempfile
 import csv
+import threading
+import uuid
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify
@@ -34,7 +37,15 @@ def add_no_cache_headers(response):
 
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-FASTTRACKER_EXE = PROJECT_ROOT / 'build' / 'Release' / 'fasttracker.exe'
+
+import platform
+if platform.system() == 'Windows':
+    FASTTRACKER_EXE = PROJECT_ROOT / 'build' / 'Release' / 'fasttracker.exe'
+else:
+    FASTTRACKER_EXE = PROJECT_ROOT / 'build' / 'fasttracker'
+
+# Async job tracking: job_id -> job state dict
+_jobs = {}
 
 
 @app.route('/')
@@ -223,6 +234,294 @@ def generate_trajectory():
         return jsonify({'success': False, 'error': str(e)})
 
 
+def _build_tracker_cmd(data):
+    """Build FastTracker subprocess command from request data.
+
+    Returns (cmd, sensor_x_m, sensor_y_m) or raises on error.
+    """
+    trajectory = data.get('trajectory', [])
+    params = data.get('params', {})
+
+    if not trajectory:
+        raise ValueError('No trajectory data')
+    if not FASTTRACKER_EXE.exists():
+        raise FileNotFoundError(f'FastTracker executable not found at {FASTTRACKER_EXE}')
+
+    warhead_traj = [t for t in trajectory if t.get('object_id', 0) == 0]
+    if not warhead_traj:
+        warhead_traj = trajectory
+
+    duration = warhead_traj[-1]['time']
+    dt = trajectory[1]['time'] - trajectory[0]['time'] if len(trajectory) > 1 else 0.1
+    framerate = 1.0 / dt
+
+    launch_x = warhead_traj[0]['x']
+    launch_y = warhead_traj[0]['y']
+    target_x = warhead_traj[-1]['x']
+    target_y = warhead_traj[-1]['y']
+
+    missile_type = params.get('missile_type', 'ballistic')
+    launch_angle = float(params.get('launch_angle', 0.7))
+    boost_duration_val = float(params.get('boost_duration', 65.0))
+    boost_accel = float(params.get('boost_acceleration', 30.0))
+    initial_mass = float(params.get('initial_mass', 20000.0))
+    fuel_fraction = float(params.get('fuel_fraction', 0.65))
+    specific_impulse = float(params.get('specific_impulse', 250.0))
+    drag_coefficient = float(params.get('drag_coefficient', 0.3))
+    cross_section_area = float(params.get('cross_section_area', 1.0))
+
+    sensor_lat = params.get('sensor_lat')
+    sensor_lon = params.get('sensor_lon')
+    radar_max_range_m = float(params.get('radar_max_range', 0))
+    radar_fov_rad = float(params.get('radar_fov', 2 * 3.14159265))
+    enable_sep = bool(params.get('enable_separation', False))
+    warhead_mf = float(params.get('warhead_mass_fraction', 0.3))
+
+    pfa = params.get('pfa')
+    pd_ref = params.get('pd_ref')
+    pd_ref_range_km = params.get('pd_ref_range_km')
+    range_noise = params.get('range_noise')
+    azimuth_noise = params.get('azimuth_noise')
+    elevation_noise = params.get('elevation_noise')
+    doppler_noise = params.get('doppler_noise')
+
+    gate_threshold = params.get('gate_threshold')
+    confirm_hits = params.get('confirm_hits')
+    delete_misses = params.get('delete_misses')
+    min_snr = params.get('min_snr')
+    process_pos_noise = params.get('process_pos_noise')
+    process_vel_noise = params.get('process_vel_noise')
+    process_acc_noise = params.get('process_acc_noise')
+
+    num_runs = int(params.get('num_runs', 1))
+    random_seed = int(params.get('seed', 0))
+    cluster_count = int(params.get('cluster_count', 0))
+    cluster_spread = float(params.get('cluster_spread', 5000.0))
+    launch_time_spread = float(params.get('launch_time_spread', 5.0))
+
+    beam_width_rad = float(params.get('beam_width', 0.052))
+    num_beams = int(params.get('num_beams', 10))
+    min_search_beams = int(params.get('min_search_beams', 1))
+    track_confirmed_only = bool(params.get('track_confirmed_only', False))
+    search_sector_rad = float(params.get('search_sector', -1))
+    search_center_deg = float(params.get('search_center', 0))
+    search_center_rad = math.radians(90 - search_center_deg)
+    antenna_boresight_deg = float(params.get('antenna_boresight', 0))
+    antenna_boresight_rad = math.radians(90 - antenna_boresight_deg)
+    search_elevation_deg = float(params.get('search_elevation', 0))
+    search_elevation_rad = math.radians(search_elevation_deg)
+
+    sensor_x_m = 0.0
+    sensor_y_m = 0.0
+    if sensor_lat is not None and sensor_lon is not None:
+        target_lat_traj = warhead_traj[-1].get('lat')
+        target_lon_traj = warhead_traj[-1].get('lon')
+        if target_lat_traj is not None and target_lon_traj is not None:
+            sensor_x_m, sensor_y_m = latlon_to_meters(
+                float(target_lat_traj), float(target_lon_traj),
+                float(sensor_lat), float(sensor_lon)
+            )
+
+    hgv_cruise_alt = float(params.get('cruise_altitude', 40000.0))
+    hgv_glide_ratio = float(params.get('glide_ratio', 4.0))
+    hgv_terminal_dive = float(params.get('terminal_dive_range', 20000.0))
+    hgv_pullup_dur = float(params.get('pullup_duration', 30.0))
+    hgv_bank_max = float(params.get('bank_angle_max', 1.0))
+    hgv_num_skips = int(params.get('num_skips', 0))
+
+    cmd = [
+        str(FASTTRACKER_EXE),
+        '--scenario', 'single-ballistic',
+        '--missile-type', missile_type,
+        '--num-targets', '1',
+        '--duration', str(round(duration, 1)),
+        '--framerate', str(round(framerate, 1)),
+        '--launch-x', str(round(launch_x, 1)),
+        '--launch-y', str(round(launch_y, 1)),
+        '--target-x', str(round(target_x, 1)),
+        '--target-y', str(round(target_y, 1)),
+        '--launch-angle', str(launch_angle),
+        '--boost-duration', str(boost_duration_val),
+        '--boost-accel', str(boost_accel),
+        '--initial-mass', str(initial_mass),
+        '--fuel-fraction', str(fuel_fraction),
+        '--specific-impulse', str(specific_impulse),
+        '--drag-coefficient', str(drag_coefficient),
+        '--cross-section', str(cross_section_area),
+        '--sensor-x', str(round(sensor_x_m, 1)),
+        '--sensor-y', str(round(sensor_y_m, 1)),
+        '--radar-max-range', str(round(radar_max_range_m, 1)),
+        '--radar-fov', str(round(radar_fov_rad, 4)),
+    ]
+
+    if enable_sep:
+        cmd.append('--enable-separation')
+        cmd.extend(['--warhead-mass-fraction', str(warhead_mf)])
+
+    if missile_type == 'hgv':
+        cmd.extend([
+            '--cruise-altitude', str(hgv_cruise_alt),
+            '--glide-ratio', str(hgv_glide_ratio),
+            '--terminal-dive-range', str(hgv_terminal_dive),
+            '--pullup-duration', str(hgv_pullup_dur),
+            '--bank-angle-max', str(hgv_bank_max),
+        ])
+        if hgv_num_skips > 0:
+            cmd.extend(['--num-skips', str(hgv_num_skips)])
+
+    if pfa is not None and float(pfa) > 0:
+        cmd.extend(['--pfa', str(float(pfa))])
+    if pd_ref is not None and 0 < float(pd_ref) < 1:
+        cmd.extend(['--pd-ref', str(float(pd_ref))])
+    if pd_ref_range_km is not None and float(pd_ref_range_km) > 0:
+        cmd.extend(['--pd-ref-range', str(float(pd_ref_range_km) * 1000.0)])
+    if range_noise is not None:
+        cmd.extend(['--range-noise', str(float(range_noise))])
+    if azimuth_noise is not None:
+        cmd.extend(['--azimuth-noise', str(float(azimuth_noise))])
+    if elevation_noise is not None:
+        cmd.extend(['--elevation-noise', str(float(elevation_noise))])
+    if doppler_noise is not None:
+        cmd.extend(['--doppler-noise', str(float(doppler_noise))])
+
+    if gate_threshold is not None:
+        cmd.extend(['--gate-threshold', str(float(gate_threshold))])
+    if confirm_hits is not None:
+        cmd.extend(['--confirm-hits', str(int(confirm_hits))])
+    if delete_misses is not None:
+        cmd.extend(['--delete-misses', str(int(delete_misses))])
+    if min_snr is not None:
+        cmd.extend(['--min-snr', str(float(min_snr))])
+    if process_pos_noise is not None:
+        cmd.extend(['--process-pos-noise', str(float(process_pos_noise))])
+    if process_vel_noise is not None:
+        cmd.extend(['--process-vel-noise', str(float(process_vel_noise))])
+    if process_acc_noise is not None:
+        cmd.extend(['--process-acc-noise', str(float(process_acc_noise))])
+
+    if num_runs > 1:
+        cmd.extend(['--num-runs', str(num_runs)])
+    if random_seed > 0:
+        cmd.extend(['--seed', str(random_seed)])
+
+    if cluster_count > 0:
+        cmd.extend(['--cluster-count', str(cluster_count)])
+        cmd.extend(['--cluster-spread', str(cluster_spread)])
+        cmd.extend(['--launch-time-spread', str(launch_time_spread)])
+
+    cmd.extend(['--beam-width', str(beam_width_rad)])
+    cmd.extend(['--num-beams', str(num_beams)])
+    cmd.extend(['--min-search-beams', str(min_search_beams)])
+    if track_confirmed_only:
+        cmd.append('--track-confirmed-only')
+    if search_sector_rad > 0:
+        cmd.extend(['--search-sector', str(search_sector_rad)])
+    cmd.extend(['--search-center', str(search_center_rad)])
+    cmd.extend(['--antenna-boresight', str(antenna_boresight_rad)])
+    cmd.extend(['--search-elevation', str(search_elevation_rad)])
+
+    return cmd, sensor_x_m, sensor_y_m
+
+
+def _run_job_thread(job_id, cmd):
+    """Background thread: run tracker subprocess and update job state."""
+    job = _jobs.get(job_id)
+    if not job:
+        return
+
+    try:
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, cwd=str(PROJECT_ROOT), encoding='utf-8', errors='replace',
+            bufsize=1
+        )
+        job['process'] = process
+        job['status'] = 'running'
+
+        stdout_lines = []
+        num_runs = job.get('num_runs', 1)
+        current_run = 0
+
+        for raw_line in process.stdout:
+            line = raw_line.rstrip()
+            stdout_lines.append(line)
+            job['stdout_lines'] = stdout_lines
+
+            if job.get('cancelled'):
+                process.terminate()
+                break
+
+            # Parse "Frame X/Y | ..."
+            if line.startswith('Frame '):
+                try:
+                    rest = line[6:]
+                    slash = rest.index('/')
+                    space = rest.index(' ', slash)
+                    cur = int(rest[:slash])
+                    tot = int(rest[slash + 1:space])
+                    run_base = (current_run / max(num_runs, 1)) * 100.0
+                    run_range = 100.0 / max(num_runs, 1)
+                    pct = run_base + (cur / tot) * run_range
+                    job['progress_pct'] = min(pct, 99.0)
+                    job['progress_msg'] = line
+                except Exception:
+                    pass
+            # Parse "--- Run N/M ---"
+            elif '--- Run ' in line:
+                try:
+                    m = re.search(r'Run (\d+)/(\d+)', line)
+                    if m:
+                        current_run = int(m.group(1)) - 1
+                        tot_runs = int(m.group(2))
+                        pct = (current_run / max(tot_runs, 1)) * 100.0
+                        job['progress_pct'] = pct
+                        job['progress_msg'] = f'Run {current_run + 1}/{tot_runs}'
+                except Exception:
+                    pass
+
+        stderr_text = process.stderr.read()
+        process.wait()
+
+        if job.get('cancelled'):
+            job['status'] = 'cancelled'
+            return
+
+        if process.returncode != 0:
+            job['status'] = 'error'
+            job['error'] = (
+                f'Tracker failed (rc={process.returncode}): '
+                f'{stderr_text[-500:] if stderr_text else "no stderr"}'
+            )
+            return
+
+        stdout_text = '\n'.join(stdout_lines)
+        results_data = read_csv_safe(PROJECT_ROOT / 'results.csv')
+        track_data = read_csv_safe(PROJECT_ROOT / 'track_details.csv')
+        gt_data = read_csv_safe(PROJECT_ROOT / 'ground_truth.csv')
+        eval_data = read_csv_safe(PROJECT_ROOT / 'evaluation_results.csv')
+        meas_data = read_csv_safe(PROJECT_ROOT / 'measurements.csv')
+        eval_summary = parse_eval_summary(stdout_text)
+
+        job['status'] = 'complete'
+        job['progress_pct'] = 100.0
+        job['result'] = {
+            'success': True,
+            'tracks': track_data,
+            'ground_truth': gt_data,
+            'measurements': meas_data,
+            'results': results_data,
+            'evaluation': eval_data,
+            'eval_summary': eval_summary,
+            'sensor_x': job.get('sensor_x', 0.0),
+            'sensor_y': job.get('sensor_y', 0.0),
+            'stdout': stdout_text[-2000:],
+        }
+
+    except Exception as e:
+        job['status'] = 'error'
+        job['error'] = str(e)
+
+
 @app.route('/api/run-tracker', methods=['POST'])
 def run_tracker():
     """Run FastTracker C++ simulation and return results."""
@@ -276,9 +575,9 @@ def run_tracker():
     warhead_mf = float(params.get('warhead_mass_fraction', 0.3))
 
     # Sensor performance parameters
-    detect_prob = params.get('detect_prob')
     pfa = params.get('pfa')
-    snr_ref = params.get('snr_ref')
+    pd_ref = params.get('pd_ref')
+    pd_ref_range_km = params.get('pd_ref_range_km')
     range_noise = params.get('range_noise')
     azimuth_noise = params.get('azimuth_noise')
     elevation_noise = params.get('elevation_noise')
@@ -389,12 +688,12 @@ def run_tracker():
             cmd.extend(['--num-skips', str(hgv_num_skips)])
 
     # Sensor performance parameters
-    if detect_prob is not None:
-        cmd.extend(['--detect-prob', str(float(detect_prob))])
     if pfa is not None and float(pfa) > 0:
         cmd.extend(['--pfa', str(float(pfa))])
-    if snr_ref is not None and float(snr_ref) > 0:
-        cmd.extend(['--snr-ref', str(float(snr_ref))])
+    if pd_ref is not None and 0 < float(pd_ref) < 1:
+        cmd.extend(['--pd-ref', str(float(pd_ref))])
+    if pd_ref_range_km is not None and float(pd_ref_range_km) > 0:
+        cmd.extend(['--pd-ref-range', str(float(pd_ref_range_km) * 1000.0)])
     if range_noise is not None:
         cmd.extend(['--range-noise', str(float(range_noise))])
     if azimuth_noise is not None:
@@ -508,6 +807,83 @@ def run_tracker():
         return jsonify({'success': False, 'error': f'Simulation timed out ({timeout}s)'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/run-tracker-start', methods=['POST'])
+def run_tracker_start():
+    """Start an async tracker job. Returns {job_id}."""
+    data = request.get_json()
+    try:
+        cmd, sensor_x_m, sensor_y_m = _build_tracker_cmd(data)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+    params = data.get('params', {})
+    num_runs = int(params.get('num_runs', 1))
+
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {
+        'status': 'starting',
+        'progress_pct': 0.0,
+        'progress_msg': 'Starting...',
+        'stdout_lines': [],
+        'process': None,
+        'result': None,
+        'error': None,
+        'cancelled': False,
+        'sensor_x': sensor_x_m,
+        'sensor_y': sensor_y_m,
+        'num_runs': num_runs,
+    }
+
+    t = threading.Thread(target=_run_job_thread, args=(job_id, cmd), daemon=True)
+    t.start()
+    return jsonify({'success': True, 'job_id': job_id})
+
+
+@app.route('/api/run-tracker-status/<job_id>', methods=['GET'])
+def run_tracker_status(job_id):
+    """Poll job status. Returns progress and result when complete."""
+    job = _jobs.get(job_id)
+    if not job:
+        return jsonify({'success': False, 'error': 'Job not found'})
+
+    response = {
+        'success': True,
+        'status': job['status'],
+        'progress_pct': job.get('progress_pct', 0.0),
+        'progress_msg': job.get('progress_msg', ''),
+    }
+
+    if job['status'] == 'complete':
+        response['result'] = job['result']
+        _jobs.pop(job_id, None)
+    elif job['status'] in ('error', 'cancelled'):
+        response['error'] = job.get('error', '')
+        _jobs.pop(job_id, None)
+
+    return jsonify(response)
+
+
+@app.route('/api/run-tracker-cancel/<job_id>', methods=['POST'])
+def run_tracker_cancel(job_id):
+    """Cancel a running tracker job."""
+    job = _jobs.get(job_id)
+    if not job:
+        return jsonify({'success': False, 'error': 'Job not found'})
+
+    job['cancelled'] = True
+    process = job.get('process')
+    if process:
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except Exception:
+            process.kill()
+
+    job['status'] = 'cancelled'
+    _jobs.pop(job_id, None)
+    return jsonify({'success': True})
 
 
 def read_csv_safe(filepath):

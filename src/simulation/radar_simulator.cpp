@@ -50,14 +50,15 @@ std::vector<Measurement> RadarSimulator::generate(double time) {
             if (!isOnBeam(az)) continue;
         }
 
-        // 検出判定
-        if (!isDetected(state)) {
+        // 観測生成（Swerling II SNRサンプリングを含む）
+        Measurement meas = stateToMeasurement(state);
+
+        // Swerling II 検出判定: CFAR閾値 γ = −ln(Pfa) と瞬時SNRを比較
+        if (!isDetectedSwerlingII(meas.snr)) {
             total_missed_++;
             continue;
         }
 
-        // 観測生成
-        Measurement meas = stateToMeasurement(state);
         addNoise(meas);
         meas.timestamp = time;
         meas.sensor_id = sensor_id_;
@@ -127,12 +128,19 @@ Measurement RadarSimulator::stateToMeasurement(const StateVector& state) const {
         meas.doppler = 0.0f;
     }
 
-    // SN比の計算（簡易レーダー方程式）
-    // SNR = SNR_ref * (R_ref / R)^4
+    // SN比の計算（簡易レーダー方程式）: SNR_avg = SNR_ref + 40*log10(R_ref/R)
     float snr_ref = params_.snr_ref;  // 基準SN比 [dB] @ 1km
     float r_ref = 1000.0f;             // 基準距離 [m]
     float range_ratio = r_ref / std::max(meas.range, 100.0f);
-    meas.snr = snr_ref + 40.0f * std::log10(range_ratio);  // R^4則
+    float snr_avg_dB = snr_ref + 40.0f * std::log10(range_ratio);  // R^4則（平均SNR）
+
+    // Swerling II モデル: パルスごとに独立なRCS変動
+    // RCS ~ Exp(σ_avg)  →  SNR_inst = SNR_avg * X, X ~ Exp(1) = -ln(U)
+    float snr_avg_lin = std::pow(10.0f, snr_avg_dB / 10.0f);
+    float u = std::max(uniform_dist_(rng_), 1e-10f);
+    float rcs_factor = -std::log(u);          // Exp(1) サンプル
+    float snr_inst_lin = snr_avg_lin * rcs_factor;
+    meas.snr = 10.0f * std::log10(std::max(snr_inst_lin, 1e-10f));  // 瞬時SNR [dB]
 
     return meas;
 }
@@ -233,6 +241,14 @@ bool RadarSimulator::isDetected(const StateVector& state) const {
     detection_prob = std::min(detection_prob * range_factor, 1.0f);
 
     return uniform_dist_(rng_) < detection_prob;
+}
+
+bool RadarSimulator::isDetectedSwerlingII(float snr_inst_dB) const {
+    // Neyman-Pearson CFAR閾値: γ = −ln(Pfa)
+    // 瞬時SNR（線形）> γ ならば検出
+    float gamma_T = -std::log(std::max(params_.pfa_per_pulse, 1e-30f));
+    float snr_inst_lin = std::pow(10.0f, snr_inst_dB / 10.0f);
+    return snr_inst_lin > gamma_T;
 }
 
 bool RadarSimulator::isInFieldOfView(const StateVector& state) const {

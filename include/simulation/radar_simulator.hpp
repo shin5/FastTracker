@@ -27,20 +27,44 @@ struct RadarParameters {
     int num_beams;                   // フレームあたりのビーム数
     float antenna_boresight;         // アンテナ中心方位 [rad] (atan2系: 0=East, π/2=North)
     float search_elevation;          // サーチビーム仰角 [rad]
+    float pfa_per_pulse;             // パルスあたり誤警報確率 (CFAR閾値算出用, Swerling II)
+    float pd_at_ref_range;           // 基準距離における検出確率（SNR Ref自動計算基準）
+    float det_ref_range_m;           // 検出性能基準距離 [m]（例: 10000 = 10 km）
 
     RadarParameters()
         : detection_probability(0.95f),
-          false_alarm_rate(1e-8f),      // より現実的なクラッタ密度
-          max_range(20000.0f),          // 20km監視範囲（通常レーダー）
-          field_of_view(static_cast<float>(M_PI)),  // 180度
-          snr_ref(60.0f),              // 監視レーダー想定
+          false_alarm_rate(1e-8f),
+          max_range(20000.0f),
+          field_of_view(static_cast<float>(M_PI)),
+          snr_ref(60.0f),
           sensor_x(0.0f),
           sensor_y(0.0f),
           sensor_z(0.0f),
           beam_width(0.052f),
           num_beams(10),
           antenna_boresight(0.0f),
-          search_elevation(0.0f) {}
+          search_elevation(0.0f),
+          pfa_per_pulse(1e-6f),
+          pd_at_ref_range(0.9f),
+          det_ref_range_m(10000.0f) {}
+
+    /**
+     * @brief Swerling II / P_FA / 基準距離 から SNR Ref を物理整合的に自動計算する
+     *
+     * 基準距離 det_ref_range_m で P(D) = pd_at_ref_range となる平均SNRを算出し、
+     * R^4則で 1km基準に逆算して snr_ref [dB] を設定する。
+     *
+     *   γ_T = −ln(pfa_per_pulse)
+     *   SNR_avg(R_ref) = γ_T / (−ln(pd_at_ref_range))
+     *   snr_ref = 10·log10(SNR_avg(R_ref)) + 40·log10(R_ref / 1000)
+     */
+    void computeSnrRef() {
+        float gamma_T    = -std::log(std::max(pfa_per_pulse, 1e-30f));
+        float pd_clamped = std::max(std::min(pd_at_ref_range, 0.9999f), 1e-4f);
+        float snr_avg_lin = gamma_T / (-std::log(pd_clamped));
+        float snr_avg_dB  = 10.0f * std::log10(std::max(snr_avg_lin, 1e-10f));
+        snr_ref = snr_avg_dB + 40.0f * std::log10(det_ref_range_m / 1000.0f);
+    }
 };
 
 /**
@@ -174,11 +198,18 @@ private:
     std::vector<Measurement> generateClutter(double time);
 
     /**
-     * @brief 目標が検出されるかどうかを判定
+     * @brief 目標が検出されるかどうかを判定（レガシー: detection_probability使用）
      * @param state 目標状態
      * @return 検出される場合true
      */
     bool isDetected(const StateVector& state) const;
+
+    /**
+     * @brief Swerling II モデルによる検出判定
+     * @param snr_inst_dB 瞬時SNR [dB] (Swerling IIサンプリング済み)
+     * @return 検出される場合true (CFAR閾値 γ = −ln(pfa_per_pulse) と比較)
+     */
+    bool isDetectedSwerlingII(float snr_inst_dB) const;
 
     /**
      * @brief レーダー視野内にあるかチェック
