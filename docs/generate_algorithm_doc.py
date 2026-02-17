@@ -100,6 +100,42 @@ def render_math_block(latex_str, filename=None, fontsize=16, dpi=200):
     return render_math(latex_str, filename=filename, fontsize=fontsize, dpi=dpi)
 
 
+def save_figure(fig, filename=None):
+    """Save a matplotlib figure to the temp directory and close it.
+
+    Args:
+        fig: matplotlib Figure object.
+        filename: Output filename (auto-generated if None).
+
+    Returns:
+        Absolute path to the generated PNG file.
+    """
+    global _image_counter
+    if filename is None:
+        _image_counter += 1
+        filename = f"fig_{_image_counter:03d}.png"
+    filepath = os.path.join(TEMP_DIR, filename)
+    fig.savefig(filepath, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return filepath
+
+
+def add_figure_to_doc(doc, fig_path, caption=None, width_inches=5.5):
+    """Insert a saved figure PNG into the document with an optional caption."""
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.paragraph_format.space_before = Pt(6)
+    p.paragraph_format.space_after = Pt(2)
+    run = p.add_run()
+    run.add_picture(fig_path, width=Inches(width_inches))
+    if caption:
+        cap_p = doc.add_paragraph()
+        cap_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cap_p.paragraph_format.space_after = Pt(8)
+        run = cap_p.add_run(caption)
+        set_run_font(run, size=9, italic=True, color=RGBColor(0x40, 0x40, 0x40))
+
+
 # ---------------------------------------------------------------------------
 # Document helpers
 # ---------------------------------------------------------------------------
@@ -400,16 +436,26 @@ def add_toc(doc):
     doc.add_paragraph()
     toc_entries = [
         ("1.", "システム概要"),
-        ("2.", "状態空間モデル"),
-        ("3.", "Unscented Kalman Filter (UKF)"),
-        ("4.", "IMM (Interacting Multiple Model) フィルタ"),
-        ("5.", "運動モデル"),
-        ("  5.1", "CV（等速直線）モデル"),
-        ("  5.2", "弾道（RK4）モデル"),
-        ("  5.3", "CT（旋回）モデル"),
-        ("6.", "データアソシエーション"),
-        ("7.", "航跡管理"),
-        ("8.", "評価指標"),
+        ("2.", "ターゲットジェネレータ"),
+        ("  2.1", "軌道タイプ"),
+        ("  2.2", "目標状態ベクトル"),
+        ("  2.3", "弾道ミサイルモデル（RK4）"),
+        ("  2.4", "HGV（極超音速滑空体）モデル"),
+        ("3.", "レーダシミュレータ"),
+        ("  3.1", "観測モデル"),
+        ("  3.2", "Swerling II 検出モデル"),
+        ("  3.3", "検出処理チェーン"),
+        ("  3.4", "クラッタモデル"),
+        ("4.", "状態空間モデル"),
+        ("5.", "Unscented Kalman Filter (UKF)"),
+        ("6.", "IMM (Interacting Multiple Model) フィルタ"),
+        ("7.", "運動モデル"),
+        ("  7.1", "CV（等速直線）モデル"),
+        ("  7.2", "弾道（RK4）モデル"),
+        ("  7.3", "CT（旋回）モデル"),
+        ("8.", "データアソシエーション"),
+        ("9.", "航跡管理"),
+        ("10.", "評価指標"),
     ]
     for num, title in toc_entries:
         p = doc.add_paragraph()
@@ -485,12 +531,564 @@ def add_section_1(doc):
     doc.add_page_break()
 
 
+def _make_trajectory_figure():
+    """Create a figure illustrating three trajectory types."""
+    import numpy as np
+    fig, ax = plt.subplots(figsize=(7, 4))
+    t = np.linspace(0, 1, 300)
+
+    # Ballistic missile arc
+    x_bal = t * 1200
+    y_bal = 500 * np.sin(np.pi * t)
+    ax.plot(x_bal, y_bal, color="#E05A2B", lw=2.5, label="弾道ミサイル (BALLISTIC)")
+
+    # HGV glide trajectory
+    x_hgv = t * 900
+    y_hgv = 80 * (1 - t * 0.7) + 20 * np.sin(3 * np.pi * t * 0.6)
+    y_hgv = np.clip(y_hgv, 20, 120)
+    ax.plot(x_hgv, y_hgv, color="#2E75B6", lw=2.5, linestyle="--",
+            label="HGV (HYPERSONIC_GLIDE)")
+
+    # Constant velocity (cruise)
+    x_cv = t * 600
+    y_cv = np.ones_like(t) * 15
+    ax.plot(x_cv, y_cv, color="#2EB67D", lw=2.0, linestyle=":",
+            label="等速直線 (CONSTANT_VELOCITY)")
+
+    ax.set_xlabel("水平距離 (km)", fontsize=10)
+    ax.set_ylabel("高度 (km)", fontsize=10)
+    ax.set_title("軌道タイプの概念図", fontsize=12, fontweight="bold")
+    ax.legend(fontsize=9, loc="upper right")
+    ax.set_xlim(0, 1300)
+    ax.set_ylim(-10, 560)
+    ax.grid(True, alpha=0.3)
+    ax.set_facecolor("#F8F9FA")
+    fig.tight_layout()
+    return fig
+
+
+def _make_ballistic_phases_figure():
+    """Create a figure showing the three flight phases of a ballistic missile."""
+    import numpy as np
+    fig, ax = plt.subplots(figsize=(7, 3.5))
+    t = np.linspace(0, 1, 300)
+    x_bal = t * 1200
+    y_bal = 500 * np.sin(np.pi * t)
+    ax.plot(x_bal, y_bal, color="#E05A2B", lw=2.5)
+
+    # Phase regions
+    boost_end = 0.15
+    terminal_start = 0.85
+    ax.axvspan(0, boost_end * 1200, alpha=0.12, color="#FF8C00", label="ブーストフェーズ")
+    ax.axvspan(boost_end * 1200, terminal_start * 1200, alpha=0.10, color="#4472C4",
+               label="中間飛翔フェーズ (RK4)")
+    ax.axvspan(terminal_start * 1200, 1200, alpha=0.12, color="#70AD47",
+               label="終端フェーズ")
+
+    # Labels
+    ax.text(boost_end * 1200 * 0.5, 30, "ブースト", ha="center", fontsize=8,
+            color="#CC6600", fontweight="bold")
+    ax.text((boost_end + terminal_start) * 600, 460, "中間飛翔\n(重力+大気抵抗)", ha="center",
+            fontsize=8, color="#2E4D8C", fontweight="bold")
+    ax.text((terminal_start + 1) * 600, 30, "終端", ha="center", fontsize=8,
+            color="#4D7C1A", fontweight="bold")
+
+    ax.set_xlabel("水平距離 (km)", fontsize=10)
+    ax.set_ylabel("高度 (km)", fontsize=10)
+    ax.set_title("弾道ミサイル飛翔フェーズ", fontsize=12, fontweight="bold")
+    ax.legend(fontsize=9, loc="upper right")
+    ax.set_xlim(0, 1200)
+    ax.set_ylim(-10, 530)
+    ax.grid(True, alpha=0.3)
+    ax.set_facecolor("#F8F9FA")
+    fig.tight_layout()
+    return fig
+
+
+def _make_swerling_pd_figure():
+    """P(D) vs SNR_avg curves for Swerling II model at multiple P_FA values."""
+    import numpy as np
+    fig, ax = plt.subplots(figsize=(6.5, 4))
+    snr_dB = np.linspace(-2, 22, 400)
+    snr_lin = 10 ** (snr_dB / 10.0)
+    pfa_list = [1e-2, 1e-4, 1e-6, 1e-8]
+    colors = ["#E05A2B", "#2E75B6", "#2EB67D", "#9B59B6"]
+    for pfa, color in zip(pfa_list, colors):
+        gamma_T = -np.log(pfa)
+        pd = np.exp(-gamma_T / snr_lin)
+        ax.plot(snr_dB, pd, lw=2.0, color=color,
+                label=f"$P_{{FA}}=10^{{{int(round(np.log10(pfa)))}}}$")
+    ax.set_xlabel("平均SNR (dB)", fontsize=10)
+    ax.set_ylabel("検出確率 $P_D$", fontsize=10)
+    ax.set_title("Swerling II モデル: $P_D$ vs SNR", fontsize=12, fontweight="bold")
+    ax.set_xlim(-2, 22)
+    ax.set_ylim(0, 1.02)
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0.5, color="gray", lw=0.8, linestyle=":")
+    ax.axhline(0.9, color="gray", lw=0.8, linestyle=":")
+    ax.set_facecolor("#F8F9FA")
+    fig.tight_layout()
+    return fig
+
+
+def _make_detection_chain_figure():
+    """Create a flowchart of the radar detection chain."""
+    fig, ax = plt.subplots(figsize=(7, 3.2))
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 3)
+    ax.axis("off")
+    ax.set_facecolor("white")
+
+    boxes = [
+        (0.3, "FOV\n判定", "#4472C4"),
+        (2.0, "ビーム\n方向判定", "#4472C4"),
+        (3.7, "SNR_avg\n計算", "#2E75B6"),
+        (5.4, "指数乱数\n生成", "#2EB67D"),
+        (7.1, "CFAR\n閾値比較", "#E05A2B"),
+    ]
+
+    from matplotlib.patches import FancyBboxPatch
+    box_w, box_h = 1.4, 1.0
+    cy = 1.5
+    for (cx, label, color) in boxes:
+        rect = FancyBboxPatch((cx, cy - box_h / 2), box_w, box_h,
+                              boxstyle="round,pad=0.05",
+                              facecolor=color, edgecolor="white",
+                              linewidth=1.5, alpha=0.90)
+        ax.add_patch(rect)
+        ax.text(cx + box_w / 2, cy, label, ha="center", va="center",
+                fontsize=7.5, color="white", fontweight="bold", linespacing=1.4)
+
+    # Arrows
+    arrow_props = dict(arrowstyle="-|>", color="#555555", lw=1.2)
+    xs_end = [(cx + box_w) for (cx, _, _) in boxes[:-1]]
+    xs_start = [cx for (cx, _, _) in boxes[1:]]
+    for x0, x1 in zip(xs_end, xs_start):
+        ax.annotate("", xy=(x1, cy), xytext=(x0, cy),
+                    arrowprops=dict(arrowstyle="-|>", color="#555555", lw=1.5))
+
+    # Result labels
+    ax.text(9.0, cy + 0.65, "検出", ha="center", fontsize=9,
+            color="#2EB67D", fontweight="bold")
+    ax.text(9.0, cy - 0.65, "非検出", ha="center", fontsize=9,
+            color="#999999")
+    ax.annotate("", xy=(9.2, cy + 0.4), xytext=(8.5 + box_w * 0.5 - 0.15, cy),
+                arrowprops=dict(arrowstyle="-|>", color="#2EB67D", lw=1.4))
+    ax.annotate("", xy=(9.2, cy - 0.4), xytext=(8.5 + box_w * 0.5 - 0.15, cy),
+                arrowprops=dict(arrowstyle="-|>", color="#999999", lw=1.4))
+
+    # SNR formula note
+    ax.text(4.4, 0.35, r"$\mathrm{SNR}_{inst} = \mathrm{SNR}_{avg} \cdot \mathrm{Exp}(1)$",
+            ha="center", fontsize=8, color="#444444",
+            style="italic")
+    ax.text(7.8, 0.35, r"$\gamma_T = -\ln(P_{FA})$",
+            ha="center", fontsize=8, color="#444444",
+            style="italic")
+
+    fig.tight_layout()
+    return fig
+
+
+def _make_measurement_geometry_figure():
+    """Create a 2D diagram showing radar measurement geometry."""
+    import numpy as np
+    fig, axes = plt.subplots(1, 2, figsize=(7, 3.2))
+
+    # Left: azimuth (top-down view)
+    ax = axes[0]
+    ax.set_aspect("equal")
+    ax.set_xlim(-1.2, 5)
+    ax.set_ylim(-1.2, 4.5)
+    ax.axis("off")
+    ax.set_facecolor("#F8F9FA")
+    ax.set_title("水平面（俯瞰）", fontsize=9, fontweight="bold")
+
+    # Radar
+    ax.plot(0, 0, "s", ms=9, color="#E05A2B", zorder=5)
+    ax.text(0, -0.5, "レーダ", ha="center", fontsize=8)
+
+    # Target
+    tx, ty = 3.5, 3.0
+    ax.plot(tx, ty, "^", ms=9, color="#2E75B6", zorder=5)
+    ax.text(tx + 0.15, ty + 0.1, "目標", fontsize=8)
+
+    # Range line
+    ax.annotate("", xy=(tx, ty), xytext=(0, 0),
+                arrowprops=dict(arrowstyle="-|>", color="#555", lw=1.5))
+    ax.text(1.5, 1.9, "r (距離)", fontsize=8, color="#555", rotation=40)
+
+    # North reference
+    ax.annotate("", xy=(0, 2.5), xytext=(0, 0),
+                arrowprops=dict(arrowstyle="-|>", color="#AAA", lw=1.2))
+    ax.text(0.1, 2.5, "北", fontsize=8, color="#888")
+
+    # Azimuth arc
+    theta_vals = np.linspace(np.pi / 2, np.arctan2(ty, tx), 60)
+    ax.plot(1.2 * np.cos(theta_vals), 1.2 * np.sin(theta_vals), color="#2EB67D", lw=1.5)
+    ax.text(0.4, 1.4, "θ", fontsize=10, color="#2EB67D", fontweight="bold")
+
+    # Right: elevation (side view)
+    ax = axes[1]
+    ax.set_aspect("equal")
+    ax.set_xlim(-0.5, 5)
+    ax.set_ylim(-0.5, 4.0)
+    ax.axis("off")
+    ax.set_facecolor("#F8F9FA")
+    ax.set_title("垂直面（側面）", fontsize=9, fontweight="bold")
+
+    ax.plot(0, 0, "s", ms=9, color="#E05A2B", zorder=5)
+    ax.text(0, -0.35, "レーダ", ha="center", fontsize=8)
+
+    tx2, tz2 = 3.5, 2.5
+    ax.plot(tx2, tz2, "^", ms=9, color="#2E75B6", zorder=5)
+    ax.text(tx2 + 0.15, tz2 + 0.1, "目標", fontsize=8)
+
+    ax.annotate("", xy=(tx2, tz2), xytext=(0, 0),
+                arrowprops=dict(arrowstyle="-|>", color="#555", lw=1.5))
+    ax.text(1.5, 1.6, "r (距離)", fontsize=8, color="#555", rotation=35)
+
+    # Ground reference
+    ax.annotate("", xy=(3.5, 0), xytext=(0, 0),
+                arrowprops=dict(arrowstyle="-|>", color="#AAA", lw=1.2))
+    ax.text(3.5, -0.3, "水平", fontsize=8, color="#888")
+
+    # Elevation arc
+    phi_vals = np.linspace(0, np.arctan2(tz2, tx2), 60)
+    ax.plot(1.2 * np.cos(phi_vals), 1.2 * np.sin(phi_vals), color="#9B59B6", lw=1.5)
+    ax.text(1.3, 0.5, "φ", fontsize=10, color="#9B59B6", fontweight="bold")
+
+    # Altitude annotation
+    ax.plot([tx2, tx2], [0, tz2], color="#CCC", lw=1.0, linestyle="--")
+    ax.text(tx2 + 0.1, tz2 / 2, "z", fontsize=9, color="#888")
+
+    fig.tight_layout()
+    return fig
+
+
+def add_section_target_generator(doc):
+    """Section 2: Target Generator."""
+    doc.add_heading("2. ターゲットジェネレータ", level=1)
+
+    add_paragraph_with_font(
+        doc,
+        "ターゲットジェネレータは、弾道ミサイル・HGV・巡航ミサイル等の目標軌道を"
+        "物理モデルに基づき生成するコンポーネントである。"
+        "生成された軌道はレーダシミュレータへの入力として使用される。",
+        size=10,
+    )
+
+    # --- 2.1 Overview ---
+    doc.add_heading("2.1 軌道タイプ", level=2)
+    add_paragraph_with_font(
+        doc,
+        "以下の5種類の運動モデルをサポートし、目標の飛翔シナリオに応じて選択する。",
+        size=10,
+    )
+
+    add_table_with_header(
+        doc,
+        ["モデル名", "略称", "特徴", "代表的用途"],
+        [
+            ("CONSTANT_VELOCITY", "CV", "等速直線飛翔", "巡航ミサイル・慣性飛翔"),
+            ("CONSTANT_ACCELERATION", "CA", "等加速度直線飛翔", "加速段・減速段の近似"),
+            ("MANEUVERING", "MN", "ランダム機動（連続旋回）", "機動目標シミュレーション"),
+            ("BALLISTIC_MISSILE", "BM", "物理ベース弾道軌道（RK4）", "弾道ミサイル（ICBM等）"),
+            ("HYPERSONIC_GLIDE", "HGV", "滑空飛翔（揚力・抗力）", "極超音速滑空体"),
+        ],
+        col_widths=[4.5, 2.0, 4.5, 5.0],
+    )
+
+    # Figure: trajectory types
+    doc.add_paragraph()
+    fig = _make_trajectory_figure()
+    fig_path = save_figure(fig, "traj_types.png")
+    add_figure_to_doc(doc, fig_path,
+                      caption="図 2-1  各軌道タイプの概念図（水平距離 vs 高度）",
+                      width_inches=5.5)
+
+    # --- 2.2 State vector ---
+    doc.add_heading("2.2 目標状態ベクトル", level=2)
+    add_paragraph_with_font(
+        doc,
+        "ターゲットジェネレータが保持する状態ベクトルは9次元であり、"
+        "位置・速度・加速度を含む。座標系はセンサ中心の直交座標系（x=東, y=北, z=高度）を使用する。",
+        size=10,
+    )
+    add_math_image(
+        doc,
+        r"\mathbf{x}_{gt} = [x,\ y,\ z,\ v_x,\ v_y,\ v_z,\ a_x,\ a_y,\ a_z]^T",
+        fontsize=16,
+    )
+
+    # --- 2.3 Ballistic missile model ---
+    doc.add_heading("2.3 弾道ミサイルモデル（RK4）", level=2)
+    add_paragraph_with_font(
+        doc,
+        "弾道ミサイルはブースト・中間飛翔・終端の3フェーズで構成される。"
+        "中間飛翔フェーズでは重力と大気抵抗を考慮した物理方程式を"
+        "4次ルンゲ・クッタ法（RK4）で数値積分する。",
+        size=10,
+    )
+
+    # Figure: ballistic phases
+    fig2 = _make_ballistic_phases_figure()
+    fig2_path = save_figure(fig2, "ballistic_phases.png")
+    add_figure_to_doc(doc, fig2_path,
+                      caption="図 2-2  弾道ミサイル飛翔フェーズ",
+                      width_inches=5.5)
+
+    doc.add_paragraph()
+    add_paragraph_with_font(doc, "RK4数値積分（各フレーム）:", size=10, bold=True)
+    add_math_image(
+        doc,
+        r"\mathbf{k}_1 = f(\mathbf{x}_n)",
+        fontsize=14,
+    )
+    add_math_image(
+        doc,
+        r"\mathbf{k}_2 = f\left(\mathbf{x}_n + \frac{\Delta t}{2}\mathbf{k}_1\right)",
+        fontsize=14,
+    )
+    add_math_image(
+        doc,
+        r"\mathbf{k}_3 = f\left(\mathbf{x}_n + \frac{\Delta t}{2}\mathbf{k}_2\right)",
+        fontsize=14,
+    )
+    add_math_image(
+        doc,
+        r"\mathbf{k}_4 = f(\mathbf{x}_n + \Delta t \, \mathbf{k}_3)",
+        fontsize=14,
+    )
+    add_math_image(
+        doc,
+        r"\mathbf{x}_{n+1} = \mathbf{x}_n + \frac{\Delta t}{6}"
+        r"(\mathbf{k}_1 + 2\mathbf{k}_2 + 2\mathbf{k}_3 + \mathbf{k}_4)",
+        fontsize=15,
+    )
+    add_paragraph_with_font(
+        doc,
+        "ここで f は重力・大気抵抗を含む運動方程式（セクション7.2参照）である。"
+        "軌道はシミュレーション開始時に50msキャッシュで事前計算され、"
+        "getPosition(t)呼び出しは補間で高速に返す。",
+        size=10,
+    )
+
+    # --- 2.4 HGV ---
+    doc.add_heading("2.4 HGV（極超音速滑空体）モデル", level=2)
+    add_paragraph_with_font(
+        doc,
+        "HGVはブーストフェーズ後、大気圏上層で滑空する。"
+        "揚力・抗力を考慮した運動方程式に基づき軌道を生成する。",
+        size=10,
+    )
+
+    add_table_with_header(
+        doc,
+        ["パラメータ", "記号", "代表値", "説明"],
+        [
+            ("揚力係数×面積/質量", "β_L", "0.002 m²/kg", "揚力項スケール"),
+            ("抗力係数×面積/質量", "β_D", "0.001 m²/kg", "抗力項スケール"),
+            ("最大滑空高度", "h_max", "60,000 m", "滑空フェーズ開始高度"),
+        ],
+        col_widths=[5.0, 2.5, 3.0, 5.5],
+    )
+
+    doc.add_page_break()
+
+
+def add_section_radar_simulator(doc):
+    """Section 3: Radar Simulator."""
+    doc.add_heading("3. レーダシミュレータ", level=1)
+
+    add_paragraph_with_font(
+        doc,
+        "レーダシミュレータは、実際のレーダの観測特性を模擬するコンポーネントである。"
+        "Swerling IIモデルによる検出確率変動、測定ノイズ、クラッタを生成し、"
+        "追尾アルゴリズムへのリアルな入力を提供する。",
+        size=10,
+    )
+
+    # --- 3.1 Measurement model ---
+    doc.add_heading("3.1 観測モデル", level=2)
+    add_paragraph_with_font(
+        doc,
+        "レーダはセンサ位置 (x_s, y_s, z_s) から目標位置 (x, y, z) に対して"
+        "4次元観測ベクトルを生成する。",
+        size=10,
+    )
+
+    add_table_with_header(
+        doc,
+        ["観測量", "記号", "定義式", "単位"],
+        [
+            ("距離（スラントレンジ）", "r",
+             "√(Δx²+Δy²+Δz²)", "m"),
+            ("方位角", "θ",
+             "atan2(Δy, Δx)", "rad"),
+            ("仰角", "φ",
+             "atan2(Δz, r_horiz)", "rad"),
+            ("ドップラー速度", "ḋ",
+             "(Δx·vx+Δy·vy+Δz·vz)/r", "m/s"),
+        ],
+        col_widths=[4.5, 2.0, 5.5, 2.0],
+    )
+
+    # Figure: measurement geometry
+    doc.add_paragraph()
+    fig_geom = _make_measurement_geometry_figure()
+    fig_geom_path = save_figure(fig_geom, "meas_geometry.png")
+    add_figure_to_doc(doc, fig_geom_path,
+                      caption="図 3-1  レーダ観測ジオメトリ（左: 水平面, 右: 垂直面）",
+                      width_inches=5.5)
+
+    doc.add_paragraph()
+    add_paragraph_with_font(
+        doc,
+        "各観測量には独立なガウスノイズが付加される（観測ノイズ共分散行列 R の詳細はセクション4.3参照）。",
+        size=10,
+    )
+
+    # --- 3.2 Swerling II ---
+    doc.add_heading("3.2 Swerling II 検出モデル", level=2)
+    add_paragraph_with_font(
+        doc,
+        "本システムはSwerling IIモデルを採用する。"
+        "Swerling IIモデルでは目標のレーダ断面積（RCS）がパルス間でランダムに変動し、"
+        "指数分布に従う。",
+        size=10,
+    )
+
+    add_paragraph_with_font(doc, "SNRの距離依存性（レーダ方程式）:", size=10, bold=True)
+    add_math_image(
+        doc,
+        r"\mathrm{SNR}_{avg}(r) = \mathrm{SNR}_{ref} - 40 \log_{10}\!\left(\frac{r}{1000}\right)"
+        r"\quad [\mathrm{dB}]",
+        fontsize=14,
+    )
+    add_paragraph_with_font(
+        doc,
+        "ここで SNR_ref は基準距離 1 km における平均 SNR (dB) であり、"
+        "ユーザが指定した基準距離 R_ref における検出確率 P_D から自動導出される。",
+        size=10,
+    )
+
+    add_paragraph_with_font(doc, "SNR_ref の自動導出:", size=10, bold=True)
+    add_math_image(
+        doc,
+        r"\gamma_T = -\ln(P_{FA})",
+        fontsize=14,
+    )
+    add_math_image(
+        doc,
+        r"\mathrm{SNR}_{avg}^{lin}(R_{ref}) = \frac{\gamma_T}{-\ln(P_D^{ref})}",
+        fontsize=14,
+    )
+    add_math_image(
+        doc,
+        r"\mathrm{SNR}_{ref} = 10\log_{10}\!\left(\mathrm{SNR}_{avg}^{lin}\right)"
+        r"+ 40\log_{10}\!\left(\frac{R_{ref}}{1000}\right)",
+        fontsize=14,
+    )
+
+    add_paragraph_with_font(doc, "パルスごとの瞬時SNR:", size=10, bold=True)
+    add_math_image(
+        doc,
+        r"\mathrm{SNR}_{inst} = \mathrm{SNR}_{avg} \cdot \xi, \quad \xi \sim \mathrm{Exp}(1)",
+        fontsize=14,
+    )
+
+    add_paragraph_with_font(doc, "CFAR（一定誤警報率）検出判定（SNR_inst ≥ γ_T のとき検出）:", size=10, bold=True)
+    add_math_image(
+        doc,
+        r"\mathrm{SNR}_{inst} \geq \gamma_T = -\ln(P_{FA})",
+        fontsize=14,
+    )
+
+    add_paragraph_with_font(doc, "パルス当たり検出確率（理論値）:", size=10, bold=True)
+    add_math_image(
+        doc,
+        r"P_D = \exp\!\left(\frac{-\gamma_T}{\mathrm{SNR}_{avg}^{lin}}\right)",
+        fontsize=14,
+    )
+
+    # Figure: P(D) vs SNR
+    fig_pd = _make_swerling_pd_figure()
+    fig_pd_path = save_figure(fig_pd, "swerling_pd.png")
+    add_figure_to_doc(doc, fig_pd_path,
+                      caption="図 3-2  Swerling II モデル: 検出確率 P(D) vs 平均SNR",
+                      width_inches=5.0)
+
+    # --- 3.3 Detection chain ---
+    doc.add_heading("3.3 検出処理チェーン", level=2)
+    add_paragraph_with_font(
+        doc,
+        "各フレームにおける検出処理は以下のチェーンで実行される。",
+        size=10,
+    )
+
+    # Figure: detection chain
+    fig_chain = _make_detection_chain_figure()
+    fig_chain_path = save_figure(fig_chain, "detection_chain.png")
+    add_figure_to_doc(doc, fig_chain_path,
+                      caption="図 3-3  Swerling II 検出処理チェーン",
+                      width_inches=6.0)
+
+    doc.add_paragraph()
+    add_table_with_header(
+        doc,
+        ["ステップ", "処理内容", "判定条件"],
+        [
+            ("①  FOV判定", "センサの視野角（最大仰角）確認",
+             "φ ≤ max_elevation_angle"),
+            ("②  ビーム方向判定", "ビームステアリング方向との角度差確認",
+             "Δangle ≤ beam_width / 2"),
+            ("③  SNR計算", "距離・SNR_ref からSNR_avg(r) 算出",
+             "SNR_avg = SNR_ref − 40·log10(r/1km) [dB]"),
+            ("④  指数乱数生成", "パルスごとのRCS変動を模擬",
+             "ξ ~ Exp(1)"),
+            ("⑤  CFAR閾値比較", "SNR_inst と CFAR 閾値を比較",
+             "SNR_inst ≥ γ_T = −ln(P_FA)"),
+        ],
+        col_widths=[2.5, 5.5, 8.0],
+    )
+
+    # --- 3.4 Clutter ---
+    doc.add_heading("3.4 クラッタモデル", level=2)
+    add_paragraph_with_font(
+        doc,
+        "クラッタ（偽観測）はポアソン過程でモデル化される。"
+        "各フレームに生成されるクラッタ点数は期待値 λ_c のポアソン分布に従い、"
+        "各クラッタはレーダの最大レンジ・FOV内に一様分布する。",
+        size=10,
+    )
+
+    add_math_image(
+        doc,
+        r"N_{clutter} \sim \mathrm{Poisson}(\lambda_c)",
+        fontsize=14,
+    )
+
+    add_table_with_header(
+        doc,
+        ["パラメータ", "記号", "デフォルト値", "説明"],
+        [
+            ("クラッタ期待点数", "λ_c", "5 点/フレーム", "ポアソン分布の期待値"),
+            ("クラッタ距離範囲", "r_max", "max_range_m", "最大観測レンジ"),
+            ("クラッタ仰角範囲", "φ_max", "max_elevation_angle", "センサFOV最大仰角"),
+        ],
+        col_widths=[4.0, 2.5, 3.5, 6.0],
+    )
+
+    doc.add_page_break()
+
+
 def add_section_2(doc):
-    """Section 2: State-Space Model."""
-    doc.add_heading("2. 状態空間モデル", level=1)
+    """Section 4: State-Space Model (renumbered)."""
+    doc.add_heading("4. 状態空間モデル", level=1)
 
     # --- State vector ---
-    doc.add_heading("2.1 状態ベクトル", level=2)
+    doc.add_heading("4.1 状態ベクトル", level=2)
     add_paragraph_with_font(
         doc,
         "状態ベクトルは9次元（STATE_DIM=9）で、位置・速度・加速度を含む。",
@@ -512,7 +1110,7 @@ def add_section_2(doc):
     doc.add_paragraph()
 
     # --- Measurement vector ---
-    doc.add_heading("2.2 観測ベクトル", level=2)
+    doc.add_heading("4.2 観測ベクトル", level=2)
     add_paragraph_with_font(
         doc,
         "観測ベクトルは4次元（MEAS_DIM=4）で、レーダ観測量を表す。",
@@ -541,7 +1139,7 @@ def add_section_2(doc):
     )
 
     # --- Measurement noise ---
-    doc.add_heading("2.3 観測ノイズ", level=2)
+    doc.add_heading("4.3 観測ノイズ", level=2)
     add_paragraph_with_font(
         doc,
         "観測ノイズ共分散行列 R はデフォルトで以下の対角行列で定義される。",
@@ -572,7 +1170,7 @@ def add_section_2(doc):
 
 def add_section_3(doc):
     """Section 3: UKF."""
-    doc.add_heading("3. Unscented Kalman Filter (UKF)", level=1)
+    doc.add_heading("5. Unscented Kalman Filter (UKF)", level=1)
 
     add_paragraph_with_font(
         doc,
@@ -583,7 +1181,7 @@ def add_section_3(doc):
     )
 
     # --- Parameters ---
-    doc.add_heading("3.1 UKFパラメータ", level=2)
+    doc.add_heading("5.1 UKFパラメータ", level=2)
     add_table_with_header(
         doc,
         ["パラメータ", "記号", "値", "説明"],
@@ -602,7 +1200,7 @@ def add_section_3(doc):
     add_math_image(doc, r"\lambda = \alpha^2 (n + \kappa) - n", fontsize=16)
 
     # --- Sigma points ---
-    doc.add_heading("3.2 シグマポイント", level=2)
+    doc.add_heading("5.2 シグマポイント", level=2)
     add_paragraph_with_font(
         doc,
         "2n+1 = 19個のシグマポイントを以下のように生成する（√(·) はコレスキー分解を表す）。",
@@ -624,7 +1222,7 @@ def add_section_3(doc):
     )
 
     # --- Weights ---
-    doc.add_heading("3.3 重み係数", level=2)
+    doc.add_heading("5.3 重み係数", level=2)
     add_paragraph_with_font(doc, "平均用重み:", size=10, bold=True)
     add_math_image(doc, r"W_0^m = \frac{\lambda}{n + \lambda}", fontsize=15)
     add_math_image(
@@ -646,7 +1244,7 @@ def add_section_3(doc):
     )
 
     # --- Prediction ---
-    doc.add_heading("3.4 予測ステップ", level=2)
+    doc.add_heading("5.4 予測ステップ", level=2)
     add_paragraph_with_font(doc, "予測ステップは以下の手順で実行する。", size=10)
 
     add_paragraph_with_font(doc, "手順1: シグマポイント生成", size=10, bold=True)
@@ -675,7 +1273,7 @@ def add_section_3(doc):
     )
 
     # --- Update ---
-    doc.add_heading("3.5 更新ステップ", level=2)
+    doc.add_heading("5.5 更新ステップ", level=2)
 
     add_paragraph_with_font(doc, "手順1: 観測空間への変換", size=10, bold=True)
     add_math_image(doc, r"\mathbf{Z}_i = h(\chi_i^*)", fontsize=15)
@@ -721,7 +1319,7 @@ def add_section_3(doc):
     )
 
     # --- Process noise ---
-    doc.add_heading("3.6 プロセスノイズ", level=2)
+    doc.add_heading("5.6 プロセスノイズ", level=2)
     add_paragraph_with_font(
         doc,
         "プロセスノイズ共分散行列 Q はデフォルトで以下の対角行列である。",
@@ -754,7 +1352,7 @@ def add_section_3(doc):
 
 def add_section_4(doc):
     """Section 4: IMM Filter."""
-    doc.add_heading("4. IMM (Interacting Multiple Model) フィルタ", level=1)
+    doc.add_heading("6. IMM (Interacting Multiple Model) フィルタ", level=1)
 
     add_paragraph_with_font(
         doc,
@@ -765,7 +1363,7 @@ def add_section_4(doc):
     )
 
     # --- Models ---
-    doc.add_heading("4.1 運動モデル構成", level=2)
+    doc.add_heading("6.1 運動モデル構成", level=2)
     add_paragraph_with_font(
         doc,
         "本システムでは3種類の運動モデルを使用する。",
@@ -784,7 +1382,7 @@ def add_section_4(doc):
     )
 
     # --- Transition matrix ---
-    doc.add_heading("4.2 モデル遷移確率行列", level=2)
+    doc.add_heading("6.2 モデル遷移確率行列", level=2)
     add_paragraph_with_font(
         doc,
         "モデル間の遷移はマルコフ連鎖でモデル化され、"
@@ -811,7 +1409,7 @@ def add_section_4(doc):
     )
 
     # --- IMM Cycle ---
-    doc.add_heading("4.3 IMMサイクル", level=2)
+    doc.add_heading("6.3 IMMサイクル", level=2)
 
     add_paragraph_with_font(doc, "手順1: 混合（Mixing）", size=10, bold=True)
     add_paragraph_with_font(
@@ -875,10 +1473,10 @@ def add_section_4(doc):
 
 def add_section_5(doc):
     """Section 5: Motion Models."""
-    doc.add_heading("5. 運動モデル", level=1)
+    doc.add_heading("7. 運動モデル", level=1)
 
     # --- 5.1 CV ---
-    doc.add_heading("5.1 CV（等速直線）モデル", level=2)
+    doc.add_heading("7.1 CV（等速直線）モデル", level=2)
     add_paragraph_with_font(
         doc,
         "巡航・中間飛翔段階の安定した飛行を表現するモデルである。"
@@ -901,7 +1499,7 @@ def add_section_5(doc):
     )
 
     # --- 5.2 Ballistic ---
-    doc.add_heading("5.2 弾道（RK4）モデル", level=2)
+    doc.add_heading("7.2 弾道（RK4）モデル", level=2)
     add_paragraph_with_font(
         doc,
         "重力および大気抵抗を考慮した物理ベースの弾道運動モデルである。"
@@ -973,7 +1571,7 @@ def add_section_5(doc):
     )
 
     # --- 5.3 CT ---
-    doc.add_heading("5.3 CT（旋回）モデル", level=2)
+    doc.add_heading("7.3 CT（旋回）モデル", level=2)
     add_paragraph_with_font(
         doc,
         "HGVの機動飛翔（旋回）を表現するCoordinated Turnモデルである。"
@@ -1044,7 +1642,7 @@ def add_section_5(doc):
 
 def add_section_6(doc):
     """Section 6: Data Association."""
-    doc.add_heading("6. データアソシエーション", level=1)
+    doc.add_heading("8. データアソシエーション", level=1)
 
     add_paragraph_with_font(
         doc,
@@ -1054,7 +1652,7 @@ def add_section_6(doc):
     )
 
     # --- Cost matrix ---
-    doc.add_heading("6.1 コスト行列", level=2)
+    doc.add_heading("8.1 コスト行列", level=2)
     add_paragraph_with_font(
         doc,
         "コスト行列の各要素は、正規化イノベーション距離（NID）で計算される。"
@@ -1069,7 +1667,7 @@ def add_section_6(doc):
     )
 
     # --- Gating ---
-    doc.add_heading("6.2 ゲーティング", level=2)
+    doc.add_heading("8.2 ゲーティング", level=2)
     add_paragraph_with_font(
         doc,
         "計算された距離がゲート閾値を超える場合、当該ペアを棄却する。",
@@ -1087,7 +1685,7 @@ def add_section_6(doc):
     )
 
     # --- Hungarian ---
-    doc.add_heading("6.3 ハンガリアン法（Munkres法）", level=2)
+    doc.add_heading("8.3 ハンガリアン法（Munkres法）", level=2)
     add_paragraph_with_font(
         doc,
         "ハンガリアン法は O(n³) の計算量で最適割当問題を解くアルゴリズムである。"
@@ -1116,7 +1714,7 @@ def add_section_6(doc):
 
 def add_section_7(doc):
     """Section 7: Track Management."""
-    doc.add_heading("7. 航跡管理", level=1)
+    doc.add_heading("9. 航跡管理", level=1)
 
     add_paragraph_with_font(
         doc,
@@ -1125,7 +1723,7 @@ def add_section_7(doc):
     )
 
     # --- States ---
-    doc.add_heading("7.1 航跡状態", level=2)
+    doc.add_heading("9.1 航跡状態", level=2)
     add_paragraph_with_font(
         doc,
         "航跡は以下の3状態で管理される。",
@@ -1153,7 +1751,7 @@ def add_section_7(doc):
     )
 
     # --- Initialization ---
-    doc.add_heading("7.2 航跡初期化", level=2)
+    doc.add_heading("9.2 航跡初期化", level=2)
     add_paragraph_with_font(
         doc,
         "未対応の観測値から新規航跡を初期化する。極座標観測を直交座標に変換する。",
@@ -1185,7 +1783,7 @@ def add_section_7(doc):
     )
 
     # --- Parameters ---
-    doc.add_heading("7.3 航跡管理パラメータ", level=2)
+    doc.add_heading("9.3 航跡管理パラメータ", level=2)
     add_table_with_header(
         doc,
         ["パラメータ", "デフォルト値", "説明"],
@@ -1202,7 +1800,7 @@ def add_section_7(doc):
 
 def add_section_8(doc):
     """Section 8: Evaluation Metrics."""
-    doc.add_heading("8. 評価指標", level=1)
+    doc.add_heading("10. 評価指標", level=1)
 
     add_paragraph_with_font(
         doc,
@@ -1211,7 +1809,7 @@ def add_section_8(doc):
     )
 
     # --- RMSE ---
-    doc.add_heading("8.1 RMSE（二乗平均平方根誤差）", level=2)
+    doc.add_heading("10.1 RMSE（二乗平均平方根誤差）", level=2)
 
     add_paragraph_with_font(doc, "位置RMSE:", size=10, bold=True)
     add_math_image(
@@ -1230,7 +1828,7 @@ def add_section_8(doc):
     )
 
     # --- OSPA ---
-    doc.add_heading("8.2 OSPA（Optimal SubPattern Assignment）", level=2)
+    doc.add_heading("10.2 OSPA（Optimal SubPattern Assignment）", level=2)
     add_paragraph_with_font(
         doc,
         "OSPAはパターン間の距離指標であり、位置誤差と個数誤差を統合的に評価する。",
@@ -1255,7 +1853,7 @@ def add_section_8(doc):
     )
 
     # --- Detection metrics ---
-    doc.add_heading("8.3 検出指標", level=2)
+    doc.add_heading("10.3 検出指標", level=2)
 
     add_math_image(
         doc,
@@ -1286,7 +1884,7 @@ def add_section_8(doc):
     )
 
     # --- Track continuity ---
-    doc.add_heading("8.4 航跡連続性指標", level=2)
+    doc.add_heading("10.4 航跡連続性指標", level=2)
     add_paragraph_with_font(
         doc,
         "各真値目標に対する航跡の連続性を以下の3カテゴリで評価する。",
@@ -1334,39 +1932,45 @@ def generate_document():
 
     doc = Document()
 
-    print("[1/11] Setting up page layout and styles...")
+    print("[1/13] Setting up page layout and styles...")
     setup_page(doc)
     setup_styles(doc)
 
-    print("[2/11] Creating title page...")
+    print("[2/13] Creating title page...")
     add_title_page(doc)
 
-    print("[3/11] Adding table of contents...")
+    print("[3/13] Adding table of contents...")
     add_toc(doc)
 
-    print("[4/11] Section 1: System Overview...")
+    print("[4/13] Section 1: System Overview...")
     add_section_1(doc)
 
-    print("[5/11] Section 2: State-Space Model...")
+    print("[5/13] Section 2: Target Generator...")
+    add_section_target_generator(doc)
+
+    print("[6/13] Section 3: Radar Simulator...")
+    add_section_radar_simulator(doc)
+
+    print("[7/13] Section 4: State-Space Model...")
     add_section_2(doc)
 
-    print("[6/11] Section 3: UKF...")
+    print("[8/13] Section 5: UKF...")
     add_section_3(doc)
 
-    print("[7/11] Section 4: IMM Filter...")
+    print("[9/13] Section 6: IMM Filter...")
     add_section_4(doc)
 
-    print("[8/11] Section 5: Motion Models...")
+    print("[10/13] Section 7: Motion Models...")
     add_section_5(doc)
 
-    print("[9/11] Section 6-7: Data Association & Track Management...")
+    print("[11/13] Section 8-9: Data Association & Track Management...")
     add_section_6(doc)
     add_section_7(doc)
 
-    print("[10/11] Section 8: Evaluation Metrics...")
+    print("[12/13] Section 10: Evaluation Metrics...")
     add_section_8(doc)
 
-    print("[11/11] Adding revision history...")
+    print("[13/13] Adding revision history...")
     add_revision_history(doc)
 
     # Save
