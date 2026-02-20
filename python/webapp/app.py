@@ -38,14 +38,65 @@ def add_no_cache_headers(response):
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 
-import platform
-if platform.system() == 'Windows':
+import os, platform
+_exe_env = os.environ.get('FASTTRACKER_EXE')
+if _exe_env:
+    FASTTRACKER_EXE = Path(_exe_env)
+elif platform.system() == 'Windows':
     FASTTRACKER_EXE = PROJECT_ROOT / 'build' / 'Release' / 'fasttracker.exe'
 else:
     FASTTRACKER_EXE = PROJECT_ROOT / 'build' / 'fasttracker'
 
 # Async job tracking: job_id -> job state dict
 _jobs = {}
+_jobs_lock = threading.Lock()
+_JOB_TTL_SECONDS = 120  # 完了/エラー後にジョブを保持する秒数
+
+
+def _cleanup_old_jobs():
+    """完了・エラーから TTL 秒以上経過したジョブを定期削除する。
+    ポーリング側で即時削除しないため、並行リクエスト競合による
+    'Job not found' エラーを防ぐ。"""
+    import time
+    while True:
+        time.sleep(30)
+        now = time.time()
+        with _jobs_lock:
+            expired = [
+                jid for jid, job in _jobs.items()
+                if job.get('status') in ('complete', 'error', 'cancelled')
+                and now - job.get('_finished_at', now) > _JOB_TTL_SECONDS
+            ]
+            for jid in expired:
+                _jobs.pop(jid, None)
+
+
+threading.Thread(target=_cleanup_old_jobs, daemon=True).start()
+
+
+def _kill_stale_fasttracker():
+    """Kill any lingering fasttracker processes that are no longer associated with
+    an active job. A stuck CUDA kernel can leave processes running indefinitely
+    even after SIGKILL; this cleans them up before starting a new job."""
+    import signal
+    exe_name = FASTTRACKER_EXE.name  # e.g. 'fasttracker'
+    active_pids = {job.get('pid') for job in _jobs.values() if job.get('pid')}
+    try:
+        result = subprocess.run(
+            ['pgrep', '-x', exe_name], capture_output=True, text=True
+        )
+        for line in result.stdout.splitlines():
+            try:
+                pid = int(line.strip())
+                if pid not in active_pids:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            except ValueError:
+                pass
+    except Exception:
+        pass
 
 
 @app.route('/')
@@ -272,8 +323,12 @@ def _build_tracker_cmd(data):
 
     sensor_lat = params.get('sensor_lat')
     sensor_lon = params.get('sensor_lon')
+    radar_min_range_m = float(params.get('radar_min_range', 0))
     radar_max_range_m = float(params.get('radar_max_range', 0))
-    radar_fov_rad = float(params.get('radar_fov', 2 * 3.14159265))
+    azimuth_coverage_rad = float(params.get('azimuth_coverage', 2 * 3.14159265))
+    min_elevation_rad = float(params.get('min_elevation', -0.5236))  # -30°
+    max_elevation_rad = float(params.get('max_elevation', 1.5708))   # +90°
+    radar_fov_rad = float(params.get('radar_fov', 2 * 3.14159265))  # DEPRECATED
     enable_sep = bool(params.get('enable_separation', False))
     warhead_mf = float(params.get('warhead_mass_fraction', 0.3))
 
@@ -293,6 +348,25 @@ def _build_tracker_cmd(data):
     process_vel_noise = params.get('process_vel_noise')
     process_acc_noise = params.get('process_acc_noise')
 
+    ukf_alpha = params.get('ukf_alpha')
+    ukf_beta = params.get('ukf_beta')
+    ukf_kappa = params.get('ukf_kappa')
+    max_distance = params.get('max_distance')
+
+    imm_cv_cv = params.get('imm_cv_cv')
+    imm_cv_bal = params.get('imm_cv_bal')
+    imm_cv_ct = params.get('imm_cv_ct')
+    imm_bal_cv = params.get('imm_bal_cv')
+    imm_bal_bal = params.get('imm_bal_bal')
+    imm_bal_ct = params.get('imm_bal_ct')
+    imm_ct_cv = params.get('imm_ct_cv')
+    imm_ct_bal = params.get('imm_ct_bal')
+    imm_ct_ct = params.get('imm_ct_ct')
+
+    imm_cv_noise = params.get('imm_cv_noise')
+    imm_bal_noise = params.get('imm_bal_noise')
+    imm_ct_noise = params.get('imm_ct_noise')
+
     num_runs = int(params.get('num_runs', 1))
     random_seed = int(params.get('seed', 0))
     cluster_count = int(params.get('cluster_count', 0))
@@ -310,9 +384,16 @@ def _build_tracker_cmd(data):
     antenna_boresight_rad = math.radians(90 - antenna_boresight_deg)
     search_elevation_deg = float(params.get('search_elevation', 0))
     search_elevation_rad = math.radians(search_elevation_deg)
+    search_min_range_m = float(params.get('search_min_range', 0))
+    search_max_range_m = float(params.get('search_max_range', 0))
+    track_range_width_m = float(params.get('track_range_width', 0))
 
     sensor_x_m = 0.0
     sensor_y_m = 0.0
+    # Backward compatibility: map old radar_fov to azimuth_coverage
+    if 'azimuth_coverage' not in params and 'radar_fov' in params:
+        azimuth_coverage_rad = radar_fov_rad
+
     if sensor_lat is not None and sensor_lon is not None:
         target_lat_traj = warhead_traj[-1].get('lat')
         target_lon_traj = warhead_traj[-1].get('lon')
@@ -350,8 +431,11 @@ def _build_tracker_cmd(data):
         '--cross-section', str(cross_section_area),
         '--sensor-x', str(round(sensor_x_m, 1)),
         '--sensor-y', str(round(sensor_y_m, 1)),
+        '--radar-min-range', str(round(radar_min_range_m, 1)),
         '--radar-max-range', str(round(radar_max_range_m, 1)),
-        '--radar-fov', str(round(radar_fov_rad, 4)),
+        '--azimuth-coverage', str(round(azimuth_coverage_rad, 4)),
+        '--min-elevation', str(round(min_elevation_rad, 4)),
+        '--max-elevation', str(round(max_elevation_rad, 4)),
     ]
 
     if enable_sep:
@@ -399,6 +483,41 @@ def _build_tracker_cmd(data):
     if process_acc_noise is not None:
         cmd.extend(['--process-acc-noise', str(float(process_acc_noise))])
 
+    if ukf_alpha is not None:
+        cmd.extend(['--ukf-alpha', str(float(ukf_alpha))])
+    if ukf_beta is not None:
+        cmd.extend(['--ukf-beta', str(float(ukf_beta))])
+    if ukf_kappa is not None:
+        cmd.extend(['--ukf-kappa', str(float(ukf_kappa))])
+    if max_distance is not None:
+        cmd.extend(['--max-distance', str(float(max_distance))])
+
+    if imm_cv_cv is not None:
+        cmd.extend(['--imm-cv-cv', str(float(imm_cv_cv))])
+    if imm_cv_bal is not None:
+        cmd.extend(['--imm-cv-bal', str(float(imm_cv_bal))])
+    if imm_cv_ct is not None:
+        cmd.extend(['--imm-cv-ct', str(float(imm_cv_ct))])
+    if imm_bal_cv is not None:
+        cmd.extend(['--imm-bal-cv', str(float(imm_bal_cv))])
+    if imm_bal_bal is not None:
+        cmd.extend(['--imm-bal-bal', str(float(imm_bal_bal))])
+    if imm_bal_ct is not None:
+        cmd.extend(['--imm-bal-ct', str(float(imm_bal_ct))])
+    if imm_ct_cv is not None:
+        cmd.extend(['--imm-ct-cv', str(float(imm_ct_cv))])
+    if imm_ct_bal is not None:
+        cmd.extend(['--imm-ct-bal', str(float(imm_ct_bal))])
+    if imm_ct_ct is not None:
+        cmd.extend(['--imm-ct-ct', str(float(imm_ct_ct))])
+
+    if imm_cv_noise is not None:
+        cmd.extend(['--imm-cv-noise', str(float(imm_cv_noise))])
+    if imm_bal_noise is not None:
+        cmd.extend(['--imm-bal-noise', str(float(imm_bal_noise))])
+    if imm_ct_noise is not None:
+        cmd.extend(['--imm-ct-noise', str(float(imm_ct_noise))])
+
     if num_runs > 1:
         cmd.extend(['--num-runs', str(num_runs)])
     if random_seed > 0:
@@ -419,6 +538,12 @@ def _build_tracker_cmd(data):
     cmd.extend(['--search-center', str(search_center_rad)])
     cmd.extend(['--antenna-boresight', str(antenna_boresight_rad)])
     cmd.extend(['--search-elevation', str(search_elevation_rad)])
+    if search_min_range_m > 0:
+        cmd.extend(['--search-min-range', str(search_min_range_m)])
+    if search_max_range_m > 0:
+        cmd.extend(['--search-max-range', str(search_max_range_m)])
+    if track_range_width_m > 0:
+        cmd.extend(['--track-range-width', str(track_range_width_m)])
 
     return cmd, sensor_x_m, sensor_y_m
 
@@ -430,13 +555,84 @@ def _run_job_thread(job_id, cmd):
         return
 
     try:
+        # Use stdbuf to force line-buffered stdout so progress lines are
+        # flushed immediately instead of batched in the C runtime 8KB buffer.
+        import shutil
+        stdbuf = shutil.which('stdbuf')
+        run_cmd = ([stdbuf, '-oL'] + cmd) if stdbuf else cmd
+
         process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            run_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, cwd=str(PROJECT_ROOT), encoding='utf-8', errors='replace',
             bufsize=1
         )
         job['process'] = process
+        job['pid'] = process.pid
         job['status'] = 'running'
+
+        # Watchdog: kill the process if it exceeds the total timeout
+        timeout = job.get('timeout', 300)
+
+        def _watchdog():
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                job['timed_out'] = True
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_watchdog, daemon=True).start()
+
+        # Stall detector: if stdout has no new output for STALL_TIMEOUT seconds,
+        # the GPU kernel is likely hung. Kill the process and report an error.
+        # This prevents indefinite hangs caused by CUDA kernel deadlocks.
+        import time as _time
+        STALL_TIMEOUT = 60  # seconds without any stdout output
+
+        _last_output = [_time.time()]
+
+        def _stall_detector():
+            while True:
+                _time.sleep(5)
+                if process.poll() is not None:  # process already exited
+                    return
+                if job.get('cancelled'):
+                    return
+                elapsed = _time.time() - _last_output[0]
+                if elapsed >= STALL_TIMEOUT:
+                    job['timed_out'] = True
+                    job['stall_detected'] = True
+                    # Immediately mark job as error so the UI updates right away,
+                    # even if the process refuses to die (e.g. stuck in CUDA kernel
+                    # that ignores SIGKILL until the GPU watchdog fires).
+                    job['status'] = 'error'
+                    job['_finished_at'] = _time.time()
+                    job['error'] = (
+                        'Tracker GPU stall: no output for 60s. '
+                        'The GPU CUDA kernel may be hung. '
+                        'Try reducing cluster count or restarting the server.'
+                    )
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                    return
+
+        threading.Thread(target=_stall_detector, daemon=True).start()
+
+        # Drain stderr in a background thread to prevent pipe-buffer deadlock.
+        # Without this, the C++ process blocks on stderr writes when the pipe
+        # buffer (~64KB) fills up, while Python blocks waiting for more stdout.
+        stderr_chunks = []
+
+        def _drain_stderr():
+            for chunk in process.stderr:
+                stderr_chunks.append(chunk)
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
 
         stdout_lines = []
         num_runs = job.get('num_runs', 1)
@@ -446,9 +642,13 @@ def _run_job_thread(job_id, cmd):
             line = raw_line.rstrip()
             stdout_lines.append(line)
             job['stdout_lines'] = stdout_lines
+            _last_output[0] = _time.time()  # reset stall timer on each line
 
             if job.get('cancelled'):
                 process.terminate()
+                break
+
+            if job.get('stall_detected'):
                 break
 
             # Parse "Frame X/Y | ..."
@@ -479,19 +679,43 @@ def _run_job_thread(job_id, cmd):
                 except Exception:
                     pass
 
-        stderr_text = process.stderr.read()
-        process.wait()
+        stderr_thread.join(timeout=10)
+        stderr_text = ''.join(stderr_chunks)
+        # If the process is stuck in a CUDA kernel it may not die immediately
+        # after SIGKILL. Use a short timeout so we don't block here forever;
+        # the job status has already been set to 'error' by _stall_detector.
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass  # Process unkillable (GPU kernel); status already set
+
+        if job.get('stall_detected'):
+            # Append last stderr lines to error for diagnostics (shows which step hung)
+            if stderr_text:
+                diag_lines = [l for l in stderr_text.splitlines() if l.strip()]
+                if diag_lines:
+                    # Show last 3 diagnostic lines
+                    last_diag = ' | '.join(diag_lines[-3:])
+                    job['error'] = job.get('error', '') + ' | Last: ' + last_diag
+            return  # Status/error already set in _stall_detector
 
         if job.get('cancelled'):
+            import time as _time
             job['status'] = 'cancelled'
+            job['_finished_at'] = _time.time()
             return
 
         if process.returncode != 0:
+            import time as _time
             job['status'] = 'error'
-            job['error'] = (
-                f'Tracker failed (rc={process.returncode}): '
-                f'{stderr_text[-500:] if stderr_text else "no stderr"}'
-            )
+            job['_finished_at'] = _time.time()
+            if job.get('timed_out'):
+                job['error'] = f'Tracker timed out after {timeout}s'
+            else:
+                job['error'] = (
+                    f'Tracker failed (rc={process.returncode}): '
+                    f'{stderr_text[-500:] if stderr_text else "no stderr"}'
+                )
             return
 
         stdout_text = '\n'.join(stdout_lines)
@@ -502,8 +726,28 @@ def _run_job_thread(job_id, cmd):
         meas_data = read_csv_safe(PROJECT_ROOT / 'measurements.csv')
         eval_summary = parse_eval_summary(stdout_text)
 
+        # Save full console output and parameters to file for debugging
+        try:
+            import json
+            import time as _time
+            debug_log = {
+                'timestamp': _time.strftime('%Y-%m-%d %H:%M:%S'),
+                'job_id': job_id,
+                'command': ' '.join(run_cmd),
+                'stdout': stdout_text,
+                'params': job.get('params', {}),
+                'eval_summary': eval_summary,
+            }
+            debug_file = PROJECT_ROOT / 'last_run_debug.json'
+            with open(debug_file, 'w') as f:
+                json.dump(debug_log, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save debug log: {e}")
+
+        import time as _time
         job['status'] = 'complete'
         job['progress_pct'] = 100.0
+        job['_finished_at'] = _time.time()
         job['result'] = {
             'success': True,
             'tracks': track_data,
@@ -518,8 +762,10 @@ def _run_job_thread(job_id, cmd):
         }
 
     except Exception as e:
+        import time as _time
         job['status'] = 'error'
         job['error'] = str(e)
+        job['_finished_at'] = _time.time()
 
 
 @app.route('/api/run-tracker', methods=['POST'])
@@ -567,6 +813,7 @@ def run_tracker():
     # Sensor parameters from frontend
     sensor_lat = params.get('sensor_lat')
     sensor_lon = params.get('sensor_lon')
+    radar_min_range_m = float(params.get('radar_min_range', 0))
     radar_max_range_m = float(params.get('radar_max_range', 0))  # 0=auto
     radar_fov_rad = float(params.get('radar_fov', 2 * 3.14159265))
 
@@ -614,6 +861,9 @@ def run_tracker():
     antenna_boresight_rad = math.radians(90 - antenna_boresight_deg)
     search_elevation_deg = float(params.get('search_elevation', 0))
     search_elevation_rad = math.radians(search_elevation_deg)
+    search_min_range_m = float(params.get('search_min_range', 0))
+    search_max_range_m = float(params.get('search_max_range', 0))
+    track_range_width_m = float(params.get('track_range_width', 0))
 
     # Convert sensor lat/lon to meters (warhead impact = origin)
     sensor_x_m = 0.0
@@ -667,8 +917,11 @@ def run_tracker():
         '--cross-section', str(cross_section_area),
         '--sensor-x', str(round(sensor_x_m, 1)),
         '--sensor-y', str(round(sensor_y_m, 1)),
+        '--radar-min-range', str(round(radar_min_range_m, 1)),
         '--radar-max-range', str(round(radar_max_range_m, 1)),
-        '--radar-fov', str(round(radar_fov_rad, 4)),
+        '--azimuth-coverage', str(round(azimuth_coverage_rad, 4)),
+        '--min-elevation', str(round(min_elevation_rad, 4)),
+        '--max-elevation', str(round(max_elevation_rad, 4)),
     ]
 
     if enable_sep:
@@ -742,6 +995,12 @@ def run_tracker():
     cmd.extend(['--search-center', str(search_center_rad)])
     cmd.extend(['--antenna-boresight', str(antenna_boresight_rad)])
     cmd.extend(['--search-elevation', str(search_elevation_rad)])
+    if search_min_range_m > 0:
+        cmd.extend(['--search-min-range', str(search_min_range_m)])
+    if search_max_range_m > 0:
+        cmd.extend(['--search-max-range', str(search_max_range_m)])
+    if track_range_width_m > 0:
+        cmd.extend(['--track-range-width', str(track_range_width_m)])
 
     # Log the C++ command for debugging — write to file to avoid stdout buffering
     debug_log = PROJECT_ROOT / 'debug_run_tracker.log'
@@ -820,6 +1079,13 @@ def run_tracker_start():
 
     params = data.get('params', {})
     num_runs = int(params.get('num_runs', 1))
+    cluster_count = int(params.get('cluster_count', 0))
+    timeout = 120 * max(num_runs, 1) * max(1, 1 + cluster_count // 3)
+
+    # Kill any stale fasttracker processes from previous runs before starting
+    # a new one. Lingering CUDA processes can monopolize GPU resources and cause
+    # subsequent runs to hang indefinitely.
+    _kill_stale_fasttracker()
 
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {
@@ -828,12 +1094,16 @@ def run_tracker_start():
         'progress_msg': 'Starting...',
         'stdout_lines': [],
         'process': None,
+        'pid': None,
         'result': None,
         'error': None,
         'cancelled': False,
+        'timed_out': False,
+        'stall_detected': False,
         'sensor_x': sensor_x_m,
         'sensor_y': sensor_y_m,
         'num_runs': num_runs,
+        'timeout': timeout,
     }
 
     t = threading.Thread(target=_run_job_thread, args=(job_id, cmd), daemon=True)
@@ -857,10 +1127,10 @@ def run_tracker_status(job_id):
 
     if job['status'] == 'complete':
         response['result'] = job['result']
-        _jobs.pop(job_id, None)
     elif job['status'] in ('error', 'cancelled'):
         response['error'] = job.get('error', '')
-        _jobs.pop(job_id, None)
+    # ジョブは即座に削除しない。並行ポーリングによる "Job not found" 競合を防ぐため、
+    # _cleanup_old_jobs() が TTL 経過後に一括削除する。
 
     return jsonify(response)
 
@@ -884,6 +1154,18 @@ def run_tracker_cancel(job_id):
     job['status'] = 'cancelled'
     _jobs.pop(job_id, None)
     return jsonify({'success': True})
+
+
+@app.route('/api/gpu-error-log', methods=['GET'])
+def get_gpu_error_log():
+    """Get GPU error log if exists."""
+    log_path = Path('/tmp/fasttracker_gpu_error.log')
+    if log_path.exists():
+        with open(log_path, 'r') as f:
+            content = f.read()
+        return jsonify({'exists': True, 'content': content})
+    else:
+        return jsonify({'exists': False, 'content': None})
 
 
 def read_csv_safe(filepath):

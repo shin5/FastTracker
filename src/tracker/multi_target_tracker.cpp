@@ -1,6 +1,9 @@
 #include "tracker/multi_target_tracker.hpp"
 #include <chrono>
 #include <iostream>
+#include <fstream>
+#include <cuda_runtime.h>
+#include <limits>
 
 namespace fasttracker {
 
@@ -25,15 +28,58 @@ MultiTargetTracker::MultiTargetTracker(
       sensor_z_(0.0f),
       total_updates_(0),
       total_processing_time_(0.0),
-      total_measurements_processed_(0)
+      total_measurements_processed_(0),
+      // UKF測定更新用デバイスメモリを事前確保（ホットループ内cudaMalloc/cudaFreeを回避）
+      d_meas_(max_targets * MEAS_DIM)
 {
+    // ========================================
+    // GPU利用可能性チェック
+    // ========================================
+    int device_count = 0;
+    cudaError_t cuda_err = cudaGetDeviceCount(&device_count);
+    bool gpu_available = (cuda_err == cudaSuccess && device_count > 0);
+
+    if (!gpu_available) {
+        // GPU利用不可の場合、CPU専用モードに切り替え
+        imm_gpu_threshold_ = std::numeric_limits<int>::max();
+
+        // エラー情報をログファイルに出力（コピー可能）
+        std::ofstream log_file("/tmp/fasttracker_gpu_error.log");
+        log_file << "========================================\n";
+        log_file << "FastTracker GPU Availability Check\n";
+        log_file << "========================================\n";
+        log_file << "CUDA Error: " << cudaGetErrorString(cuda_err) << "\n";
+        log_file << "Device Count: " << device_count << "\n";
+        log_file << "GPU Status: UNAVAILABLE\n";
+        log_file << "Fallback Mode: CPU-ONLY\n";
+        log_file << "========================================\n";
+        log_file << "Note: If you see 'CUDA driver version is insufficient',\n";
+        log_file << "your CUDA driver is older than the runtime (12.6.0).\n";
+        log_file << "This is normal in WSL2 environments.\n";
+        log_file << "The tracker will run in CPU-only mode automatically.\n";
+        log_file << "========================================\n";
+        log_file.close();
+
+        std::cerr << "\n";
+        std::cerr << "========================================\n";
+        std::cerr << "GPU UNAVAILABLE - Running in CPU-only mode\n";
+        std::cerr << "CUDA Error: " << cudaGetErrorString(cuda_err) << "\n";
+        std::cerr << "Error details saved to: /tmp/fasttracker_gpu_error.log\n";
+        std::cerr << "========================================\n";
+        std::cerr << "\n";
+    } else {
+        std::cout << "GPU Available: " << device_count << " device(s) detected\n";
+    }
+
     // UKF初期化
     ukf_ = std::make_unique<UKF>(max_targets, ukf_params, process_noise, meas_noise);
 
     // IMMフィルタ初期化（ハイブリッド: CPU版とGPU版の両方）
     if (use_imm_) {
         imm_cpu_ = std::make_unique<IMMFilter>(3, max_targets, process_noise);
-        imm_gpu_ = std::make_unique<IMMFilterGPU>(3, max_targets);
+        if (gpu_available) {
+            imm_gpu_ = std::make_unique<IMMFilterGPU>(3, max_targets);
+        }
     }
 
     // トラック管理初期化
@@ -139,20 +185,16 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
         // GPU UKF測定更新
         ukf_->copyToDevice(assoc_states, assoc_covs);
 
-        // 測定値をデバイスにコピー
-        float* d_meas = nullptr;
-        cudaMalloc(&d_meas, num_assoc * MEAS_DIM * sizeof(float));
-        cudaMemcpy(d_meas, assoc_meas.data(),
-                   num_assoc * MEAS_DIM * sizeof(float),
-                   cudaMemcpyHostToDevice);
+        // 測定値をデバイスにコピー（事前確保済みd_meas_を使用）
+        // num_assoc <= max_targets_ は上流のtrack_manager_->getAllTracksで保証
+        d_meas_.copyFrom(assoc_meas.data(), static_cast<size_t>(num_assoc) * MEAS_DIM);
 
         // UKF更新ステップ実行（センサー位置を渡す、3D）
         ukf_->update(ukf_->getDeviceStates(), ukf_->getDeviceCovariances(),
-                     d_meas, num_assoc, sensor_x_, sensor_y_, sensor_z_);
+                     d_meas_.get(), num_assoc, sensor_x_, sensor_y_, sensor_z_);
 
         // 結果をホストに戻す
         ukf_->copyToHost(assoc_states, assoc_covs, num_assoc);
-        cudaFree(d_meas);
 
         // === IMM モデル確率更新（観測尤度ベース） ===
         if (use_imm_ && imm_cpu_ && static_cast<int>(tracks.size()) < imm_gpu_threshold_) {
@@ -197,9 +239,17 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
         // トラックマネージャに反映
         for (int j = 0; j < num_assoc; j++) {
             int ti = associated_track_indices[j];
-            track_manager_->updateTrack(tracks[ti].id,
-                                        assoc_states[j], assoc_covs[j],
-                                        current_time);
+            if (isStateValid(assoc_states[j], assoc_covs[j])) {
+                track_manager_->updateTrack(tracks[ti].id,
+                                            assoc_states[j], assoc_covs[j],
+                                            current_time);
+            } else {
+                // UKF更新結果が異常値 → 今フレームの予測状態を維持してミス扱い
+                track_manager_->predictOnlyTrack(tracks[ti].id,
+                                                 tracks[ti].state,
+                                                 tracks[ti].covariance,
+                                                 current_time);
+            }
         }
     }
 
@@ -287,8 +337,11 @@ void MultiTargetTracker::predictTracks(double dt) {
         // トラックマネージャに反映
         for (size_t i = 0; i < tracks.size(); i++) {
             Track& track = track_manager_->getTrackMutable(tracks[i].id);
-            track.state = predicted_states[i];
-            track.covariance = predicted_covs[i];
+            // 異常値（NaN/Inf/物理範囲外）の場合は直前状態を維持
+            if (isStateValid(predicted_states[i], predicted_covs[i])) {
+                track.state = predicted_states[i];
+                track.covariance = predicted_covs[i];
+            }
 
             // モデル確率を更新
             if (updated_probs.size() >= (i + 1) * 3) {
@@ -310,8 +363,11 @@ void MultiTargetTracker::predictTracks(double dt) {
 
         for (size_t i = 0; i < tracks.size(); i++) {
             Track& track = track_manager_->getTrackMutable(tracks[i].id);
-            track.state = states[i];
-            track.covariance = covariances[i];
+            // 異常値（NaN/Inf/物理範囲外）の場合は直前状態を維持
+            if (isStateValid(states[i], covariances[i])) {
+                track.state = states[i];
+                track.covariance = covariances[i];
+            }
         }
     } else {
         // ========================================
@@ -324,8 +380,11 @@ void MultiTargetTracker::predictTracks(double dt) {
 
         for (size_t i = 0; i < tracks.size(); i++) {
             Track& track = track_manager_->getTrackMutable(tracks[i].id);
-            track.state = states[i];
-            track.covariance = covariances[i];
+            // 異常値（NaN/Inf/物理範囲外）の場合は直前状態を維持
+            if (isStateValid(states[i], covariances[i])) {
+                track.state = states[i];
+                track.covariance = covariances[i];
+            }
         }
     }
 }
@@ -401,6 +460,25 @@ void MultiTargetTracker::printStatistics() const {
     std::cout << "=======================================" << std::endl;
 
     track_manager_->printStatistics();
+}
+
+void MultiTargetTracker::setIMMTransitionMatrix(const std::vector<std::vector<float>>& matrix) {
+    if (use_imm_) {
+        if (imm_cpu_) {
+            imm_cpu_->setTransitionMatrix(matrix);
+        }
+        // GPU version would also need updating if we expose its transition matrix
+        // Currently GPU uses hardcoded values in kernels
+    }
+}
+
+void MultiTargetTracker::setIMMNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult) {
+    if (use_imm_) {
+        if (imm_cpu_) {
+            imm_cpu_->setModelNoiseMultipliers(cv_mult, bal_mult, ct_mult);
+        }
+        // GPU version would also need updating
+    }
 }
 
 } // namespace fasttracker

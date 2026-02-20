@@ -46,7 +46,7 @@
         .main-container {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr auto;
+            grid-template-rows: 1fr 1fr;
             gap: 8px;
             padding: 8px;
             height: calc(100vh - 50px);
@@ -153,10 +153,16 @@
         #control-panel {
             grid-row: 2;
             grid-column: 1 / -1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         .controls-content {
             display: flex;
             gap: 0;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
         }
 
         /* Object list (left sidebar) */
@@ -260,6 +266,26 @@
             color: #7ec8e3;
             margin-bottom: 4px;
             font-family: monospace;
+        }
+
+        /* Section headers */
+        .section-header {
+            color: #e94560;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #333;
+        }
+
+        /* Parameter grid layout */
+        .param-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 8px;
         }
 
         /* Buttons */
@@ -426,9 +452,10 @@
         <div class="panel-header" style="padding: 0;">
             <div class="viz-tab-bar">
                 <div class="viz-tab active" data-viz-tab="trajectory" onclick="switchVizTab('trajectory')">Trajectory</div>
-                <div class="viz-tab disabled" data-viz-tab="tracking" onclick="switchVizTab('tracking')">Tracking</div>
-                <div class="viz-tab disabled" data-viz-tab="evaluation" onclick="switchVizTab('evaluation')">Evaluation</div>
-                <div class="viz-tab disabled" data-viz-tab="timeline" onclick="switchVizTab('timeline')">Timeline</div>
+                <div class="viz-tab" data-viz-tab="tracking" onclick="switchVizTab('tracking')">Tracking</div>
+                <div class="viz-tab" data-viz-tab="evaluation" onclick="switchVizTab('evaluation')">Evaluation</div>
+                <div class="viz-tab" data-viz-tab="timeline" onclick="switchVizTab('timeline')">Timeline</div>
+                <div class="viz-tab" data-viz-tab="console" onclick="switchVizTab('console')">Console</div>
             </div>
             <span id="viz-info" style="color: #7ec8e3; font-weight: normal; font-size: 11px; padding-right: 10px; white-space: nowrap;"></span>
         </div>
@@ -446,6 +473,11 @@
         <div class="viz-tab-content" id="viz-timeline" style="overflow-y:auto;">
             <div id="plot-timeline" style="width:100%;"></div>
         </div>
+        <div class="viz-tab-content" id="viz-console" style="overflow-y:auto; padding:16px;">
+            <div id="console-output" style="font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; color: #e0e0e0; background: #0a1929; padding: 16px; border-radius: 4px; border: 1px solid #1e3a5f;">
+                <div style="color: #7ec8e3; text-align: center; padding: 40px 20px;">Run Tracker to see console output</div>
+            </div>
+        </div>
     </div>
 
     <!-- Control Panel -->
@@ -453,6 +485,16 @@
         <div class="panel-header">
             <span>Parameters & Control</span>
         </div>
+
+        <!-- GPU Error Display -->
+        <div id="gpu-error-banner" style="display:none; background:#3d1f1f; border-bottom:2px solid #e94560; padding:12px; font-size:11px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong style="color:#e94560;">⚠️ GPU Error Detected</strong>
+                <button onclick="document.getElementById('gpu-error-banner').style.display='none'" style="background:#e94560; border:none; color:#fff; padding:2px 8px; border-radius:3px; cursor:pointer; font-size:10px;">Close</button>
+            </div>
+            <pre id="gpu-error-content" style="background:#1a1a2e; padding:8px; border-radius:4px; overflow:auto; max-height:150px; font-size:10px; color:#e0e0e0; font-family:monospace; white-space:pre-wrap; word-wrap:break-word; user-select:text; cursor:text;"></pre>
+        </div>
+
         <div class="controls-content">
             <!-- Object List (left sidebar) -->
             <div class="object-list">
@@ -465,34 +507,44 @@
             <div class="detail-pane">
                 <!-- Target -->
                 <div class="detail-section active" id="panel-target">
-                    <div class="control-row" style="margin-bottom:8px;">
-                        <label style="min-width:auto; font-weight:bold; color:#e94560;">Missile Type</label>
+                    <!-- Missile Type -->
+                    <div class="section-header">Missile Type</div>
+                    <div class="control-row">
+                        <label style="min-width:auto;">Type</label>
                         <select id="missile-type" onchange="onMissileTypeChange()" style="background:#0f3460; color:#fff; border:1px solid #e94560; border-radius:4px; padding:4px 8px; font-size:12px; width:140px; font-weight:bold;">
                             <option value="ballistic">Ballistic</option>
                             <option value="hgv">HGV (Hypersonic Glide)</option>
                         </select>
                     </div>
+
+                    <!-- Launch & Impact Locations -->
+                    <div class="section-header" style="margin-top: 12px;">Launch & Impact Locations</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Set launch and target impact coordinates using preset locations or map.</div>
+                    <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                        <span style="min-width:50px;">Launch:</span>
+                        <select id="loc-launch-select" ondblclick="loadLocation('launch')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('launch')">Set</button>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('launch')">+</button>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('launch')">x</button>
+                        <span id="launch-coord" style="font-size:11px; color:#aaa;">Not set</span>
+                    </div>
+                    <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                        <span style="min-width:50px;">Target:</span>
+                        <select id="loc-target-select" ondblclick="loadLocation('target')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('target')">Set</button>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('target')">+</button>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('target')">x</button>
+                        <span id="target-coord" style="font-size:11px; color:#aaa;">Not set</span>
+                    </div>
+                    <div class="coord-display">
+                        Range: <span id="range-display">-</span>
+                    </div>
+
+                    <!-- Trajectory Parameters -->
+                    <div class="section-header" style="margin-top: 12px;">Trajectory Parameters</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Configure rocket propulsion, aerodynamics, and flight profile.</div>
                     <div class="target-sub-grid">
                         <div>
-                            <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                                <span style="min-width:50px;">Launch:</span>
-                                <select id="loc-launch-select" ondblclick="loadLocation('launch')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('launch')">Set</button>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('launch')">+</button>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('launch')">x</button>
-                                <span id="launch-coord" style="font-size:11px; color:#aaa;">Not set</span>
-                            </div>
-                            <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                                <span style="min-width:50px;">Target:</span>
-                                <select id="loc-target-select" ondblclick="loadLocation('target')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('target')">Set</button>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('target')">+</button>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('target')">x</button>
-                                <span id="target-coord" style="font-size:11px; color:#aaa;">Not set</span>
-                            </div>
-                            <div class="coord-display">
-                                Range: <span id="range-display">-</span>
-                            </div>
                             <div class="control-row">
                                 <label title="Duration of rocket motor burn [s]. Longer boost increases velocity and range.">Boost Duration</label>
                                 <input type="number" id="boost-duration" value="65" min="10" max="200" step="5"> s
@@ -550,37 +602,58 @@
                                 <label title="Warhead mass as percentage of dry mass (after fuel is consumed).">Warhead Mass</label>
                                 <input type="number" id="warhead-mass-frac" value="30" min="5" max="80" step="5"> %
                             </div>
-                            <!-- HGV-specific parameters -->
-                            <div class="control-row hgv-only-param" style="display:none;">
+                        </div>
+                    </div>
+
+                    <!-- HGV-Specific Parameters -->
+                    <div class="section-header hgv-only-param" style="margin-top: 12px; display:none;">HGV-Specific Parameters</div>
+                    <div class="hgv-only-param" style="font-size: 10px; color: #888; margin-bottom: 4px; display:none;">Hypersonic glide vehicle cruise and maneuvering configuration.</div>
+                    <div class="param-grid hgv-only-param" style="display:none;">
+                        <div>
+                            <div class="control-row">
                                 <label title="Cruise/glide altitude [km]. HGV glides at this altitude band (30-50km typical).">Cruise Alt</label>
                                 <input type="number" id="cruise-altitude" value="40" min="20" max="80" step="5"> km
                             </div>
-                            <div class="control-row hgv-only-param" style="display:none;">
+                            <div class="control-row">
                                 <label title="Lift-to-drag ratio (L/D). Higher = more efficient glide. Waverider: 4-6.">Glide Ratio</label>
                                 <input type="number" id="glide-ratio" value="4.0" min="2.0" max="8.0" step="0.5">
                             </div>
-                            <div class="control-row hgv-only-param" style="display:none;">
+                        </div>
+                        <div>
+                            <div class="control-row">
                                 <label title="Distance from target to begin terminal dive [km].">Terminal Dive</label>
                                 <input type="number" id="terminal-dive-range" value="20" min="5" max="50" step="5"> km
                             </div>
-                            <div class="control-row hgv-only-param" style="display:none;">
+                            <div class="control-row">
                                 <label title="Maximum bank angle during glide [deg]. Controls turn rate.">Max Bank</label>
                                 <input type="number" id="bank-angle-max" value="0" min="0" max="80" step="5"> deg
                             </div>
-                            <div class="control-row hgv-only-param" style="display:none;">
+                        </div>
+                        <div>
+                            <div class="control-row">
                                 <label title="Number of skip-glide oscillations before terminal dive. 0 = unlimited (distance-based only).">Skips</label>
                                 <input type="number" id="num-skips" value="1" min="0" max="20" step="1">
                             </div>
-                            <!-- Cluster parameters -->
-                            <div style="color: #e94560; font-size: 11px; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 1px;">Cluster (Dense Env)</div>
+                        </div>
+                    </div>
+
+                    <!-- Cluster (Dense Environment) -->
+                    <div class="section-header" style="margin-top: 12px;">Cluster (Dense Environment)</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Generate multiple targets with spatial and temporal variation for stress testing.</div>
+                    <div class="param-grid">
+                        <div>
                             <div class="control-row">
                                 <label title="Number of additional targets generated around the main missile. 0 = single target only.">Count</label>
                                 <input type="number" id="cluster-count" value="0" min="0" max="20" step="1">
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
                                 <label title="Spatial spread radius [km]. Launch and impact positions of cluster targets are perturbed within this radius.">Spread</label>
                                 <input type="number" id="cluster-spread" value="5" min="1" max="50" step="1"> km
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
                                 <label title="Launch time spread [s]. Each cluster target's launch time is randomly offset within 0 to this value.">Time Spread</label>
                                 <input type="number" id="launch-time-spread" value="5" min="0" max="60" step="1"> s
@@ -591,15 +664,26 @@
 
                 <!-- Sensor -->
                 <div class="detail-section" id="panel-sensor">
-                    <div class="target-sub-grid">
+                    <!-- Sensor Position -->
+                    <div class="section-header">Sensor Position</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Set radar sensor location using preset or map coordinates.</div>
+                    <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                        <span style="min-width:50px;">Position:</span>
+                        <select id="loc-sensor-select" ondblclick="loadLocation('sensor')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('sensor')">Set</button>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('sensor')">+</button>
+                        <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('sensor')">x</button>
+                        <span id="sensor-coord" style="font-size:11px; color:#aaa;">Not set</span>
+                    </div>
+
+                    <!-- Radar Coverage -->
+                    <div class="section-header" style="margin-top: 12px;">Radar Coverage</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Define radar surveillance volume and antenna orientation.</div>
+                    <div class="param-grid">
                         <div>
-                            <div class="coord-display" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                                <span style="min-width:50px;">Position:</span>
-                                <select id="loc-sensor-select" ondblclick="loadLocation('sensor')" style="background:#0f3460; color:#fff; border:1px solid #444; border-radius:4px; padding:2px 4px; font-size:11px; flex:1; min-width:80px;"></select>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="loadLocation('sensor')">Set</button>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px;" onclick="saveCurrentLocation('sensor')">+</button>
-                                <button class="btn btn-secondary" style="padding:2px 6px; font-size:10px; color:#e94560; border-color:#e94560;" onclick="deleteSelectedLocation('sensor')">x</button>
-                                <span id="sensor-coord" style="font-size:11px; color:#aaa;">Not set</span>
+                            <div class="control-row">
+                                <label title="Minimum radar detection range [km]. Targets closer than this will not be detected.">Min Range</label>
+                                <input type="number" id="radar-min-range" value="0" min="0" max="500" step="10"> km
                             </div>
                             <div class="control-row">
                                 <label title="Maximum radar detection range [km]. Auto = 1.3x max sensor-target distance.">Max Range</label>
@@ -607,35 +691,63 @@
                                 <label class="lock-label" title="Auto: compute from scenario geometry"><input type="checkbox" id="auto-max-range" checked onchange="toggleAutoParam(this, 'radar-max-range')"> Auto</label>
                                 <span id="resolved-max-range" style="font-size:10px; color:#4ecdc4;"></span>
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
-                                <label title="Radar field of view [deg]. 360 = omnidirectional, 120 = sector scan.">FOV</label>
-                                <input type="number" id="radar-fov" value="360" min="10" max="360" step="10"> deg
+                                <label title="Azimuth coverage width [deg]. 360 = omnidirectional, 120 = sector scan.">Azimuth Coverage</label>
+                                <input type="number" id="azimuth-coverage" value="360" min="10" max="360" step="10"> deg
                             </div>
                             <div class="control-row">
-                                <label title="Antenna boresight bearing [deg]. 0=North, 90=East. Center of the FOV.">Ant Bearing</label>
+                                <label title="Minimum elevation angle [deg]. Physical lower limit (-90 to +90).">Min Elevation</label>
+                                <input type="number" id="min-elevation" value="-30" min="-90" max="90" step="5"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Maximum elevation angle [deg]. Physical upper limit (-90 to +90).">Max Elevation</label>
+                                <input type="number" id="max-elevation" value="90" min="-90" max="90" step="5"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Antenna boresight bearing [deg]. 0=North, 90=East. Center of the azimuth coverage.">Ant Bearing</label>
                                 <input type="number" id="antenna-bearing" value="0" min="-180" max="360" step="1" disabled onchange="updateSensorCoverage()"> deg
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
                                 <label title="Auto-compute antenna bearing from sensor-to-launch direction.">Auto Bearing</label>
                                 <input type="checkbox" id="auto-antenna-bearing" checked onchange="onAutoAntennaBearingChange()">
                             </div>
-                            <div style="color: #e94560; font-size: 11px; margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 1px;">Swerling II Detection</div>
+                        </div>
+                    </div>
+
+                    <!-- Detection Model (Swerling II) -->
+                    <div class="section-header" style="margin-top: 12px;">Detection Model (Swerling II)</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Physics-based radar detection with fluctuating RCS and CFAR thresholding.</div>
+                    <div class="param-grid">
+                        <div>
                             <div class="control-row">
                                 <label title="Per-pulse probability of false alarm. Sets CFAR threshold (γ = −ln(Pfa)) and clutter density.">Pfa</label>
                                 <input type="text" id="pfa" value="1e-6" style="width:70px;">
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
                                 <label title="Reference range for detection performance [km]. Radar power is set so that P(D) equals the value below at this range.">Ref Range</label>
-                                <input type="number" id="pd-ref-range" value="10" min="1" max="500" step="1"> km
+                                <input type="number" id="pd-ref-range" value="10" min="1" max="5000" step="1"> km
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
                                 <label title="Detection probability at the reference range. Determines radar transmit power via Swerling II: SNR_avg(R_ref) = −ln(Pfa) / −ln(P(D)).">P(D)@Ref</label>
                                 <input type="number" id="pd-ref" value="0.9" min="0.05" max="0.99" step="0.05">
                                 <span id="resolved-snr-ref" style="font-size:10px; color:#4ecdc4;"></span>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- Measurement Noise (1σ) -->
+                    <div class="section-header" style="margin-top: 12px;">Measurement Noise (1σ)</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Sensor measurement accuracy (Gaussian noise standard deviations).</div>
+                    <div class="param-grid">
                         <div>
-                            <div style="color: #e94560; font-size: 11px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 1px;">Meas Noise (1&sigma;)</div>
                             <div class="control-row">
                                 <label title="Range measurement noise 1-sigma [m]. Radar range resolution.">Range</label>
                                 <input type="number" id="range-noise" value="10" min="1" max="500" step="1"> m
@@ -644,6 +756,8 @@
                                 <label title="Azimuth angle measurement noise 1-sigma [deg]. Cross-range error = range x azimuth_noise_rad.">Azimuth</label>
                                 <input type="number" id="azimuth-noise" value="0.57" min="0.01" max="6" step="0.01"> deg
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
                                 <label title="Elevation angle measurement noise 1-sigma [deg]. Altitude estimation accuracy.">Elevation</label>
                                 <input type="number" id="elevation-noise" value="0.57" min="0.01" max="6" step="0.01"> deg
@@ -653,19 +767,30 @@
                                 <input type="number" id="doppler-noise" value="2" min="0.1" max="20" step="0.5"> m/s
                             </div>
                         </div>
-                        <div style="grid-column: 1 / -1; margin-top: 6px; border-top: 1px solid #333; padding-top: 4px;">
-                            <div style="color: #e94560; font-size: 11px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 1px;">Beam Steering</div>
+                    </div>
+
+                    <!-- Beam Steering -->
+                    <div class="section-header" style="margin-top: 12px;">Beam Steering</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Phased array beam scheduling: track beams follow confirmed targets, search beams raster-scan for new detections.</div>
+                    <div class="param-grid"  style="grid-template-columns: repeat(2, 1fr);">
+                        <div>
                             <div class="control-row">
                                 <label title="Angular width of each radar beam [degrees]. Typical phased array: 1-5 degrees.">Beam Width</label>
                                 <input type="number" id="beam-width" value="3" min="0.5" max="30" step="0.5"> deg
                             </div>
                             <div class="control-row">
                                 <label title="Number of beam dwells per frame. Budget split between track beams (pointing at known targets) and search beams (raster scan for new targets).">Beams/Frame</label>
-                                <input type="number" id="num-beams" value="10" min="1" max="50" step="1">
+                                <input type="number" id="num-beams" value="10" min="1" max="50" step="1" onchange="validateBeamAllocation()">
                             </div>
                             <div class="control-row">
                                 <label title="Minimum number of beams reserved for search (raster scan). Higher values ensure faster new target discovery but reduce tracking capacity.">Min Search</label>
-                                <input type="number" id="min-search-beams" value="1" min="1" max="20" step="1">
+                                <input type="number" id="min-search-beams" value="1" min="1" max="20" step="1" onchange="validateBeamAllocation()">
+                            </div>
+                            <div id="beam-warning" style="display:none; background-color: #fff3cd; border: 3px solid #ff9800; color: #856404; padding: 10px; margin: 8px 0; border-radius: 6px; font-size: 11px; font-weight: 500;">
+                                <div style="font-size: 13px; font-weight: bold; margin-bottom: 4px;">⚠️ WARNING: No track beams available!</div>
+                                <div style="margin: 4px 0;">Num Beams (<span id="warn-num-beams" style="font-weight: bold;"></span>) ≤ Min Search (<span id="warn-min-search" style="font-weight: bold;"></span>)</div>
+                                <div style="margin: 4px 0; font-weight: bold; color: #d84315;">→ Tracks will NOT receive beam allocation!</div>
+                                <div style="margin-top: 6px; font-style: italic; color: #5d4037;">Fix: Increase Beams/Frame OR decrease Min Search</div>
                             </div>
                             <div class="control-row">
                                 <label title="Track beam priority. 'All' assigns beams to both confirmed and tentative tracks. 'Confirmed' only assigns to confirmed tracks.">Track Priority</label>
@@ -678,6 +803,8 @@
                                 <label title="Auto-calculate search sector, center, and elevation from launch/target/sensor geometry.">Auto Sector</label>
                                 <input type="checkbox" id="auto-search-sector" checked onchange="onAutoSearchSectorChange()">
                             </div>
+                        </div>
+                        <div>
                             <div class="control-row">
                                 <label title="Angular width of the search scan sector [degrees]. Search beams raster-scan within this sector. 0 = use full FOV.">Search Sector</label>
                                 <input type="number" id="search-sector" value="0" min="0" max="360" step="1" disabled onchange="updateSensorCoverage()"> deg
@@ -688,7 +815,19 @@
                             </div>
                             <div class="control-row">
                                 <label title="Search beam elevation angle [degrees above horizon]. Beams scan in azimuth at this fixed elevation.">Search Elev</label>
-                                <input type="number" id="search-elevation" value="0" min="0" max="90" step="0.5" disabled> deg
+                                <input type="number" id="search-elevation" value="0" min="-90" max="90" step="0.5" disabled> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Minimum range for search coverage [km]. Search beams focus on targets beyond this range.">Search Min Range</label>
+                                <input type="number" id="search-min-range" value="0" min="0" max="1000" step="10"> km
+                            </div>
+                            <div class="control-row">
+                                <label title="Maximum range for search coverage [km]. Search beams focus on targets within this range. 0 = use radar max range.">Search Max Range</label>
+                                <input type="number" id="search-max-range" value="0" min="0" max="2000" step="10"> km
+                            </div>
+                            <div class="control-row">
+                                <label title="Track beam range gate width [km]. Range window centered on each target's position (±width/2). 0 = no range gating (use full radar range).">Track Range Width</label>
+                                <input type="number" id="track-range-width" value="0" min="0" max="500" step="10"> km
                             </div>
                         </div>
                     </div>
@@ -696,45 +835,162 @@
 
                 <!-- Tracker -->
                 <div class="detail-section" id="panel-tracker">
-                    <div class="target-sub-grid">
+                    <!-- Track Management -->
+                    <div class="section-header">Track Management</div>
+                    <div class="param-grid">
                         <div>
                             <div class="control-row">
                                 <label title="Simulation time step [s]. Smaller = more accurate but slower. Defines tracker update rate.">Time Step</label>
                                 <input type="number" id="time-step" value="0.5" min="0.1" max="2.0" step="0.1"> s
                             </div>
                             <div class="control-row">
-                                <label title="Mahalanobis distance gate for data association. Larger = accept more distant measurements. Too small = missed associations.">Gate Threshold</label>
-                                <input type="number" id="gate-threshold" value="500" min="1" max="2000" step="10">
+                                <label title="Mahalanobis distance gate for data association. HGV: 30, Ballistic: 15. Higher = more tolerant to maneuvers.">Gate Threshold</label>
+                                <input type="number" id="gate-threshold" value="30" min="1" max="100" step="1">
                             </div>
                             <div class="control-row">
-                                <label title="Number of consecutive hits required to confirm a tentative track. Lower = faster confirmation but more false tracks.">Confirm Hits</label>
-                                <input type="number" id="confirm-hits" value="2" min="1" max="10" step="1">
-                            </div>
-                            <div class="control-row">
-                                <label title="Number of consecutive misses before a track is deleted. Higher = more tolerant of missed detections.">Delete Misses</label>
-                                <input type="number" id="delete-misses" value="20" min="1" max="50" step="1">
-                            </div>
-                            <div class="control-row">
-                                <label title="Minimum SNR [dB] to initiate a new track. Higher = fewer false tracks from clutter.">Min SNR</label>
-                                <input type="number" id="min-snr" value="22" min="0" max="60" step="1"> dB
+                                <label title="Maximum distance [m] for data association. Measurements beyond this are rejected regardless of gate.">Max Distance</label>
+                                <input type="number" id="max-distance" value="100000" min="1000" max="500000" step="1000"> m
                             </div>
                         </div>
                         <div>
                             <div class="control-row">
-                                <label title="Process noise for position [m]. Models unmodeled position disturbances. Higher = filter trusts measurements more.">Pos Noise</label>
-                                <input type="number" id="process-pos-noise" value="160" min="0.1" max="500" step="5"> m
+                                <label title="Number of consecutive hits required to confirm a tentative track. Lower = faster confirmation but more false tracks.">Confirm Hits</label>
+                                <input type="number" id="confirm-hits" value="3" min="1" max="15" step="1">
                             </div>
                             <div class="control-row">
-                                <label title="Process noise for velocity [m/s]. Models unmodeled velocity changes. Higher = faster adaptation to maneuvers.">Vel Noise</label>
-                                <input type="number" id="process-vel-noise" value="65" min="0.1" max="200" step="5"> m/s
+                                <label title="Number of consecutive misses before a track is deleted. HGV: 20, Ballistic: 8. Higher = more robust to maneuvers.">Delete Misses</label>
+                                <input type="number" id="delete-misses" value="20" min="1" max="200" step="1">
                             </div>
                             <div class="control-row">
-                                <label title="Process noise for acceleration [m/s2]. Models unmodeled acceleration (maneuvers). Higher = more responsive to sudden changes.">Acc Noise</label>
-                                <input type="number" id="process-acc-noise" value="160" min="0.1" max="500" step="5"> m/s2
+                                <label title="Minimum SNR [dB] to initiate a new track. Higher = fewer false tracks from clutter.">Min SNR</label>
+                                <input type="number" id="min-snr" value="10" min="-40" max="60" step="1"> dB
                             </div>
                         </div>
                     </div>
-                    <div class="param-grid" style="margin-top: 8px;">
+
+                    <!-- Process Noise -->
+                    <div class="section-header" style="margin-top: 12px;">Process Noise</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Models uncertainties in target dynamics. Higher noise = filter trusts measurements more.</div>
+                    <div class="param-grid">
+                        <div>
+                            <div class="control-row">
+                                <label title="Process noise for position [m]. Models unmodeled position disturbances. Higher = filter trusts measurements more.">Position</label>
+                                <input type="number" id="process-pos-noise" value="300" min="0.1" max="500" step="5"> m
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="Process noise for velocity [m/s]. Models unmodeled velocity changes. Higher = faster adaptation to maneuvers.">Velocity</label>
+                                <input type="number" id="process-vel-noise" value="150" min="0.1" max="200" step="5"> m/s
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="Process noise for acceleration [m/s2]. Models unmodeled acceleration (maneuvers). Higher = more responsive to sudden changes.">Acceleration</label>
+                                <input type="number" id="process-acc-noise" value="300" min="0.1" max="500" step="5"> m/s²
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- UKF Parameters -->
+                    <div class="section-header" style="margin-top: 12px;">UKF Parameters</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Unscented Kalman Filter tuning parameters. Default values work well for most cases.</div>
+                    <div class="param-grid">
+                        <div>
+                            <div class="control-row">
+                                <label title="UKF scaling parameter alpha. Controls sigma point spread. Typical: 0.001-1.0. Smaller = more conservative.">Alpha</label>
+                                <input type="number" id="ukf-alpha" value="0.5" min="0.001" max="1.0" step="0.01">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="UKF distribution shape parameter beta. Optimal for Gaussian: 2.0. Incorporates prior knowledge of distribution.">Beta</label>
+                                <input type="number" id="ukf-beta" value="2.0" min="0" max="4" step="0.1">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="UKF secondary scaling parameter kappa. Typical: 0 or 3-n where n=state dimension. 0 = standard choice.">Kappa</label>
+                                <input type="number" id="ukf-kappa" value="0.0" min="-10" max="10" step="0.5">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- IMM Transition Matrix -->
+                    <div class="section-header" style="margin-top: 12px;">IMM Transition Probabilities</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">From → To: CV=Constant Velocity, Bal=Ballistic, CT=Coordinated Turn. Each row sums to 1.0.</div>
+                    <div class="param-grid" style="grid-template-columns: repeat(3, 1fr);">
+                        <div>
+                            <div class="control-row">
+                                <label title="CV→CV: Probability of staying in Constant Velocity model">CV→CV</label>
+                                <input type="number" id="imm-cv-cv" value="0.80" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="CV→Bal: Probability of transitioning from CV to Ballistic">CV→Bal</label>
+                                <input type="number" id="imm-cv-bal" value="0.15" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="CV→CT: Probability of transitioning from CV to Coordinated Turn">CV→CT</label>
+                                <input type="number" id="imm-cv-ct" value="0.05" min="0.01" max="0.99" step="0.01">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="Bal→CV: Probability of transitioning from Ballistic to CV">Bal→CV</label>
+                                <input type="number" id="imm-bal-cv" value="0.10" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="Bal→Bal: Probability of staying in Ballistic model">Bal→Bal</label>
+                                <input type="number" id="imm-bal-bal" value="0.85" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="Bal→CT: Probability of transitioning from Ballistic to Coordinated Turn">Bal→CT</label>
+                                <input type="number" id="imm-bal-ct" value="0.05" min="0.01" max="0.99" step="0.01">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="CT→CV: Probability of transitioning from Coordinated Turn to CV">CT→CV</label>
+                                <input type="number" id="imm-ct-cv" value="0.05" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="CT→Bal: Probability of transitioning from Coordinated Turn to Ballistic">CT→Bal</label>
+                                <input type="number" id="imm-ct-bal" value="0.10" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="CT→CT: Probability of staying in Coordinated Turn model">CT→CT</label>
+                                <input type="number" id="imm-ct-ct" value="0.85" min="0.01" max="0.99" step="0.01">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- IMM Model Process Noise -->
+                    <div class="section-header" style="margin-top: 12px;">IMM Model Process Noise Multipliers</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Multipliers applied to base process noise for each model. Lower = model trusts physics more, higher = more adaptive.</div>
+                    <div class="param-grid">
+                        <div>
+                            <div class="control-row">
+                                <label title="CV (Constant Velocity) process noise multiplier. Lower = assumes steady flight, higher = handles acceleration better.">CV Noise</label>
+                                <input type="number" id="imm-cv-noise" value="0.1" min="0.01" max="2.0" step="0.05">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="Ballistic process noise multiplier. Physics model is accurate, so keep low. Higher = compensates for atmospheric variations.">Bal Noise</label>
+                                <input type="number" id="imm-bal-noise" value="0.3" min="0.01" max="2.0" step="0.05">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="CT (Coordinated Turn) process noise multiplier. Higher = tracks aggressive maneuvers better but may follow noise.">CT Noise</label>
+                                <input type="number" id="imm-ct-noise" value="1.0" min="0.01" max="2.0" step="0.05">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Simulation Settings -->
+                    <div class="section-header" style="margin-top: 12px;">Simulation Settings</div>
+                    <div class="param-grid">
                         <div>
                             <div class="control-row">
                                 <label title="Number of Monte Carlo simulation runs. Multiple runs provide mean +/- std statistics for robust evaluation.">Num Runs</label>
@@ -866,6 +1122,7 @@ function setLaunchPoint(lat, lon) {
     autoComputeAntennaBearing();
     autoComputeSearchSector();
     autoComputeSearchElevation();
+    autoComputePdRefRange();
     updateSensorCoverage();
 }
 
@@ -880,6 +1137,7 @@ function setTargetPoint(lat, lon) {
     autoComputeAntennaBearing();
     autoComputeSearchSector();
     autoComputeSearchElevation();
+    autoComputePdRefRange();
 }
 
 function updateRange() {
@@ -907,6 +1165,7 @@ function setSensorPoint(lat, lon) {
     autoComputeAntennaBearing();
     autoComputeSearchSector();
     autoComputeSearchElevation();
+    autoComputePdRefRange();
     updateSensorCoverage();
 }
 
@@ -966,7 +1225,7 @@ function updateSensorCoverage() {
     if (maxRangeKm <= 0) return;
 
     const maxRangeM = maxRangeKm * 1000;
-    const fovDeg = parseFloat(document.getElementById('radar-fov').value) || 360;
+    const fovDeg = parseFloat(document.getElementById('azimuth-coverage').value) || 360;
 
     // Helper: draw a wedge polygon from sensor at given angular range
     function makeWedge(startDeg, endDeg, range) {
@@ -1009,18 +1268,55 @@ function updateSensorCoverage() {
         }).addTo(map);
     }
 
-    // Draw search sector overlay (absolute bearing, independent of FOV wedge)
+    // Draw integrated search coverage (sector + range)
     const searchSectorDeg = parseFloat(document.getElementById('search-sector').value) || 0;
     const searchCenterDeg = parseFloat(document.getElementById('search-center').value) || 0;
-    if (searchSectorDeg > 0) {
+    const searchMinKm = parseFloat(document.getElementById('search-min-range').value) || 0;
+    const searchMaxKm = parseFloat(document.getElementById('search-max-range').value) || 0;
+
+    // Determine effective search range
+    const searchMinM = searchMinKm * 1000;
+    const searchMaxM = (searchMaxKm > 0 && searchMaxKm < maxRangeKm) ? searchMaxKm * 1000 : maxRangeM;
+
+    // Draw search coverage area
+    if (searchSectorDeg > 0 || searchMinKm > 0 || (searchMaxKm > 0 && searchMaxKm < maxRangeKm)) {
         const sMin = searchCenterDeg - searchSectorDeg / 2;
         const sMax = searchCenterDeg + searchSectorDeg / 2;
-        const searchPoints = makeWedge(sMin, sMax, maxRangeM);
-        searchSectorPolygon = L.polygon(searchPoints, {
+
+        // Use full FOV if no specific search sector is set
+        const azMin = searchSectorDeg > 0 ? sMin : (parseFloat(document.getElementById('antenna-bearing').value) || 0) - fovDeg / 2;
+        const azMax = searchSectorDeg > 0 ? sMax : (parseFloat(document.getElementById('antenna-bearing').value) || 0) + fovDeg / 2;
+
+        // Create annulus (ring) or full wedge
+        const numPoints = 60;
+        const pts = [];
+
+        // Outer arc (max range)
+        for (let i = 0; i <= numPoints; i++) {
+            const angle = (azMin + (azMax - azMin) * i / numPoints) * Math.PI / 180;
+            const lat = pos.lat + (searchMaxM / 111320) * Math.cos(angle);
+            const lon = pos.lon + (searchMaxM / (111320 * Math.cos(pos.lat * Math.PI / 180))) * Math.sin(angle);
+            pts.push([lat, lon]);
+        }
+
+        // Inner arc (min range) - reverse direction
+        if (searchMinM > 0) {
+            for (let i = numPoints; i >= 0; i--) {
+                const angle = (azMin + (azMax - azMin) * i / numPoints) * Math.PI / 180;
+                const lat = pos.lat + (searchMinM / 111320) * Math.cos(angle);
+                const lon = pos.lon + (searchMinM / (111320 * Math.cos(pos.lat * Math.PI / 180))) * Math.sin(angle);
+                pts.push([lat, lon]);
+            }
+        } else {
+            // No inner arc - close at center
+            pts.push([pos.lat, pos.lon]);
+        }
+
+        searchSectorPolygon = L.polygon(pts, {
             color: '#4fc3f7',
             fillColor: '#4fc3f7',
-            fillOpacity: 0.12,
-            weight: 1.5,
+            fillOpacity: 0.15,
+            weight: 2,
             opacity: 0.8,
         }).addTo(map);
     }
@@ -1047,7 +1343,7 @@ function autoComputeSearchSector() {
         return;
     }
 
-    const fovDeg = parseFloat(document.getElementById('radar-fov').value) || 360;
+    const fovDeg = parseFloat(document.getElementById('azimuth-coverage').value) || 360;
 
     // Bearing from sensor to launch point (threat origin)
     const bearingToLaunch = computeBearing(sensor.lat, sensor.lon, launchPoint.lat, launchPoint.lon);
@@ -1088,7 +1384,7 @@ function autoComputeSearchSector() {
 
 function onAutoSearchSectorChange() {
     const auto = document.getElementById('auto-search-sector').checked;
-    ['search-sector', 'search-center', 'search-elevation'].forEach(id => {
+    ['search-sector', 'search-center', 'search-elevation', 'pd-ref-range'].forEach(id => {
         const el = document.getElementById(id);
         el.disabled = auto;
         el.style.opacity = auto ? '0.4' : '1';
@@ -1096,6 +1392,7 @@ function onAutoSearchSectorChange() {
     if (auto) {
         autoComputeSearchSector();
         autoComputeSearchElevation();
+        autoComputePdRefRange();
     }
 }
 
@@ -1140,17 +1437,56 @@ function onAutoAntennaBearingChange() {
     }
 }
 
+// Beam allocation validation
+function validateBeamAllocation() {
+    const numBeams = parseInt(document.getElementById('num-beams').value) || 0;
+    const minSearch = parseInt(document.getElementById('min-search-beams').value) || 0;
+    const warningDiv = document.getElementById('beam-warning');
+
+    if (numBeams <= minSearch) {
+        // Show warning
+        document.getElementById('warn-num-beams').textContent = numBeams;
+        document.getElementById('warn-min-search').textContent = minSearch;
+        warningDiv.style.display = 'block';
+    } else {
+        // Hide warning
+        warningDiv.style.display = 'none';
+    }
+}
+
 // Auto search elevation calculation
 function autoComputeSearchElevation() {
     if (!document.getElementById('auto-search-sector').checked) return;
     const sensor = getSensorLatLng();
+
+    // Fallback: compute from currentTrajectory when map points are not set
     if (!sensor || !launchPoint) {
-        document.getElementById('search-elevation').value = 0;
+        if (currentTrajectory && currentTrajectory.trajectory && currentTrajectory.trajectory.length > 0) {
+            const traj = currentTrajectory.trajectory;
+            // Sensor position in km (default origin if no map sensor set)
+            const snx = sensor ? 0 : 0;  // lat/lon sensor → converted at C++ level; use 0,0 here
+            const sny = 0;
+            let minElevDeg = 90;
+            for (let ti = 0; ti < traj.length; ti++) {
+                const pt = traj[ti];
+                const px = (parseFloat(pt.x) || 0) / 1000;   // m → km
+                const py = (parseFloat(pt.y) || 0) / 1000;
+                const alt = (parseFloat(pt.altitude) || 0) / 1000;  // m → km
+                const horiz = Math.sqrt((px - snx) * (px - snx) + (py - sny) * (py - sny));
+                if (alt <= 0 || horiz <= 0) continue;
+                const elDeg = Math.atan2(alt, horiz) * 180 / Math.PI;
+                if (elDeg < minElevDeg) minElevDeg = elDeg;
+            }
+            document.getElementById('search-elevation').value =
+                Math.round(Math.max(0, minElevDeg < 90 ? minElevDeg : 0) * 2) / 2;
+        } else {
+            document.getElementById('search-elevation').value = 0;
+        }
         return;
     }
 
-    // Haversine distance from sensor to launch point [km]
     const R = 6371;
+    // Haversine distance sensor→launch [km]
     const dLat = (launchPoint.lat - sensor.lat) * Math.PI / 180;
     const dLon = (launchPoint.lon - sensor.lon) * Math.PI / 180;
     const a = Math.sin(dLat/2)**2 + Math.cos(sensor.lat * Math.PI/180) * Math.cos(launchPoint.lat * Math.PI/180) * Math.sin(dLon/2)**2;
@@ -1164,7 +1500,6 @@ function autoComputeSearchElevation() {
         distToTargetKm = 2 * R * Math.asin(Math.sqrt(a2));
     }
 
-    // Launch-to-target range [km]
     let totalRangeKm = distToLaunchKm;
     if (targetPoint) {
         const dLat3 = (targetPoint.lat - launchPoint.lat) * Math.PI / 180;
@@ -1173,55 +1508,108 @@ function autoComputeSearchElevation() {
         totalRangeKm = 2 * R * Math.asin(Math.sqrt(a3));
     }
 
-    // Estimate ballistic trajectory max altitude
-    // For minimum energy trajectory: H_max ≈ range / 4
-    // Use launch angle if available for better estimate: H_max ≈ range * tan(angle) / 4
     const launchAngleDeg = parseFloat(document.getElementById('launch-angle').value) || 45;
-    const launchAngleRad = launchAngleDeg * Math.PI / 180;
-    const maxAltKm = totalRangeKm * Math.tan(launchAngleRad) / 4;
+    const maxAltKm = totalRangeKm * Math.tan(launchAngleDeg * Math.PI / 180) / 4;
 
-    // Estimate altitude at the point closest to sensor along the trajectory
-    // The trajectory is roughly parabolic: h(x) = 4*H_max * x/R * (1 - x/R)
-    // where x is distance from launch along the ground track
-    // Sensor sees the target at horizontal range = distToLaunchKm (approx)
-    // The fraction along trajectory depends on sensor position relative to launch-target line
-    // Use average of sensor-to-launch and sensor-to-target as representative range
-    const avgDistKm = (distToLaunchKm + distToTargetKm) / 2;
+    // Project launch/target to sensor-relative Cartesian [km]
+    const brgLaunch = computeBearing(sensor.lat, sensor.lon, launchPoint.lat, launchPoint.lon) * Math.PI / 180;
+    const lx = distToLaunchKm * Math.sin(brgLaunch);
+    const ly = distToLaunchKm * Math.cos(brgLaunch);
+    const brgTarget = targetPoint
+        ? computeBearing(sensor.lat, sensor.lon, targetPoint.lat, targetPoint.lon) * Math.PI / 180
+        : brgLaunch;
+    const tx = distToTargetKm * Math.sin(brgTarget);
+    const ty = distToTargetKm * Math.cos(brgTarget);
 
-    // Fraction along trajectory where the sensor "looks" (rough estimate)
-    // If sensor is near target, fraction is near 1 (low altitude)
-    // If sensor is equidistant, fraction is near 0.5 (peak altitude)
-    let fraction = 0.5;
-    if (totalRangeKm > 1) {
-        // Approximate: sensor distance from launch / total range
-        fraction = Math.min(distToLaunchKm / totalRangeKm, 1.0);
+    // Scan trajectory points; find minimum elevation angle (= earliest detectable)
+    let minElevDeg = 90;
+    const N = 40;
+    for (let fi = 1; fi < N; fi++) {
+        const f = fi / N;
+        const px = lx + f * (tx - lx);
+        const py = ly + f * (ty - ly);
+        const horiz = Math.sqrt(px * px + py * py);
+        const alt = 4 * maxAltKm * f * (1 - f);
+        if (alt <= 0 || horiz <= 0) continue;
+        const elDeg = Math.atan2(alt, horiz) * 180 / Math.PI;
+        if (elDeg < minElevDeg) minElevDeg = elDeg;
     }
-    // Parabolic altitude at this fraction
-    const altAtFractionKm = 4 * maxAltKm * fraction * (1 - fraction);
+    if (minElevDeg >= 90) minElevDeg = 0;
 
-    // Elevation angle from sensor to target at this altitude and average distance
-    const elevRad = Math.atan2(altAtFractionKm, avgDistKm);
-    let elevDeg = elevRad * 180 / Math.PI;
-    elevDeg = Math.max(0, Math.min(90, elevDeg));
-
-    document.getElementById('search-elevation').value = Math.round(elevDeg * 2) / 2; // round to 0.5
+    document.getElementById('search-elevation').value = Math.round(Math.max(0, minElevDeg) * 2) / 2;
 }
 
+// Auto pd-ref-range computation: set to max sensor-to-trajectory distance
+function autoComputePdRefRange() {
+    if (!document.getElementById('auto-search-sector').checked) return;
 
+    let maxDistKm = 10;  // fallback default
+
+    if (currentTrajectory && currentTrajectory.trajectory && currentTrajectory.trajectory.length > 0) {
+        // Use trajectory data: find max horizontal distance from sensor origin
+        const traj = currentTrajectory.trajectory;
+        let maxD = 0;
+        for (const pt of traj) {
+            const px = (parseFloat(pt.x) || 0) / 1000;   // m → km
+            const py = (parseFloat(pt.y) || 0) / 1000;
+            const d = Math.sqrt(px * px + py * py);
+            if (d > maxD) maxD = d;
+        }
+        if (maxD > 0) maxDistKm = maxD;
+    } else {
+        const sensor = getSensorLatLng();
+        if (sensor && launchPoint) {
+            const R = 6371;
+            const dLat = (launchPoint.lat - sensor.lat) * Math.PI / 180;
+            const dLon = (launchPoint.lon - sensor.lon) * Math.PI / 180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(sensor.lat * Math.PI/180) * Math.cos(launchPoint.lat * Math.PI/180) * Math.sin(dLon/2)**2;
+            maxDistKm = 2 * R * Math.asin(Math.sqrt(a));
+            if (targetPoint) {
+                const dLat2 = (targetPoint.lat - sensor.lat) * Math.PI / 180;
+                const dLon2 = (targetPoint.lon - sensor.lon) * Math.PI / 180;
+                const a2 = Math.sin(dLat2/2)**2 + Math.cos(sensor.lat * Math.PI/180) * Math.cos(targetPoint.lat * Math.PI/180) * Math.sin(dLon2/2)**2;
+                maxDistKm = Math.max(maxDistKm, 2 * R * Math.asin(Math.sqrt(a2)));
+            }
+        }
+    }
+
+    document.getElementById('pd-ref-range').value = Math.round(Math.min(maxDistKm, 5000));
+}
 
 // Update coverage when sensor params change
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('radar-max-range').addEventListener('input', updateSensorCoverage);
-    document.getElementById('radar-fov').addEventListener('input', () => { autoComputeAntennaBearing(); autoComputeSearchSector(); autoComputeSearchElevation(); updateSensorCoverage(); });
+    document.getElementById('azimuth-coverage').addEventListener('input', () => { autoComputeAntennaBearing(); autoComputeSearchSector(); autoComputeSearchElevation(); updateSensorCoverage(); });
+    document.getElementById('search-min-range').addEventListener('input', updateSensorCoverage);
+    document.getElementById('search-max-range').addEventListener('input', updateSensorCoverage);
     document.getElementById('launch-angle').addEventListener('input', () => { autoComputeSearchElevation(); });
     // Restore previous state from localStorage
     restoreStateFromStorage();
+    // Validate beam allocation on page load
+    validateBeamAllocation();
     // Initialize auto param visual state (after restore so saved values take effect)
     [['auto-max-range','radar-max-range']].forEach(([cbId, inputId]) => {
         const cb = document.getElementById(cbId);
         if (cb) toggleAutoParam(cb, inputId);
     });
+    // Check for GPU errors
+    checkGPUError();
 });
+
+// ========================================
+// GPU Error Display
+// ========================================
+function checkGPUError() {
+    fetch('/api/gpu-error-log')
+        .then(response => response.json())
+        .then(data => {
+            if (data.exists && data.content) {
+                document.getElementById('gpu-error-content').textContent = data.content;
+                document.getElementById('gpu-error-banner').style.display = 'block';
+            }
+        })
+        .catch(err => console.error('Failed to check GPU error log:', err));
+}
 
 // ========================================
 // Location Preset Management
@@ -1560,6 +1948,8 @@ async function generateTrajectory() {
             draw3DVisualization(data);
             updateSummary(data.summary);
             document.getElementById('btn-run-tracker').disabled = false;
+            autoComputeSearchElevation();
+            autoComputePdRefRange();
 
             // Handle auto-adjust results
             const adjInfo = document.getElementById('auto-adjust-info');
@@ -1622,7 +2012,13 @@ function drawTrajectoryOnMap(data) {
     const layerGroup = L.layerGroup();
 
     // Phase-colored polyline segments
-    const phaseColors = { 'BOOST': '#ff8c00', 'MIDCOURSE': '#32c8ff', 'TERMINAL': '#ff2050' };
+    const phaseColors = {
+        'BOOST': '#ff8c00',      // Orange - ブースト上昇
+        'MIDCOURSE': '#32c8ff',  // Cyan - 中間飛翔（放物線）
+        'TERMINAL': '#ff2050',   // Red - 終末落下・機動
+        'PULLUP': '#ffcc00',     // Gold - HGV引き起こし遷移
+        'GLIDE': '#9d4edd'       // Purple - HGV超音速滑空
+    };
     let currentPhase = phases[0];
     let segment = [coords[0]];
 
@@ -1697,8 +2093,20 @@ function draw3DVisualization(data) {
     const t = data.plotly.trajectory;
 
     // Phase-colored line segments (matching map style)
-    const phaseColors = { 'BOOST': '#ff8c00', 'MIDCOURSE': '#32c8ff', 'TERMINAL': '#ff2050' };
-    const phaseNames = { 'BOOST': 'Boost', 'MIDCOURSE': 'Midcourse', 'TERMINAL': 'Terminal' };
+    const phaseColors = {
+        'BOOST': '#ff8c00',      // Orange - ブースト上昇
+        'MIDCOURSE': '#32c8ff',  // Cyan - 中間飛翔（放物線）
+        'TERMINAL': '#ff2050',   // Red - 終末落下・機動
+        'PULLUP': '#ffcc00',     // Gold - HGV引き起こし遷移
+        'GLIDE': '#9d4edd'       // Purple - HGV超音速滑空
+    };
+    const phaseNames = {
+        'BOOST': 'Boost',
+        'MIDCOURSE': 'Midcourse',
+        'TERMINAL': 'Terminal',
+        'PULLUP': 'Pullup (HGV)',
+        'GLIDE': 'Glide (HGV)'
+    };
     const plotTraces = [];
     const shownPhases = new Set();
     {
@@ -1793,12 +2201,39 @@ function draw3DVisualization(data) {
         });
     }
 
+    // Calculate equal ranges for all axes to prevent distortion
+    let xMin = Math.min(...t.x), xMax = Math.max(...t.x);
+    let yMin = Math.min(...t.y), yMax = Math.max(...t.y);
+    let zMin = Math.min(...t.z), zMax = Math.max(...t.z);
+    if (data.plotly.booster) {
+        const b = data.plotly.booster;
+        xMin = Math.min(xMin, ...b.x); xMax = Math.max(xMax, ...b.x);
+        yMin = Math.min(yMin, ...b.y); yMax = Math.max(yMax, ...b.y);
+        zMin = Math.min(zMin, ...b.z); zMax = Math.max(zMax, ...b.z);
+    }
+    const xRange = xMax - xMin, yRange = yMax - yMin, zRange = zMax - zMin;
+    const maxRange = Math.max(xRange, yRange, zRange);
+    const xCenter = (xMin + xMax) / 2, yCenter = (yMin + yMax) / 2, zCenter = (zMin + zMax) / 2;
+    const axisRange = maxRange * 0.55; // 10% padding
+
     const layout = {
         scene: {
-            xaxis: { title: 'X (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
-            yaxis: { title: 'Y (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
-            zaxis: { title: 'Altitude (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
-            aspectmode: 'auto',
+            xaxis: {
+                title: 'X (km)',
+                backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa',
+                range: [xCenter - axisRange, xCenter + axisRange]
+            },
+            yaxis: {
+                title: 'Y (km)',
+                backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa',
+                range: [yCenter - axisRange, yCenter + axisRange]
+            },
+            zaxis: {
+                title: 'Altitude (km)',
+                backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa',
+                range: [zCenter - axisRange, zCenter + axisRange]
+            },
+            aspectmode: 'cube',  // 1:1:1 aspect ratio for true spatial representation
         },
         paper_bgcolor: '#16213e',
         plot_bgcolor: '#16213e',
@@ -1825,9 +2260,6 @@ function draw3DVisualization(data) {
     switchVizTab('trajectory');
     Plotly.purge('plot3d-tracking');
     Plotly.purge('plot-timeline');
-    disableVizTab('tracking');
-    disableVizTab('evaluation');
-    disableVizTab('timeline');
     document.getElementById('eval-tab-content').innerHTML = '<div class="eval-placeholder">Run Tracker to see evaluation metrics</div>';
 }
 
@@ -1852,8 +2284,11 @@ function _buildTrackerParams() {
         cross_section_area: parseFloat(document.getElementById('cross-section').value),
         sensor_lat: getSensorLatLng()?.lat,
         sensor_lon: getSensorLatLng()?.lon,
+        radar_min_range: parseFloat(document.getElementById('radar-min-range').value) * 1000,
         radar_max_range: document.getElementById('auto-max-range').checked ? 0 : parseFloat(document.getElementById('radar-max-range').value) * 1000,
-        radar_fov: parseFloat(document.getElementById('radar-fov').value) * Math.PI / 180,
+        azimuth_coverage: parseFloat(document.getElementById('azimuth-coverage').value) * Math.PI / 180,
+        min_elevation: parseFloat(document.getElementById('min-elevation').value) * Math.PI / 180,
+        max_elevation: parseFloat(document.getElementById('max-elevation').value) * Math.PI / 180,
         enable_separation: document.getElementById('enable-separation').checked,
         warhead_mass_fraction: parseFloat(document.getElementById('warhead-mass-frac').value) / 100.0,
         cluster_count: parseInt(document.getElementById('cluster-count').value) || 0,
@@ -1868,6 +2303,9 @@ function _buildTrackerParams() {
         search_center: parseFloat(document.getElementById('search-center').value) || 0,
         antenna_boresight: parseFloat(document.getElementById('antenna-bearing').value) || 0,
         search_elevation: parseFloat(document.getElementById('search-elevation').value) || 0,
+        search_min_range: parseFloat(document.getElementById('search-min-range').value) * 1000,
+        search_max_range: parseFloat(document.getElementById('search-max-range').value) * 1000,
+        track_range_width: parseFloat(document.getElementById('track-range-width').value) * 1000,
         pfa: parseFloat(document.getElementById('pfa').value) || 1e-6,
         pd_ref: parseFloat(document.getElementById('pd-ref').value),
         pd_ref_range_km: parseFloat(document.getElementById('pd-ref-range').value),
@@ -1882,6 +2320,22 @@ function _buildTrackerParams() {
         process_pos_noise: parseFloat(document.getElementById('process-pos-noise').value),
         process_vel_noise: parseFloat(document.getElementById('process-vel-noise').value),
         process_acc_noise: parseFloat(document.getElementById('process-acc-noise').value),
+        ukf_alpha: parseFloat(document.getElementById('ukf-alpha').value),
+        ukf_beta: parseFloat(document.getElementById('ukf-beta').value),
+        ukf_kappa: parseFloat(document.getElementById('ukf-kappa').value),
+        max_distance: parseFloat(document.getElementById('max-distance').value),
+        imm_cv_cv: parseFloat(document.getElementById('imm-cv-cv').value),
+        imm_cv_bal: parseFloat(document.getElementById('imm-cv-bal').value),
+        imm_cv_ct: parseFloat(document.getElementById('imm-cv-ct').value),
+        imm_bal_cv: parseFloat(document.getElementById('imm-bal-cv').value),
+        imm_bal_bal: parseFloat(document.getElementById('imm-bal-bal').value),
+        imm_bal_ct: parseFloat(document.getElementById('imm-bal-ct').value),
+        imm_ct_cv: parseFloat(document.getElementById('imm-ct-cv').value),
+        imm_ct_bal: parseFloat(document.getElementById('imm-ct-bal').value),
+        imm_ct_ct: parseFloat(document.getElementById('imm-ct-ct').value),
+        imm_cv_noise: parseFloat(document.getElementById('imm-cv-noise').value),
+        imm_bal_noise: parseFloat(document.getElementById('imm-bal-noise').value),
+        imm_ct_noise: parseFloat(document.getElementById('imm-ct-noise').value),
         num_runs: parseInt(document.getElementById('num-runs').value),
         seed: parseInt(document.getElementById('random-seed').value),
     };
@@ -1898,19 +2352,43 @@ function _buildTrackerParams() {
 
 async function _renderTrackerResult(data) {
     const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
+    const gt = data.ground_truth || [];
+    const meas = data.measurements || [];
+    const tracks = data.tracks || [];
+    console.log(`[Render] gt=${gt.length} meas=${meas.length} tracks=${tracks.length}`);
+
+    updateTrackerProgress(100, 'Rendering 3D view...');
     updateStatus('Rendering 3D view...');
     await yieldToUI();
+    console.time('[Render] draw3DWithTracks');
     draw3DWithTracks(data);
+    console.timeEnd('[Render] draw3DWithTracks');
+
+    updateTrackerProgress(100, 'Rendering timeline...');
     updateStatus('Rendering timeline...');
     await yieldToUI();
+    console.time('[Render] drawTimeline');
     drawTimeline(data);
+    console.timeEnd('[Render] drawTimeline');
+
+    updateTrackerProgress(100, 'Rendering evaluation...');
     updateStatus('Rendering evaluation...');
     await yieldToUI();
+    console.time('[Render] displayEvaluation');
     await displayEvaluation(data);
+    console.timeEnd('[Render] displayEvaluation');
+
+    updateTrackerProgress(100, 'Rendering console output...');
+    await yieldToUI();
+    console.time('[Render] displayConsole');
+    displayConsole(data);
+    console.timeEnd('[Render] displayConsole');
+
     showResolvedParams(data.eval_summary);
     enableVizTab('tracking');
     enableVizTab('evaluation');
     enableVizTab('timeline');
+    enableVizTab('console');
     switchVizTab('tracking');
     const numRuns = parseInt(document.getElementById('num-runs').value);
     updateStatus(`Tracker simulation complete${numRuns > 1 ? ` (${numRuns} runs)` : ''}`);
@@ -1961,6 +2439,10 @@ async function cancelTracker() {
 
 async function runTracker() {
     if (!currentTrajectory) return;
+
+    // Ensure search elevation and pd-ref-range are up-to-date before building params
+    autoComputeSearchElevation();
+    autoComputePdRefRange();
 
     const numRuns = parseInt(document.getElementById('num-runs').value) || 1;
     const clusterCount = parseInt(document.getElementById('cluster-count').value) || 0;
@@ -2025,22 +2507,36 @@ function showResolvedParams(summary) {
         radar_max_range: ['resolved-max-range', 'auto-max-range', 'radar-max-range',
                           v => `(=${(v/1000).toFixed(0)} km)`, v => (v/1000).toFixed(0)],
         snr_ref:         ['resolved-snr-ref',    null,             null,
-                          v => `(SNR Ref=${v.toFixed(1)} dB)`, null],
+                          null, null],  // Custom formatting below
     };
     for (const [key, [spanId, autoId, inputId, fmtSpan, fmtInput]] of Object.entries(defs)) {
         const span = document.getElementById(spanId);
         const autoCheck = autoId ? document.getElementById(autoId) : null;
         const input = inputId ? document.getElementById(inputId) : null;
         if (!span) continue;
-        if (r && r[key] != null) {
+        if (r && r[key] != null && fmtSpan) {
             if (autoCheck === null || autoCheck.checked) {
                 span.textContent = fmtSpan(r[key]);
                 if (input && fmtInput) input.value = fmtInput(r[key]);
             } else {
                 span.textContent = '';
             }
+        } else if (key === 'snr_ref') {
+            // Custom SNR display: show both SNR@1km and SNR@ref_range
+            continue;  // Handle below
         } else {
             span.textContent = '';
+        }
+    }
+
+    // Custom formatting for SNR display (only show SNR at reference distance)
+    const snrSpan = document.getElementById('resolved-snr-ref');
+    if (snrSpan && r) {
+        if (r.snr_at_ref_range != null && r.det_ref_range_m != null) {
+            const refRangeKm = (r.det_ref_range_m / 1000).toFixed(0);
+            snrSpan.textContent = `(SNR@${refRangeKm}km=${r.snr_at_ref_range.toFixed(1)} dB)`;
+        } else {
+            snrSpan.textContent = '';
         }
     }
 }
@@ -2141,6 +2637,197 @@ function draw3DWithTracks(data) {
         legendgroup: 'sensor',
     });
 
+    // === 3D Search Coverage Volume ===
+    (function() {
+        try {
+            var covSElevDeg  = parseFloat(document.getElementById('search-elevation').value) || 0;
+            var covBwDeg     = parseFloat(document.getElementById('beam-width').value) || 3;
+            var covFovDeg    = parseFloat(document.getElementById('azimuth-coverage').value) || 360;
+            var covBsightDeg = parseFloat(document.getElementById('antenna-bearing').value) || 0;
+            var covSectDeg   = parseFloat(document.getElementById('search-sector').value) || 0;
+            var covSCenDeg   = parseFloat(document.getElementById('search-center').value) || 0;
+            var covMinRangeKm = parseFloat(document.getElementById('search-min-range').value) || 0;
+            var covSearchMaxKm = parseFloat(document.getElementById('search-max-range').value) || 0;
+
+            // Max range: parse actual value from C++ stdout (most accurate)
+            var covMaxRangeKm = 0;
+            if (data.stdout) {
+                var covRangeMatch = data.stdout.match(/Radar max_range:\s*([0-9.]+)\s*km/);
+                if (covRangeMatch) covMaxRangeKm = parseFloat(covRangeMatch[1]);
+            }
+            if (!(covMaxRangeKm > 0)) {
+                // Fallback: UI value or GT extent
+                var covRadarRange = parseFloat(document.getElementById('radar-max-range').value);
+                if (!(covRadarRange > 0)) covRadarRange = 800;
+                var covGtMax = 0;
+                for (var cgi = 0; cgi < gt.length; cgi++) {
+                    var cgx = (gt[cgi].x || 0) / 1000 - sx;
+                    var cgy = (gt[cgi].y || 0) / 1000 - sy;
+                    var cgr = Math.sqrt(cgx * cgx + cgy * cgy);
+                    if (cgr > covGtMax) covGtMax = cgr;
+                }
+                covMaxRangeKm = (covGtMax > 10) ? Math.min(covRadarRange, covGtMax * 1.3) : covRadarRange;
+            }
+
+            var covSElevRad  = covSElevDeg * Math.PI / 180;
+            var covHalfElRad = (covBwDeg / 2) * Math.PI / 180;
+            var covElBot     = covSElevRad - covHalfElRad;
+            var covElTop     = covSElevRad + covHalfElRad;
+
+            var covHasSector = covSectDeg > 0 && covSectDeg < 360;
+            var covAzSpanDeg = covHasSector ? covSectDeg : covFovDeg;
+            var covAzCenDeg  = covHasSector ? covSCenDeg : covBsightDeg;
+            var covFull      = covAzSpanDeg >= 360;
+            // UI bearing (0=North, CW) → math azimuth (0=East, CCW), same as Python backend
+            var covAzCenRad  = (90 - covAzCenDeg) * Math.PI / 180;
+            var covHalfAzRad = (covAzSpanDeg / 2) * Math.PI / 180;
+            var covN         = 60;
+            var covNpts      = covFull ? covN + 1 : covN;
+
+            // Determine effective search max range
+            var covEffectiveMaxKm = (covSearchMaxKm > 0 && covSearchMaxKm < covMaxRangeKm)
+                ? covSearchMaxKm
+                : covMaxRangeKm;
+
+            // Build one arc at elevation el and range r → arrays {xa, ya, za}
+            var covBuildArc = function(el, rangeKm) {
+                var xa = [], ya = [], za = [];
+                var cosEl = Math.cos(el), sinEl = Math.sin(el);
+                for (var bi = 0; bi < covNpts; bi++) {
+                    var baz = covFull
+                        ? (2 * Math.PI * bi / covN)
+                        : (covAzCenRad - covHalfAzRad + 2 * covHalfAzRad * bi / (covN - 1));
+                    xa.push(rangeKm * cosEl * Math.cos(baz));
+                    ya.push(rangeKm * cosEl * Math.sin(baz));
+                    za.push(rangeKm * sinEl);
+                }
+                return { x: xa, y: ya, z: za };
+            };
+
+            // Build arcs at max range
+            var arcBotOuter = covBuildArc(covElBot, covEffectiveMaxKm);
+            var arcCenOuter = covBuildArc(covSElevRad, covEffectiveMaxKm);
+            var arcTopOuter = covBuildArc(covElTop, covEffectiveMaxKm);
+
+            // Build arcs at min range (if > 0)
+            var arcBotInner = covMinRangeKm > 0 ? covBuildArc(covElBot, covMinRangeKm) : null;
+            var arcCenInner = covMinRangeKm > 0 ? covBuildArc(covSElevRad, covMinRangeKm) : null;
+            var arcTopInner = covMinRangeKm > 0 ? covBuildArc(covElTop, covMinRangeKm) : null;
+
+            // Build wireframe: outer arcs + inner arcs (if min range > 0) + ribs
+            var wx = [], wy = [], wz = [];
+
+            // Outer center arc
+            for (var wi = 0; wi < arcCenOuter.x.length; wi++) {
+                wx.push(arcCenOuter.x[wi]); wy.push(arcCenOuter.y[wi]); wz.push(arcCenOuter.z[wi]);
+            }
+            wx.push(null); wy.push(null); wz.push(null);
+
+            // Outer top arc
+            for (var wi = 0; wi < arcTopOuter.x.length; wi++) {
+                wx.push(arcTopOuter.x[wi]); wy.push(arcTopOuter.y[wi]); wz.push(arcTopOuter.z[wi]);
+            }
+            wx.push(null); wy.push(null); wz.push(null);
+
+            // Outer bottom arc
+            for (var wi = 0; wi < arcBotOuter.x.length; wi++) {
+                wx.push(arcBotOuter.x[wi]); wy.push(arcBotOuter.y[wi]); wz.push(arcBotOuter.z[wi]);
+            }
+            wx.push(null); wy.push(null); wz.push(null);
+
+            // Inner arcs (if min range > 0)
+            if (arcCenInner) {
+                for (var wi = 0; wi < arcCenInner.x.length; wi++) {
+                    wx.push(arcCenInner.x[wi]); wy.push(arcCenInner.y[wi]); wz.push(arcCenInner.z[wi]);
+                }
+                wx.push(null); wy.push(null); wz.push(null);
+                for (var wi = 0; wi < arcTopInner.x.length; wi++) {
+                    wx.push(arcTopInner.x[wi]); wy.push(arcTopInner.y[wi]); wz.push(arcTopInner.z[wi]);
+                }
+                wx.push(null); wy.push(null); wz.push(null);
+                for (var wi = 0; wi < arcBotInner.x.length; wi++) {
+                    wx.push(arcBotInner.x[wi]); wy.push(arcBotInner.y[wi]); wz.push(arcBotInner.z[wi]);
+                }
+                wx.push(null); wy.push(null); wz.push(null);
+            }
+
+            // Radial ribs connecting inner to outer arcs
+            var ribCount = covFull ? 8 : 2;
+            for (var ri = 0; ri < ribCount; ri++) {
+                var ribIdx = covFull
+                    ? Math.round(arcTopOuter.x.length * ri / ribCount)
+                    : (ri === 0 ? 0 : arcTopOuter.x.length - 1);
+                if (ribIdx >= arcTopOuter.x.length) ribIdx = arcTopOuter.x.length - 1;
+
+                if (arcTopInner) {
+                    // Annulus: ribs from inner to outer arc
+                    // Top elevation rib
+                    wx.push(null, arcTopInner.x[ribIdx], arcTopOuter.x[ribIdx]);
+                    wy.push(null, arcTopInner.y[ribIdx], arcTopOuter.y[ribIdx]);
+                    wz.push(null, arcTopInner.z[ribIdx], arcTopOuter.z[ribIdx]);
+                    // Bottom elevation rib
+                    wx.push(null, arcBotInner.x[ribIdx], arcBotOuter.x[ribIdx]);
+                    wy.push(null, arcBotInner.y[ribIdx], arcBotOuter.y[ribIdx]);
+                    wz.push(null, arcBotInner.z[ribIdx], arcBotOuter.z[ribIdx]);
+                } else {
+                    // No inner arc: ribs from origin to outer arc
+                    // Top elevation rib
+                    wx.push(null, 0, arcTopOuter.x[ribIdx]);
+                    wy.push(null, 0, arcTopOuter.y[ribIdx]);
+                    wz.push(null, 0, arcTopOuter.z[ribIdx]);
+                    // Bottom elevation rib
+                    wx.push(null, 0, arcBotOuter.x[ribIdx]);
+                    wy.push(null, 0, arcBotOuter.y[ribIdx]);
+                    wz.push(null, 0, arcBotOuter.z[ribIdx]);
+                }
+            }
+
+            // Sector lateral faces (for partial sector only)
+            if (!covFull) {
+                var lastIdx = arcBotOuter.x.length - 1;
+                if (arcBotInner) {
+                    // Annulus: lateral faces connect inner to outer arcs
+                    // Left boundary: inner_bot[0] → outer_bot[0] → outer_top[0] → inner_top[0] → inner_bot[0]
+                    wx.push(null, arcBotInner.x[0], arcBotOuter.x[0], arcTopOuter.x[0], arcTopInner.x[0], arcBotInner.x[0]);
+                    wy.push(null, arcBotInner.y[0], arcBotOuter.y[0], arcTopOuter.y[0], arcTopInner.y[0], arcBotInner.y[0]);
+                    wz.push(null, arcBotInner.z[0], arcBotOuter.z[0], arcTopOuter.z[0], arcTopInner.z[0], arcBotInner.z[0]);
+                    // Right boundary: inner_bot[last] → outer_bot[last] → outer_top[last] → inner_top[last] → inner_bot[last]
+                    wx.push(null, arcBotInner.x[lastIdx], arcBotOuter.x[lastIdx], arcTopOuter.x[lastIdx], arcTopInner.x[lastIdx], arcBotInner.x[lastIdx]);
+                    wy.push(null, arcBotInner.y[lastIdx], arcBotOuter.y[lastIdx], arcTopOuter.y[lastIdx], arcTopInner.y[lastIdx], arcBotInner.y[lastIdx]);
+                    wz.push(null, arcBotInner.z[lastIdx], arcBotOuter.z[lastIdx], arcTopOuter.z[lastIdx], arcTopInner.z[lastIdx], arcBotInner.z[lastIdx]);
+                } else {
+                    // No inner arc: lateral faces from origin to outer arcs
+                    // Left boundary: origin → bot[0] → top[0] → origin
+                    wx.push(null, 0, arcBotOuter.x[0], arcTopOuter.x[0], 0);
+                    wy.push(null, 0, arcBotOuter.y[0], arcTopOuter.y[0], 0);
+                    wz.push(null, 0, arcBotOuter.z[0], arcTopOuter.z[0], 0);
+                    // Right boundary: origin → bot[last] → top[last] → origin
+                    wx.push(null, 0, arcBotOuter.x[lastIdx], arcTopOuter.x[lastIdx], 0);
+                    wy.push(null, 0, arcBotOuter.y[lastIdx], arcTopOuter.y[lastIdx], 0);
+                    wz.push(null, 0, arcBotOuter.z[lastIdx], arcTopOuter.z[lastIdx], 0);
+                }
+            }
+
+            // Build legend name with range band
+            var covRangeName = (covMinRangeKm > 0)
+                ? covMinRangeKm.toFixed(0) + '-' + covEffectiveMaxKm.toFixed(0) + 'km'
+                : '0-' + covEffectiveMaxKm.toFixed(0) + 'km';
+            var covElevName = 'Elev ' + covSElevDeg.toFixed(1) + '\u00b0 \xb1' + (covBwDeg / 2).toFixed(1) + '\u00b0';
+
+            traces.push({
+                type: 'scatter3d',
+                mode: 'lines',
+                x: wx, y: wy, z: wz,
+                line: { color: '#00ddff', width: 2 },
+                name: 'Search 覆域 ' + covRangeName + ' ' + covElevName,
+                hoverinfo: 'skip',
+                showlegend: true,
+            });
+        } catch (covErr) {
+            console.error('[Search Coverage 3D] error:', covErr);
+        }
+    })();
+
     // Measurements: convert polar (range, azimuth, elevation) to cartesian relative to sensor
     // x/y: horizontal projection (range*cos(el)) to correct for slant range at high altitude
     // z: true detections use GT altitude lookup for clean visualization;
@@ -2179,8 +2866,11 @@ function draw3DWithTracks(data) {
             const px = r_horiz_km * Math.cos(az);
             const py = r_horiz_km * Math.sin(az);
 
+            // Check if clutter: true_target_id === -1 (new format) or is_clutter === 1 (legacy)
+            const isClutter = (m.true_target_id === -1) || (m.is_clutter === 1 || m.is_clutter === true);
+
             // Debug log for first few true detections
-            if (dbgCount < 3 && !(m.is_clutter === 1 || m.is_clutter === true)) {
+            if (dbgCount < 3 && !isClutter) {
                 const frameGt = gt.filter(r => r.frame === m.frame);
                 if (frameGt.length > 0) {
                     const g = frameGt[0];
@@ -2192,27 +2882,28 @@ function draw3DWithTracks(data) {
                 dbgCount++;
             }
             const hover = `t=${m.time.toFixed(1)}s R=${m.range.toFixed(0)}m Az=${(az*180/Math.PI).toFixed(1)}° El=${(el*180/Math.PI).toFixed(1)}° SNR=${m.snr.toFixed(1)}dB`;
-            if (m.is_clutter === 1 || m.is_clutter === true) {
+            if (isClutter) {
                 const pz = m.range * Math.sin(el) / 1000;
-                cx.push(px); cy.push(py); cz.push(pz); ctext.push('[Clutter] ' + hover);
+                cx.push(px); cy.push(py); cz.push(pz); ctext.push('[False Alarm] ' + hover);
             } else {
                 const pz = getDetectionAltitude(m);
-                dx.push(px); dy.push(py); dz.push(pz); dtext.push(hover);
+                const targetId = m.true_target_id !== undefined ? ` Target#${m.true_target_id}` : '';
+                dx.push(px); dy.push(py); dz.push(pz); dtext.push(`[Detection${targetId}] ` + hover);
             }
         }
         if (dx.length > 0) {
             traces.push({
                 type: 'scatter3d', mode: 'markers',
                 x: dx, y: dy, z: dz,
-                marker: { size: 2, color: '#ff8800', opacity: 0.5 },
+                marker: { size: 4, color: '#00ffff', opacity: 0.85, symbol: 'cross' },
                 text: dtext, hoverinfo: 'text',
                 legendgroup: 'detections', showlegend: false,
             });
             traces.push({
                 type: 'scatter3d', mode: 'markers',
                 x: [null], y: [null], z: [null],
-                name: 'Detections',
-                marker: { size: 8, color: '#ff8800' },
+                name: '✓ Target Detections',
+                marker: { size: 10, color: '#00ffff', symbol: 'cross' },
                 hoverinfo: 'skip',
                 legendgroup: 'detections',
             });
@@ -2221,15 +2912,15 @@ function draw3DWithTracks(data) {
             traces.push({
                 type: 'scatter3d', mode: 'markers',
                 x: cx, y: cy, z: cz,
-                marker: { size: 2, color: 'rgba(180, 80, 80, 0.3)' },
+                marker: { size: 2.5, color: 'rgba(255, 80, 80, 0.5)', symbol: 'x' },
                 text: ctext, hoverinfo: 'text',
                 legendgroup: 'falsealarms', showlegend: false,
             });
             traces.push({
                 type: 'scatter3d', mode: 'markers',
                 x: [null], y: [null], z: [null],
-                name: 'False Alarms',
-                marker: { size: 8, color: 'rgba(180, 80, 80, 0.6)' },
+                name: '✗ False Alarms (Clutter)',
+                marker: { size: 10, color: '#FF5050', symbol: 'x' },
                 hoverinfo: 'skip',
                 legendgroup: 'falsealarms',
             });
@@ -2245,9 +2936,8 @@ function draw3DWithTracks(data) {
         gtGroups[id].push(r);
     });
     const gtColorPalette = [
-        'rgba(255, 215, 0, 0.7)', 'rgba(255, 180, 50, 0.7)',
-        'rgba(255, 140, 80, 0.7)', 'rgba(255, 200, 100, 0.7)',
-        'rgba(230, 200, 0, 0.7)', 'rgba(255, 160, 30, 0.7)',
+        '#808080', '#888888', '#909090', '#787878',
+        '#A0A0A0', '#707070', '#989898', '#686868',
     ];
     Object.entries(gtGroups).forEach(([id, rows], idx) => {
         traces.push({
@@ -2257,7 +2947,7 @@ function draw3DWithTracks(data) {
             y: rows.map(r => r.y / 1000 - sy),
             z: rows.map(r => (r.z != null) ? r.z / 1000 : getAltitude(r.time)),
             name: idx === 0 ? 'Truth' : `Truth ${id}`,
-            line: { color: gtColorPalette[idx % gtColorPalette.length], width: 4 },
+            line: { color: gtColorPalette[idx % gtColorPalette.length], width: 2 },
             legendgroup: 'truth',
             showlegend: idx === 0,
         });
@@ -2278,19 +2968,32 @@ function draw3DWithTracks(data) {
         return bestAlt;
     }
 
-    // Group tracks by track_id
+    // Group tracks by track_id, excluding Tentative tracks
+    // Tentativeトラックを除外：state=1 (CONFIRMED) になったことがないトラックをフィルタ
     const trackGroups = {};
+    const confirmedTrackIds = new Set();
+
+    // First pass: identify tracks that ever became confirmed (state === 1)
     tracks.forEach(row => {
-        const id = row.track_id;
-        if (!trackGroups[id]) trackGroups[id] = [];
-        trackGroups[id].push(row);
+        if (row.state === 1) {
+            confirmedTrackIds.add(row.track_id);
+        }
     });
 
-    // Color palette for tracks - unique color per track
+    // Second pass: group only confirmed tracks
+    tracks.forEach(row => {
+        const id = row.track_id;
+        if (confirmedTrackIds.has(id)) {
+            if (!trackGroups[id]) trackGroups[id] = [];
+            trackGroups[id].push(row);
+        }
+    });
+
+    // Color palette for tracks - unique color per track (避開cyan/gold)
     const trackColorPalette = [
-        '#00ff88', '#00ccff', '#ff66cc', '#88ff00',
-        '#ffaa00', '#aa66ff', '#ff4444', '#44ffdd',
-        '#ff8844', '#66aaff', '#ccff44', '#ff44aa',
+        '#FF1493', '#00FF7F', '#9370DB', '#FF6347',
+        '#32CD32', '#BA55D3', '#FF4500', '#20B2AA',
+        '#FF69B4', '#3CB371', '#DA70D6', '#FF8C69',
     ];
 
     // Add each track (sensor-origin coordinates) - filter to flight duration
@@ -2310,16 +3013,65 @@ function draw3DWithTracks(data) {
             z: filteredRows.map(r => (r.z != null) ? r.z / 1000 : getTrackAltitude(r)),
             name: `Track ${id}`,
             line: { color: color, width: 3 },
-            showlegend: filteredRows.length > 20,
+            showlegend: true,  // Always show tracks in legend
         });
     });
 
+    // Calculate equal ranges for all axes to prevent distortion
+    let xMin = Infinity, xMax = -Infinity;
+    let yMin = Infinity, yMax = -Infinity;
+    let zMin = Infinity, zMax = -Infinity;
+
+    traces.forEach(trace => {
+        if (trace.x && Array.isArray(trace.x)) {
+            trace.x.forEach(val => {
+                if (val != null && isFinite(val)) {
+                    xMin = Math.min(xMin, val);
+                    xMax = Math.max(xMax, val);
+                }
+            });
+        }
+        if (trace.y && Array.isArray(trace.y)) {
+            trace.y.forEach(val => {
+                if (val != null && isFinite(val)) {
+                    yMin = Math.min(yMin, val);
+                    yMax = Math.max(yMax, val);
+                }
+            });
+        }
+        if (trace.z && Array.isArray(trace.z)) {
+            trace.z.forEach(val => {
+                if (val != null && isFinite(val)) {
+                    zMin = Math.min(zMin, val);
+                    zMax = Math.max(zMax, val);
+                }
+            });
+        }
+    });
+
+    const xRange = xMax - xMin, yRange = yMax - yMin, zRange = zMax - zMin;
+    const maxRange = Math.max(xRange, yRange, zRange);
+    const xCenter = (xMin + xMax) / 2, yCenter = (yMin + yMax) / 2, zCenter = (zMin + zMax) / 2;
+    const axisRange = maxRange * 0.55; // 10% padding
+
     const layout = {
         scene: {
-            xaxis: { title: 'X from Sensor (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
-            yaxis: { title: 'Y from Sensor (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
-            zaxis: { title: 'Altitude (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
-            aspectmode: 'auto',
+            xaxis: {
+                title: 'X from Sensor (km)',
+                backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa',
+                range: [xCenter - axisRange, xCenter + axisRange]
+            },
+            yaxis: {
+                title: 'Y from Sensor (km)',
+                backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa',
+                range: [yCenter - axisRange, yCenter + axisRange]
+            },
+            zaxis: {
+                title: 'Altitude (km)',
+                backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa',
+                range: [zCenter - axisRange, zCenter + axisRange]
+            },
+            aspectmode: 'cube',  // 1:1:1 aspect ratio for true spatial representation
         },
         paper_bgcolor: '#16213e',
         plot_bgcolor: '#16213e',
@@ -2347,6 +3099,16 @@ function drawTimeline(data) {
         if (r.time > t.death) t.death = r.time;
         t.rows.push(r);
     });
+
+    // 全目標の高度範囲を取得（グローバルスケーリング用）
+    let globalMinAlt = Infinity;
+    let globalMaxAlt = -Infinity;
+    gt.forEach(r => {
+        const alt = r.z / 1000; // km単位
+        if (alt < globalMinAlt) globalMinAlt = alt;
+        if (alt > globalMaxAlt) globalMaxAlt = alt;
+    });
+    const globalAltRange = globalMaxAlt - globalMinAlt || 1; // ゼロ除算防止
 
     // 2. Tracks: track_id ごとに init/confirm/end を集計
     const trackInfo = {};
@@ -2413,32 +3175,65 @@ function drawTimeline(data) {
     targetIds.forEach(targetId => {
         const tgt = gtTargets[targetId];
         const tids = targetTracks[targetId] || [];
-        const nTracks = Math.max(tids.length, 1); // 最低1行確保
+        // Tentativeトラックを除外：confirmTimeがnullでないもののみ
+        const confirmedTids = tids.filter(tid => trackInfo[tid].confirmTime !== null);
+        const nTracks = Math.max(confirmedTids.length, 1); // 最低1行確保
         const yCenter = yPos + (nTracks - 1) / 2;
 
         // Y軸ラベル: ターゲット名を中央に配置
         yLabels.push({ pos: yCenter, label: `Target ${targetId}` });
 
-        // GT ライフタイム (背景バー) — 全サブ行をカバー
+        // GT ライフタイム (背景バー) — シンプルな背景
         shapes.push({
             type: 'rect', xref: 'x', yref: 'y',
             x0: tgt.birth, x1: tgt.death,
             y0: yPos - 0.35, y1: yPos + nTracks - 1 + 0.35,
-            fillcolor: 'rgba(30, 190, 200, 0.12)', line: { color: 'rgba(30, 190, 200, 0.45)', width: 1 },
+            fillcolor: 'rgba(30, 190, 200, 0.12)',
+            line: { color: 'rgba(30, 190, 200, 0.6)', width: 1.5 },
+            layer: 'below',
+        });
+
+        // 高度プロファイル（ラインチャート）
+        // 時系列でソート
+        const sortedRows = tgt.rows.slice().sort((a, b) => a.time - b.time);
+        const altTimes = sortedRows.map(r => r.time);
+        const altValues = sortedRows.map(r => r.z / 1000); // km単位
+
+        // 行の範囲内に高度をマッピング（グローバルスケール使用）
+        const barBottom = yPos - 0.35;  // バーの下端
+        const barTop = yPos + nTracks - 0.65;  // バーの上端
+        const margin = 0.05;  // 上下マージン（はみ出し防止）
+        const lineBottom = barBottom + margin;
+        const lineTop = barTop - margin;
+        const lineHeight = lineTop - lineBottom;
+
+        const altY = altValues.map(alt => {
+            // グローバル範囲で正規化（全目標で同じスケール）
+            const ratio = (alt - globalMinAlt) / globalAltRange;
+            // 低高度=下（大きいY）、高高度=上（小さいY）
+            return lineBottom + (1 - ratio) * lineHeight;
+        });
+
+        // 高度ラインチャート（凡例なし、背景と同色系）
+        traces.push({
+            type: 'scatter',
+            mode: 'lines',
+            x: altTimes,
+            y: altY,
+            name: `Target ${targetId} Altitude`,
+            text: altValues.map(alt => `${alt.toFixed(1)} km`),
+            hovertemplate: 'Time: %{x:.2f}s<br>Altitude: %{text}<extra></extra>',
+            line: { color: 'rgba(100, 200, 220, 0.4)', width: 1.5 }, // 薄い青緑、細め
+            showlegend: false,
         });
 
         // このターゲットに関連するトラック — 各トラックに個別サブ行
-        tids.forEach((tid, idx) => {
+        // Tentative（仮確定）トラックは表示しない（confirmedTidsでフィルタ済み）
+        confirmedTids.forEach((tid, idx) => {
             const info = trackInfo[tid];
             const ty = yPos + idx;  // サブ行のY位置
 
-            // Tentative phase (init → confirm or end)
-            const tentEnd = info.confirmTime !== null ? info.confirmTime : info.end;
-            shapes.push({
-                type: 'rect', xref: 'x', yref: 'y',
-                x0: info.init, x1: tentEnd, y0: ty - 0.15, y1: ty + 0.15,
-                fillcolor: 'rgba(255, 200, 0, 0.6)', line: { width: 0 },
-            });
+            // Tentativeフェーズは非表示（confirmedのみ表示）
 
             // Confirmed phase — 探知/未探知理由/着弾後で色分け
             // miss_reason: 0=探知, 1=覆域外, 2=ビームリソース不足, 3=ビーム照射未探知
@@ -2497,8 +3292,8 @@ function drawTimeline(data) {
     });
 
     // バー色分けの凡例用ダミートレース（shapesは凡例に出ないため）
+    // Tentativeは非表示のため凡例から除外
     const barLegend = [
-        { name: 'Tentative',       color: 'rgba(255, 200, 0, 0.6)' },
         { name: 'Detected',        color: 'rgba(0, 210, 90, 0.80)' },
         { name: 'Beam Miss',       color: 'rgba(160, 60, 220, 0.80)' },
         { name: 'No Beam',         color: 'rgba(30, 150, 255, 0.80)' },
@@ -2682,6 +3477,7 @@ async function displayEvaluation(data) {
     e += '<div class="eval-chart" id="eval-chart-detect"></div>';
     e += '<div class="eval-chart" id="eval-chart-perf"></div>';
     e += '<div class="eval-chart" id="eval-chart-beam"></div>';
+    e += '<div class="eval-chart" id="eval-chart-imm"></div>';
     e += '<div class="eval-chart" id="eval-chart-snr-density"></div>';
     e += '<div class="eval-chart" id="eval-chart-det-range"></div>';
     e += '</div>';
@@ -2695,6 +3491,12 @@ async function displayEvaluation(data) {
         await drawEvalCharts(evalRows, resultsRows);
     }
 
+    // IMM Model Probabilities Chart
+    const trackRows = data.tracks || [];
+    if (trackRows.length > 0) {
+        await drawIMMChart(trackRows);
+    }
+
     // Detection Probability Density Diagram
     const meas = data.measurements || [];
     if (meas.length > 0) {
@@ -2703,6 +3505,141 @@ async function displayEvaluation(data) {
 
     // Enable tabs (don't auto-switch here; runTracker controls which tab to show)
     enableVizTab('evaluation');
+}
+
+function displayConsole(data) {
+    const container = document.getElementById('console-output');
+    if (!data || !data.stdout) {
+        container.innerHTML = '<div style="color: #7ec8e3; text-align: center; padding: 40px 20px;">No console output available</div>';
+        return;
+    }
+
+    // Parse stdout to extract key sections and highlight important info
+    const stdout = data.stdout;
+    let html = '';
+
+    // Add header with summary
+    html += '<div style="color: #4ecdc4; font-weight: bold; font-size: 14px; margin-bottom: 12px; border-bottom: 1px solid #1e3a5f; padding-bottom: 8px;">Console Output</div>';
+
+    // Extract and highlight key configuration sections
+    const sections = [
+        { name: 'Scenario Configuration', pattern: /Scenario:.*?(?=\n\n|\nRadar|\nSensor|\nTracker|$)/s, color: '#e94560' },
+        { name: 'Radar Parameters', pattern: /Radar.*?parameters:.*?(?=\n\n|\nSensor|\nTracker|$)/s, color: '#4ecdc4' },
+        { name: 'Sensor Configuration', pattern: /Sensor.*?(?:position|configuration):.*?(?=\n\n|\nRadar|\nTracker|$)/s, color: '#f38181' },
+        { name: 'Tracker Parameters', pattern: /Tracker parameters:.*?(?=\n\n|\nRunning|$)/s, color: '#95e1d3' },
+        { name: 'Beam Steering', pattern: /Beam steering:.*?(?=\n|$)/m, color: '#ffd700' },
+        { name: 'Search Range', pattern: /Search range:.*?(?=\n|$)/m, color: '#ffa500' }
+    ];
+
+    let extractedSections = [];
+    let remainingText = stdout;
+
+    sections.forEach(sec => {
+        const match = stdout.match(sec.pattern);
+        if (match) {
+            extractedSections.push({
+                name: sec.name,
+                content: match[0],
+                color: sec.color
+            });
+        }
+    });
+
+    // Display extracted sections with highlighting
+    if (extractedSections.length > 0) {
+        html += '<div style="margin-bottom: 16px;">';
+        extractedSections.forEach(sec => {
+            html += `<div style="margin-bottom: 12px;">`;
+            html += `<div style="color: ${sec.color}; font-weight: bold; margin-bottom: 4px;">▸ ${sec.name}</div>`;
+            html += `<div style="color: #e0e0e0; margin-left: 12px; white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 11px;">${escapeHtml(sec.content)}</div>`;
+            html += `</div>`;
+        });
+        html += '</div>';
+        html += '<div style="border-top: 1px solid #1e3a5f; margin: 16px 0;"></div>';
+    }
+
+    // Full raw output (collapsible)
+    html += '<div style="margin-bottom: 8px;">';
+    html += '<div style="color: #7ec8e3; font-weight: bold; cursor: pointer; user-select: none;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === \'none\' ? \'block\' : \'none\'">▾ Full Console Output (click to toggle)</div>';
+    html += `<div style="color: #c0c0c0; margin-top: 8px; white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 10px; max-height: 400px; overflow-y: auto; background: #050f1a; padding: 12px; border-radius: 4px; border: 1px solid #0f2744;">${escapeHtml(stdout)}</div>`;
+    html += '</div>';
+
+    container.innerHTML = html;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function drawIMMChart(trackRows) {
+    // Filter to confirmed tracks and extract IMM model probabilities
+    const confirmedTracks = trackRows.filter(r => parseInt(r.state) === 1);
+    if (confirmedTracks.length === 0) return;
+
+    // Group by time to get average probabilities across all tracks
+    const timeMap = {};
+    confirmedTracks.forEach(r => {
+        const t = parseFloat(r.time);
+        if (!timeMap[t]) {
+            timeMap[t] = { cv: [], ballistic: [], ct: [] };
+        }
+        timeMap[t].cv.push(parseFloat(r.model_prob_cv) || 0);
+        timeMap[t].ballistic.push(parseFloat(r.model_prob_ballistic) || 0);
+        timeMap[t].ct.push(parseFloat(r.model_prob_ct) || 0);
+    });
+
+    // Calculate average probabilities for each time
+    const times = Object.keys(timeMap).map(parseFloat).sort((a,b) => a - b);
+    const avgCV = times.map(t => {
+        const vals = timeMap[t].cv;
+        return vals.reduce((a,b) => a + b, 0) / vals.length;
+    });
+    const avgBallistic = times.map(t => {
+        const vals = timeMap[t].ballistic;
+        return vals.reduce((a,b) => a + b, 0) / vals.length;
+    });
+    const avgCT = times.map(t => {
+        const vals = timeMap[t].ct;
+        return vals.reduce((a,b) => a + b, 0) / vals.length;
+    });
+
+    const darkLayout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(15,52,96,0.5)',
+        font: { color: '#aaa', size: 9 },
+        margin: { l: 40, r: 20, t: 30, b: 30 },
+        xaxis: { title: 'Time [s]', gridcolor: '#1e3a5f', showgrid: true },
+        yaxis: { title: 'Model Probability', gridcolor: '#1e3a5f', showgrid: true, range: [0, 1] },
+        hovermode: 'x unified',
+        showlegend: true,
+        legend: { x: 1, xanchor: 'right', y: 1, bgcolor: 'rgba(0,0,0,0.3)' },
+    };
+
+    Plotly.newPlot('eval-chart-imm', [
+        {
+            x: times, y: avgCV,
+            type: 'scatter', mode: 'lines', name: 'CV (Constant Velocity)',
+            line: { color: '#00ff00', width: 2 },
+            fill: 'tozeroy', fillcolor: 'rgba(0,255,0,0.2)',
+        },
+        {
+            x: times, y: avgBallistic,
+            type: 'scatter', mode: 'lines', name: 'Ballistic',
+            line: { color: '#ff9900', width: 2 },
+            fill: 'tozeroy', fillcolor: 'rgba(255,153,0,0.2)',
+        },
+        {
+            x: times, y: avgCT,
+            type: 'scatter', mode: 'lines', name: 'CT (Coordinated Turn)',
+            line: { color: '#ff00ff', width: 2 },
+            fill: 'tozeroy', fillcolor: 'rgba(255,0,255,0.2)',
+        },
+    ], {
+        ...darkLayout,
+        title: 'IMM Model Probabilities (Avg across tracks)',
+    }, { responsive: true, displayModeBar: false });
 }
 
 async function drawEvalCharts(rows, resultsRows) {
@@ -2811,35 +3748,48 @@ async function drawDetectionDensityCharts(measurements, groundTruth, sensorX, se
     };
     const cfg = { responsive: true, displayModeBar: false };
 
-    const trueDet = measurements.filter(m => !(m.is_clutter === 1 || m.is_clutter === true));
-    const clutter  = measurements.filter(m =>  (m.is_clutter === 1 || m.is_clutter === true));
+    // Separate target detections from clutter (false alarms)
+    // New format: true_target_id === -1 means clutter, >= 0 means target detection
+    // Legacy format: is_clutter === 1 means clutter
+    const isClutterFn = m => (m.true_target_id === -1) || (m.is_clutter === 1 || m.is_clutter === true);
+    const trueDet = measurements.filter(m => !isClutterFn(m));
+    const clutter  = measurements.filter(m =>  isClutterFn(m));
+
+    console.log(`[Detection Density] Total: ${measurements.length}, Targets: ${trueDet.length}, Clutter: ${clutter.length}`);
 
     // ── Chart 1: SNR Probability Density ────────────────────────────────────
-    // Shows the SNR distribution under H0 (clutter) and H1 (target) hypothesis.
+    // Shows the SNR distribution under H0 (clutter/false alarm) and H1 (target) hypothesis.
+    // This is the evaluation version with clear separation for assessment.
     const snrBinSize = 2;
     Plotly.newPlot('eval-chart-snr-density', [
         {
             x: trueDet.map(m => m.snr),
             type: 'histogram', histnorm: 'probability density',
-            name: 'Target (H₁)',
-            marker: { color: 'rgba(0,255,136,0.65)', line: { color: '#00ff88', width: 1 } },
+            name: `✓ Target Detections (${trueDet.length})`,
+            marker: { color: 'rgba(0,255,100,0.7)', line: { color: '#00ff64', width: 1 } },
             xbins: { start: -10, end: 80, size: snrBinSize },
-            opacity: 0.85,
+            opacity: 0.9,
         },
         {
             x: clutter.map(m => m.snr),
             type: 'histogram', histnorm: 'probability density',
-            name: 'Clutter (H₀)',
-            marker: { color: 'rgba(255,107,107,0.65)', line: { color: '#ff6b6b', width: 1 } },
+            name: `✗ False Alarms (${clutter.length})`,
+            marker: { color: 'rgba(255,50,50,0.6)', line: { color: '#ff3232', width: 1 } },
             xbins: { start: -10, end: 80, size: snrBinSize },
-            opacity: 0.85,
+            opacity: 0.9,
         },
     ], {
         ...darkLayout,
         barmode: 'overlay',
-        title: { text: 'SNR Probability Density  (H₀: Clutter / H₁: Target)', font: { size: 10, color: '#ffd700' } },
+        title: { text: 'SNR Probability Density — Target vs. Clutter Separation', font: { size: 10, color: '#ffd700' } },
         xaxis: { gridcolor: '#333', title: { text: 'SNR (dB)', font: { size: 9 } } },
-        yaxis: { gridcolor: '#333', title: { text: 'Density', font: { size: 9 } } },
+        yaxis: { gridcolor: '#333', title: { text: 'Probability Density', font: { size: 9 } } },
+        annotations: [{
+            x: 0.5, y: 1.02, xref: 'paper', yref: 'paper',
+            text: 'H₁: Target Hypothesis (Green) | H₀: Clutter Hypothesis (Red)',
+            showarrow: false, font: { size: 8, color: '#999' },
+            xanchor: 'center'
+        }]
     }, cfg);
     await yieldToUI();
 
@@ -2885,22 +3835,23 @@ async function drawDetectionDensityCharts(measurements, groundTruth, sensorX, se
     Plotly.newPlot('eval-chart-det-range', [
         {
             x: binCenters, y: detCounts,
-            type: 'bar', name: 'True Det.',
-            marker: { color: 'rgba(0,255,136,0.5)', line: { color: '#00ff88', width: 0.5 } },
+            type: 'bar', name: '✓ Target Detections',
+            marker: { color: 'rgba(0,255,100,0.35)', line: { color: '#00ff64', width: 0.5 } },
             yaxis: 'y2',
         },
         {
             x: binCenters, y: clutCounts,
-            type: 'bar', name: 'Clutter',
-            marker: { color: 'rgba(255,107,107,0.5)', line: { color: '#ff6b6b', width: 0.5 } },
+            type: 'bar', name: '✗ False Alarms',
+            marker: { color: 'rgba(255,50,50,0.35)', line: { color: '#ff3232', width: 0.5 } },
             yaxis: 'y2',
         },
         {
             x: binCenters, y: pd,
             type: 'scatter', mode: 'lines+markers', name: 'P(D)',
-            line: { color: '#e94560', width: 2 },
-            marker: { size: 5, color: '#e94560' },
+            line: { color: '#ff0066', width: 4, shape: 'spline' },
+            marker: { size: 8, color: '#ff0066', symbol: 'diamond', line: { color: '#fff', width: 1 } },
             connectgaps: false,
+            hovertemplate: 'Range: %{x} km<br>P(D): %{y:.2%}<extra></extra>',
         },
     ], {
         ...darkLayout,
@@ -2989,9 +3940,10 @@ function saveStateToStorage() {
                 lock_fuel: document.getElementById('lock-fuel').checked,
             },
             radar: {
+                min_range: document.getElementById('radar-min-range').value,
                 max_range: document.getElementById('radar-max-range').value,
                 auto_max_range: document.getElementById('auto-max-range').checked,
-                fov: document.getElementById('radar-fov').value,
+                fov: document.getElementById('azimuth-coverage').value,
                 pfa: document.getElementById('pfa').value,
                 pd_ref: document.getElementById('pd-ref').value,
                 pd_ref_range_km: document.getElementById('pd-ref-range').value,
@@ -3009,6 +3961,9 @@ function saveStateToStorage() {
                 antenna_bearing: document.getElementById('antenna-bearing').value,
                 auto_antenna_bearing: document.getElementById('auto-antenna-bearing').checked,
                 search_elevation: document.getElementById('search-elevation').value,
+                search_min_range: document.getElementById('search-min-range').value,
+                search_max_range: document.getElementById('search-max-range').value,
+                track_range_width: document.getElementById('track-range-width').value,
             },
             tracker: {
                 gate_threshold: document.getElementById('gate-threshold').value,
@@ -3032,6 +3987,38 @@ function restoreStateFromStorage() {
         const json = localStorage.getItem(STORAGE_KEY);
         if (!json) return;
         const s = JSON.parse(json);
+
+        // Migrate old parameter values to optimized defaults
+        if (s.tracker) {
+            // False track suppression (2026-02-20 v3)
+            if (s.tracker.confirm_hits === '10' || s.tracker.confirm_hits === '5' ||
+                s.tracker.confirm_hits === '3' || s.tracker.confirm_hits === '2') {
+                s.tracker.confirm_hits = '4';
+            }
+            if (s.tracker.delete_misses === '100' || s.tracker.delete_misses === '20' ||
+                s.tracker.delete_misses === '50' || s.tracker.delete_misses === '80') {
+                s.tracker.delete_misses = '35';
+            }
+            if (s.tracker.gate_threshold === '1500' || s.tracker.gate_threshold === '2500' ||
+                s.tracker.gate_threshold === '3000' || s.tracker.gate_threshold === '3500' ||
+                s.tracker.gate_threshold === '4500') {
+                s.tracker.gate_threshold = '2200';
+            }
+            if (s.tracker.min_snr === '0' || s.tracker.min_snr === '-5') s.tracker.min_snr = '10';
+            if (s.tracker.process_pos_noise === '160' || s.tracker.process_pos_noise === '250') {
+                s.tracker.process_pos_noise = '300';
+            }
+            if (s.tracker.process_vel_noise === '65' || s.tracker.process_vel_noise === '100') {
+                s.tracker.process_vel_noise = '150';
+            }
+            if (s.tracker.process_acc_noise === '160' || s.tracker.process_acc_noise === '250') {
+                s.tracker.process_acc_noise = '300';
+            }
+            // Ensure num_runs is set to 10 for stability
+            if (!s.tracker.num_runs || s.tracker.num_runs === '1') {
+                s.tracker.num_runs = '10';
+            }
+        }
 
         // Map points
         if (s.launch) setLaunchPoint(s.launch.lat, s.launch.lon);
@@ -3083,8 +4070,9 @@ function restoreStateFromStorage() {
 
         // Radar
         if (s.radar) {
+            if (s.radar.min_range != null) document.getElementById('radar-min-range').value = s.radar.min_range;
             if (s.radar.max_range != null) document.getElementById('radar-max-range').value = s.radar.max_range;
-            if (s.radar.fov != null) document.getElementById('radar-fov').value = s.radar.fov;
+            if (s.radar.fov != null) document.getElementById('azimuth-coverage').value = s.radar.fov;
             if (s.radar.pfa != null) document.getElementById('pfa').value = s.radar.pfa;
             if (s.radar.pd_ref != null) document.getElementById('pd-ref').value = s.radar.pd_ref;
             if (s.radar.pd_ref_range_km != null) document.getElementById('pd-ref-range').value = s.radar.pd_ref_range_km;
@@ -3108,6 +4096,9 @@ function restoreStateFromStorage() {
                 onAutoAntennaBearingChange();
             }
             if (s.radar.search_elevation != null) document.getElementById('search-elevation').value = s.radar.search_elevation;
+            if (s.radar.search_min_range != null) document.getElementById('search-min-range').value = s.radar.search_min_range;
+            if (s.radar.search_max_range != null) document.getElementById('search-max-range').value = s.radar.search_max_range;
+            if (s.radar.track_range_width != null) document.getElementById('track-range-width').value = s.radar.track_range_width;
             if (s.radar.auto_max_range != null) {
                 document.getElementById('auto-max-range').checked = s.radar.auto_max_range;
                 toggleAutoParam(document.getElementById('auto-max-range'), 'radar-max-range');
@@ -3193,9 +4184,10 @@ function saveScenario() {
             launch_time_spread: parseFloat(document.getElementById('launch-time-spread').value),
         },
         radar: {
+            min_range_km: parseFloat(document.getElementById('radar-min-range').value),
             max_range_km: parseFloat(document.getElementById('radar-max-range').value),
             auto_max_range: document.getElementById('auto-max-range').checked,
-            fov_deg: parseFloat(document.getElementById('radar-fov').value),
+            fov_deg: parseFloat(document.getElementById('azimuth-coverage').value),
             pfa: document.getElementById('pfa').value,
             pd_ref: parseFloat(document.getElementById('pd-ref').value),
             pd_ref_range_km: parseFloat(document.getElementById('pd-ref-range').value),
@@ -3213,6 +4205,8 @@ function saveScenario() {
             antenna_bearing_deg: parseFloat(document.getElementById('antenna-bearing').value),
             auto_antenna_bearing: document.getElementById('auto-antenna-bearing').checked,
             search_elevation_deg: parseFloat(document.getElementById('search-elevation').value),
+            search_min_range_km: parseFloat(document.getElementById('search-min-range').value),
+            search_max_range_km: parseFloat(document.getElementById('search-max-range').value),
         },
         tracker: {
             gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
@@ -3318,8 +4312,9 @@ function loadScenario(event) {
 
             // Restore sensor params
             if (scenario.radar) {
+                if (scenario.radar.min_range_km != null) document.getElementById('radar-min-range').value = scenario.radar.min_range_km;
                 if (scenario.radar.max_range_km != null) document.getElementById('radar-max-range').value = scenario.radar.max_range_km;
-                if (scenario.radar.fov_deg != null) document.getElementById('radar-fov').value = scenario.radar.fov_deg;
+                if (scenario.radar.fov_deg != null) document.getElementById('azimuth-coverage').value = scenario.radar.fov_deg;
                 if (scenario.radar.pfa != null) document.getElementById('pfa').value = scenario.radar.pfa;
                 // 旧形式の後方互換
                 if (scenario.radar.clutter_per_scan != null && scenario.radar.pfa == null) document.getElementById('pfa').value = scenario.radar.clutter_per_scan;
@@ -3350,6 +4345,8 @@ function loadScenario(event) {
                     onAutoAntennaBearingChange();
                 }
                 if (scenario.radar.search_elevation_deg != null) document.getElementById('search-elevation').value = scenario.radar.search_elevation_deg;
+                if (scenario.radar.search_min_range_km != null) document.getElementById('search-min-range').value = scenario.radar.search_min_range_km;
+                if (scenario.radar.search_max_range_km != null) document.getElementById('search-max-range').value = scenario.radar.search_max_range_km;
             }
 
             if (scenario.sensor && scenario.sensor.lat != null && scenario.sensor.lon != null) {
@@ -3467,9 +4464,6 @@ function clearAll() {
     Plotly.purge('plot3d-tracking');
     Plotly.purge('plot-timeline');
     document.getElementById('eval-tab-content').innerHTML = '<div class="eval-placeholder">Run Tracker to see evaluation metrics</div>';
-    disableVizTab('tracking');
-    disableVizTab('evaluation');
-    disableVizTab('timeline');
     switchVizTab('trajectory');
 
     // Remove trajectory lines from map
@@ -3488,6 +4482,7 @@ Plotly.newPlot('plot3d-trajectory', [], {
         xaxis: { title: 'X (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
         yaxis: { title: 'Y (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
         zaxis: { title: 'Altitude (km)', backgroundcolor: '#16213e', gridcolor: '#333', color: '#aaa' },
+        aspectmode: 'cube',  // 1:1:1 aspect ratio for true spatial representation
     },
     paper_bgcolor: '#16213e',
     plot_bgcolor: '#16213e',

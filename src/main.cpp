@@ -230,8 +230,12 @@ void printUsage(const char* program_name) {
     std::cout << "  --drag-coefficient <cd> Drag coefficient (default: 0.3)" << std::endl;
     std::cout << "  --cross-section <m2> Cross section area (default: 1.0)" << std::endl;
     std::cout << "  --sensor-x/y <m>    Sensor position in meters" << std::endl;
+    std::cout << "  --radar-min-range <m> Radar minimum range (default: 0)" << std::endl;
     std::cout << "  --radar-max-range <m> Radar max range (0=auto)" << std::endl;
-    std::cout << "  --radar-fov <rad>    Radar field of view" << std::endl;
+    std::cout << "  --azimuth-coverage <rad> Azimuth coverage width (default: 2π)" << std::endl;
+    std::cout << "  --min-elevation <rad>    Minimum elevation angle (default: -0.52)" << std::endl;
+    std::cout << "  --max-elevation <rad>    Maximum elevation angle (default: 1.57)" << std::endl;
+    std::cout << "  --radar-fov <rad>    [DEPRECATED] Use --azimuth-coverage" << std::endl;
     std::cout << "  --target-max-altitude <m> Target max altitude for auto-adjust (0=auto)" << std::endl;
     std::cout << "  --lock-angle         Lock launch angle (exclude from auto-adjust)" << std::endl;
     std::cout << "  --lock-isp           Lock specific impulse (exclude from auto-adjust)" << std::endl;
@@ -792,6 +796,25 @@ static float cli_process_pos = -1.0f;
 static float cli_process_vel = -1.0f;
 static float cli_process_acc = -1.0f;
 static float cli_detect_prob = -1.0f;
+// UKF パラメータ
+static float cli_ukf_alpha = -1.0f;
+static float cli_ukf_beta = -1.0f;
+static float cli_ukf_kappa = -999.0f;  // kappaは負値も有効なので-999を無効値に
+static float cli_max_distance = -1.0f;
+// IMM 遷移確率行列
+static float cli_imm_cv_cv = -1.0f;
+static float cli_imm_cv_bal = -1.0f;
+static float cli_imm_cv_ct = -1.0f;
+static float cli_imm_bal_cv = -1.0f;
+static float cli_imm_bal_bal = -1.0f;
+static float cli_imm_bal_ct = -1.0f;
+static float cli_imm_ct_cv = -1.0f;
+static float cli_imm_ct_bal = -1.0f;
+static float cli_imm_ct_ct = -1.0f;
+// IMM モデルノイズ倍率
+static float cli_imm_cv_noise = -1.0f;
+static float cli_imm_bal_noise = -1.0f;
+static float cli_imm_ct_noise = -1.0f;
 // センサーパラメータ
 static float cli_range_noise = -1.0f;
 static float cli_azimuth_noise = -1.0f;
@@ -814,7 +837,10 @@ static int runTrackerMode(
     float specific_impulse, float drag_coefficient,
     float cross_section_area,
     float sensor_x, float sensor_y,
-    float radar_max_range, float radar_fov,
+    float radar_min_range, float radar_max_range, float radar_fov,
+    float azimuth_coverage = 2.0f * M_PI,
+    float min_elevation = -0.5236f,
+    float max_elevation = 1.5708f,
     bool enable_separation = false,
     float warhead_mass_fraction = 0.3f,
     float warhead_cd = 0.15f,
@@ -838,15 +864,44 @@ static int runTrackerMode(
     float search_sector = -1.0f,
     float search_center = 0.0f,
     float antenna_boresight = 0.0f,
-    float search_elevation = 0.0f)
+    float search_elevation = 0.0f,
+    float search_min_range = 0.0f,
+    float search_max_range = 0.0f,
+    float track_range_width = 0.0f)
 {
-    // CUDA デバイス情報
+    // CUDA デバイス情報（GPU利用可能性チェック）
+    bool gpu_available = false;
     try {
         auto device_info = cuda::DeviceInfo::getCurrent();
         device_info.print();
+        gpu_available = true;
+        std::cout << "\n✓ GPU Available - Acceleration enabled\n" << std::endl;
     } catch (const std::exception& e) {
-        std::cerr << "CUDA initialization failed: " << e.what() << std::endl;
-        return 1;
+        // GPU利用不可の場合、エラーをログに出力してCPU専用モードで続行
+        std::ofstream error_log("/tmp/fasttracker_gpu_error.log");
+        error_log << "========================================\n";
+        error_log << "FastTracker GPU Error\n";
+        error_log << "========================================\n";
+        error_log << "Error: " << e.what() << "\n";
+        error_log << "\nThis error typically means:\n";
+        error_log << "- CUDA driver version is older than runtime (12.6.0)\n";
+        error_log << "- GPU is not available in this environment\n";
+        error_log << "- Running in WSL2 without CUDA support\n";
+        error_log << "\nSolution:\n";
+        error_log << "The tracker will automatically run in CPU-only mode.\n";
+        error_log << "GPU acceleration will be disabled (tracking still works).\n";
+        error_log << "========================================\n";
+        error_log.close();
+
+        std::cerr << "\n";
+        std::cerr << "========================================\n";
+        std::cerr << "⚠️  GPU UNAVAILABLE - Running in CPU-only mode\n";
+        std::cerr << "Error: " << e.what() << "\n";
+        std::cerr << "Details saved to: /tmp/fasttracker_gpu_error.log\n";
+        std::cerr << "========================================\n";
+        std::cerr << "\n";
+        gpu_available = false;
+        // CPU専用モードで続行（return 1を削除）
     }
 
     // シミュレーション環境のセットアップ
@@ -1044,18 +1099,23 @@ static int runTrackerMode(
         float sensor_to_target = std::sqrt(dx_sensor_target * dx_sensor_target + dy_sensor_target * dy_sensor_target);
         float max_sensor_dist = std::max(sensor_to_launch, sensor_to_target);
 
+        radar_params.min_range = radar_min_range;
+
         if (radar_max_range > 0.0f) {
             radar_params.max_range = radar_max_range;
         } else {
             radar_params.max_range = max_sensor_dist * 1.3f;
         }
 
-        radar_params.field_of_view = radar_fov;
+        radar_params.azimuth_coverage = azimuth_coverage;
+        radar_params.min_elevation = min_elevation;
+        radar_params.max_elevation = max_elevation;
+        radar_params.field_of_view = azimuth_coverage;  // Backward compatibility
 
         radar_params.false_alarm_rate = 0.1f / (M_PI * radar_params.max_range * radar_params.max_range);
 
         std::cout << "  Sensor position: (" << (sensor_x / 1000.0f) << "km, " << (sensor_y / 1000.0f) << "km)" << std::endl;
-        std::cout << "  Radar max_range: " << (radar_params.max_range / 1000.0f) << " km" << std::endl;
+        std::cout << "  Radar range: " << (radar_params.min_range / 1000.0f) << " - " << (radar_params.max_range / 1000.0f) << " km" << std::endl;
     } else if (scenario == "ballistic" || scenario == "hypersonic" || scenario == "mixed-threat") {
         radar_params.max_range = 150000.0f;
         radar_params.false_alarm_rate = 1e-10f;
@@ -1093,21 +1153,37 @@ static int runTrackerMode(
     radar_params.antenna_boresight = antenna_boresight;
     radar_params.search_elevation = search_elevation;
 
-    // FOV範囲 (boresight中心)
-    float half_fov = radar_params.field_of_view / 2.0f;
-    float fov_min_az = antenna_boresight - half_fov;
-    float fov_max_az = antenna_boresight + half_fov;
+    // 方位覆域範囲 (boresight中心)
+    float half_azimuth_cov = radar_params.azimuth_coverage / 2.0f;
+    float cov_min_az = antenna_boresight - half_azimuth_cov;
+    float cov_max_az = antenna_boresight + half_azimuth_cov;
 
     // サーチセクタの実効範囲を計算
     float search_half = (search_sector > 0.0f)
         ? search_sector / 2.0f
-        : half_fov;
+        : half_azimuth_cov;
     float search_min_az = search_center - search_half;
     float search_max_az = search_center + search_half;
 
+    // サーチ領域の距離範囲を設定
+    if (search_max_range <= 0.0f) {
+        search_max_range = radar_params.max_range;  // デフォルトはレーダー最大距離
+    }
+    if (search_min_range < 0.0f) {
+        search_min_range = 0.0f;
+    }
+    if (search_min_range >= search_max_range) {
+        std::cerr << "Warning: search_min_range (" << search_min_range
+                  << ") >= search_max_range (" << search_max_range
+                  << "). Setting search_min_range to 0." << std::endl;
+        search_min_range = 0.0f;
+    }
+
     std::cout << "  Antenna boresight: " << (antenna_boresight * 180.0 / M_PI) << " deg"
-              << ", FOV=[" << (fov_min_az * 180.0 / M_PI)
-              << "," << (fov_max_az * 180.0 / M_PI) << "] deg" << std::endl;
+              << ", Azimuth Coverage=[" << (cov_min_az * 180.0 / M_PI)
+              << "," << (cov_max_az * 180.0 / M_PI) << "] deg"
+              << ", Elevation Range=[" << (radar_params.min_elevation * 180.0 / M_PI)
+              << "," << (radar_params.max_elevation * 180.0 / M_PI) << "] deg" << std::endl;
     std::cout << "  Beam steering: " << num_beams << " beams, width="
               << (beam_width * 180.0 / M_PI) << " deg, min_search="
               << min_search_beams << ", priority="
@@ -1116,6 +1192,30 @@ static int runTrackerMode(
               << "," << (search_max_az * 180.0 / M_PI) << "] deg"
               << ", search_elev=" << (search_elevation * 180.0 / M_PI) << " deg"
               << std::endl;
+    std::cout << "  Search range: " << (search_min_range / 1000.0f) << " - "
+              << (search_max_range / 1000.0f) << " km" << std::endl;
+
+    // ビームリソース警告
+    if (num_beams <= min_search_beams) {
+        std::cerr << "\n";
+        std::cerr << "========================================" << std::endl;
+        std::cerr << "WARNING: Insufficient beams for tracking!" << std::endl;
+        std::cerr << "========================================" << std::endl;
+        std::cerr << "  Num Beams: " << num_beams << std::endl;
+        std::cerr << "  Min Search Beams: " << min_search_beams << std::endl;
+        std::cerr << "  Available for tracking: " << std::max(0, num_beams - min_search_beams) << std::endl;
+        std::cerr << "\n";
+        std::cerr << "  ** NO TRACK BEAMS WILL BE ALLOCATED **" << std::endl;
+        std::cerr << "\n";
+        std::cerr << "  To fix: Increase num_beams OR decrease min_search_beams" << std::endl;
+        std::cerr << "  Recommended: num_beams >= 30, min_search_beams <= 5" << std::endl;
+        std::cerr << "========================================\n" << std::endl;
+    }
+
+    // レーダーパラメータにサーチ範囲を設定
+    radar_params.search_min_range = search_min_range;
+    radar_params.search_max_range = search_max_range;
+    radar_params.track_range_width = track_range_width;
 
     // トラッカーパラメータ
     ProcessNoise process_noise;
@@ -1123,7 +1223,19 @@ static int runTrackerMode(
 
     if (scenario == "single-ballistic") {
         // デフォルト値を使用
-    } else if (scenario == "ballistic" || scenario == "hypersonic" || scenario == "mixed-threat") {
+    } else if (scenario == "hypersonic") {
+        // HGV専用: 高機動（pullup/glide）に対応した緩いパラメータ
+        process_noise.position_noise = 8.0f;   // 大きな予測誤差を許容
+        process_noise.velocity_noise = 12.0f;  // 速度変化が大きい
+        process_noise.accel_noise = 10.0f;    // 高G機動（5-10g）に対応
+
+        assoc_params.gate_threshold = 30.0f;   // 機動中の大きな予測誤差を許容
+        assoc_params.max_distance = 5.0f;
+        assoc_params.confirm_hits = 3;
+        assoc_params.confirm_window = 5;
+        assoc_params.delete_misses = 20;       // 機動中の一時的追尾ロスに耐える
+        assoc_params.min_snr_for_init = 40.0f;
+    } else if (scenario == "ballistic" || scenario == "mixed-threat") {
         process_noise.position_noise = 4.0f;
         process_noise.velocity_noise = 8.0f;
         process_noise.accel_noise = 4.0f;
@@ -1140,15 +1252,54 @@ static int runTrackerMode(
     if (cli_gate_threshold >= 0) assoc_params.gate_threshold = cli_gate_threshold;
     if (cli_confirm_hits >= 0) assoc_params.confirm_hits = cli_confirm_hits;
     if (cli_delete_misses >= 0) assoc_params.delete_misses = cli_delete_misses;
-    if (cli_min_snr >= 0) assoc_params.min_snr_for_init = cli_min_snr;
+    if (cli_min_snr > -1000.0f) assoc_params.min_snr_for_init = cli_min_snr;  // Allow negative SNR thresholds
+    if (cli_max_distance >= 0) assoc_params.max_distance = cli_max_distance;
     if (cli_process_pos >= 0) process_noise.position_noise = cli_process_pos;
     if (cli_process_vel >= 0) process_noise.velocity_noise = cli_process_vel;
     if (cli_process_acc >= 0) process_noise.accel_noise = cli_process_acc;
 
+    // UKF パラメータ上書き
+    UKFParams ukf_params;
+    if (cli_ukf_alpha >= 0) ukf_params.alpha = cli_ukf_alpha;
+    if (cli_ukf_beta >= 0) ukf_params.beta = cli_ukf_beta;
+    if (cli_ukf_kappa > -999.0f) ukf_params.kappa = cli_ukf_kappa;  // kappa can be negative
+    // Recompute lambda after parameter changes
+    ukf_params.lambda = ukf_params.alpha * ukf_params.alpha * (STATE_DIM + ukf_params.kappa) - STATE_DIM;
+
     // max_tracks must accommodate: actual targets, clutter-generated tentative tracks,
     // and multiple detections per target from beam steering (each beam can detect the target)
-    int max_tracks = std::max({num_targets * 2, 10, num_beams * 3, (1 + cluster_count) * num_beams});
-    UKFParams ukf_params;
+    // Estimate expected clutter per frame based on Pfa and scan area
+    // FOV sector area = 0.5 * FOV_angle * max_range^2
+    // Note: false_alarm_rate is already per unit area (Pfa / cell_area), so we multiply by total area
+    float fov_area = 0.5f * radar_params.field_of_view * radar_params.max_range * radar_params.max_range;
+    int expected_clutter_per_frame = static_cast<int>(radar_params.false_alarm_rate * fov_area * num_beams) + 10;
+
+    int max_tracks = std::max({
+        num_targets * 2,
+        10,
+        num_beams * 3,
+        (1 + cluster_count) * num_beams,
+        expected_clutter_per_frame + num_targets + 10  // clutter + targets + margin
+    });
+
+    // Cap max_tracks to prevent GPU memory exhaustion
+    // Typical GPU (8GB) can handle ~2000-5000 tracks depending on state dimension
+    constexpr int MAX_TRACKS_LIMIT = 2000;
+    if (max_tracks > MAX_TRACKS_LIMIT) {
+        std::cerr << "WARNING: Calculated max_tracks (" << max_tracks
+                  << ") exceeds GPU memory limit. Capping at " << MAX_TRACKS_LIMIT << std::endl;
+        std::cerr << "  This may cause track drops when clutter density is high." << std::endl;
+        std::cerr << "  Recommendation: Reduce Pfa to <= 1e-6 for this scenario." << std::endl;
+        max_tracks = MAX_TRACKS_LIMIT;
+    }
+
+    std::cerr << "[DEBUG] Max tracks calculation:" << std::endl;
+    std::cerr << "  Expected clutter per frame: " << expected_clutter_per_frame << std::endl;
+    std::cerr << "  FOV area: " << fov_area << " m²" << std::endl;
+    std::cerr << "  False alarm rate: " << radar_params.false_alarm_rate << std::endl;
+    std::cerr << "  Num beams: " << num_beams << std::endl;
+    std::cerr << "  Computed max_tracks: " << max_tracks << std::endl;
+    std::cerr << std::flush;
     float ospa_cutoff = (scenario == "single-ballistic") ? 10000.0f : 100.0f;
 
     double dt = 1.0 / framerate;
@@ -1163,9 +1314,16 @@ static int runTrackerMode(
         float cell_area = dr * dtheta * radar_params.max_range * 0.5f;
         if (cell_area > 0.0f) resolved_pfa = radar_params.false_alarm_rate * cell_area;
     }
+    // Calculate SNR at reference distance for GUI display
+    float gamma_T = -std::log(std::max(radar_params.pfa_per_pulse, 1e-30f));
+    float pd_clamped = std::max(std::min(radar_params.pd_at_ref_range, 0.9999f), 1e-4f);
+    float snr_avg_lin = gamma_T / (-std::log(pd_clamped));
+    float snr_at_ref_range = 10.0f * std::log10(std::max(snr_avg_lin, 1e-10f));
+
     std::cout << "\n[Resolved Parameters]" << std::endl;
     std::cout << "  radar_max_range: " << radar_params.max_range << std::endl;
     std::cout << "  snr_ref: " << radar_params.snr_ref << std::endl;
+    std::cout << "  snr_at_ref_range: " << snr_at_ref_range << std::endl;
     std::cout << "  pd_at_ref_range: " << radar_params.pd_at_ref_range << std::endl;
     std::cout << "  det_ref_range_m: " << radar_params.det_ref_range_m << std::endl;
     std::cout << "  pfa: " << resolved_pfa << std::endl;
@@ -1210,6 +1368,27 @@ static int runTrackerMode(
         MultiTargetTracker tracker(max_tracks, ukf_params, assoc_params, process_noise, radar_params.meas_noise);
         tracker.setSensorPosition(sensor_x, sensor_y);
 
+        // IMM遷移確率行列の設定（CLI上書きがあれば適用）
+        std::vector<std::vector<float>> imm_matrix = {
+            {cli_imm_cv_cv >= 0 ? cli_imm_cv_cv : 0.80f,
+             cli_imm_cv_bal >= 0 ? cli_imm_cv_bal : 0.15f,
+             cli_imm_cv_ct >= 0 ? cli_imm_cv_ct : 0.05f},
+            {cli_imm_bal_cv >= 0 ? cli_imm_bal_cv : 0.10f,
+             cli_imm_bal_bal >= 0 ? cli_imm_bal_bal : 0.85f,
+             cli_imm_bal_ct >= 0 ? cli_imm_bal_ct : 0.05f},
+            {cli_imm_ct_cv >= 0 ? cli_imm_ct_cv : 0.05f,
+             cli_imm_ct_bal >= 0 ? cli_imm_ct_bal : 0.10f,
+             cli_imm_ct_ct >= 0 ? cli_imm_ct_ct : 0.85f}
+        };
+        tracker.setIMMTransitionMatrix(imm_matrix);
+
+        // IMMモデルノイズ倍率の設定（CLI上書きがあれば適用）
+        // CT誤判定抑制のため、CTモデルのノイズを増加（より保守的な推定）
+        float cv_noise_mult = (cli_imm_cv_noise >= 0) ? cli_imm_cv_noise : 0.1f;
+        float bal_noise_mult = (cli_imm_bal_noise >= 0) ? cli_imm_bal_noise : 0.3f;
+        float ct_noise_mult = (cli_imm_ct_noise >= 0) ? cli_imm_ct_noise : 2.5f;
+        tracker.setIMMNoiseMultipliers(cv_noise_mult, bal_noise_mult, ct_noise_mult);
+
         // Evaluator
         TrackingEvaluator evaluator(ospa_cutoff, 2);
 
@@ -1235,7 +1414,7 @@ static int runTrackerMode(
             ground_truth_file << "frame,time,target_id,x,y,z,vx,vy,vz,ax,ay,az" << std::endl;
 
             meas_file.open("measurements.csv");
-            meas_file << "frame,time,range,azimuth,elevation,doppler,snr,is_clutter" << std::endl;
+            meas_file << "frame,time,range,azimuth,elevation,doppler,snr,true_target_id" << std::endl;
         }
 
         double total_predict_ms = 0, total_assoc_ms = 0, total_update_ms = 0, total_frame_ms = 0;
@@ -1269,17 +1448,22 @@ static int runTrackerMode(
             std::unordered_map<int, int> track_miss_reason;
             int beam_track_count = 0;   // 追尾ビーム数
             int beam_search_count = 0;  // サーチビーム数
-            int beam_demand = 0;        // FOV内トラック数（ビーム要求数）
+            int beam_demand = 0;        // レーダー覆域内トラック数（ビーム要求数）
             {
                 std::vector<float> beam_dirs;
-                float half_fov = radar_params.field_of_view / 2.0f;
+                std::vector<float> beam_elevs;
+                float half_azimuth_cov = radar_params.azimuth_coverage / 2.0f;
 
-                // FOVチェック用ラムダ: boresightからの角度差がhalf_fov以内か
-                auto isInFov = [&](float az) -> bool {
-                    float d = az - antenna_boresight;
-                    while (d > static_cast<float>(M_PI)) d -= 2.0f * static_cast<float>(M_PI);
-                    while (d < -static_cast<float>(M_PI)) d += 2.0f * static_cast<float>(M_PI);
-                    return std::fabs(d) <= half_fov;
+                // 追尾ビーム覆域チェック用ラムダ: レーダー基本範囲＋仰角のみ（方位角制限なし）
+                // track_range_width: 各目標を中心とした距離幅（将来的に目標ごとの範囲ゲート制御に使用可能）
+                auto isInRadarCov = [&](float az, float el, float range) -> bool {
+                    // 基本的なレーダー距離範囲チェック
+                    if (range < radar_params.min_range || range > radar_params.max_range)
+                        return false;
+                    // 仰角チェック
+                    if (el < radar_params.min_elevation || el > radar_params.max_elevation)
+                        return false;
+                    return true;  // NO azimuth check for track beams
                 };
 
                 // トラック選択: confirmed_onlyかall tracksか
@@ -1287,19 +1471,28 @@ static int runTrackerMode(
                     ? tracker.getConfirmedTracks()
                     : tracker.getAllTracks();
 
-                // FOV内のトラックのみ抽出（ID追跡付き）
+                // レーダー覆域内のトラックのみ抽出（ID追跡付き）
                 std::vector<float> track_azimuths;
-                std::vector<int> fov_track_ids;
+                std::vector<float> track_elevations;
+                std::vector<int> radar_cov_track_ids;
                 for (const auto& t : beam_tracks) {
                     float bdx = t.state(0) - sensor_x;
                     float bdy = t.state(1) - sensor_y;
+                    float bdz = t.state(2) - radar_params.sensor_z;
+                    float r_horiz_t = std::sqrt(bdx * bdx + bdy * bdy);
+                    float range_3d = std::sqrt(bdx * bdx + bdy * bdy + bdz * bdz);
                     float az = std::atan2(bdy, bdx);
-                    if (isInFov(az)) {
+                    float el = std::atan2(bdz, r_horiz_t);
+
+                    // トラックビームはレーダー覆域内なら割当可能（距離＋仰角のみチェック、方位角制限なし）
+                    // サーチ領域はサーチビームの配置範囲を定義するのみ
+                    if (isInRadarCov(az, el, range_3d)) {
                         track_azimuths.push_back(az);
-                        fov_track_ids.push_back(t.id);
+                        track_elevations.push_back(el);
+                        radar_cov_track_ids.push_back(t.id);
                         track_miss_reason[t.id] = 2;  // デフォルト: ビームリソース不足
                     } else {
-                        track_miss_reason[t.id] = 1;  // 覆域外
+                        track_miss_reason[t.id] = 1;  // 覆域外（レーダー距離範囲外または仰角範囲外）
                     }
                 }
 
@@ -1307,10 +1500,21 @@ static int runTrackerMode(
                 int max_track_beams = std::max(0, radar_params.num_beams - min_search_beams);
                 int track_budget = std::min(n_fov_tracks, max_track_beams);
 
+                // ランタイム警告: トラックあるがビームなし
+                static bool warning_shown = false;
+                if (!warning_shown && n_fov_tracks > 0 && max_track_beams == 0) {
+                    std::cerr << "\n[Frame " << frame << " WARNING] "
+                              << n_fov_tracks << " tracks need beams, but max_track_beams=0 "
+                              << "(num_beams=" << radar_params.num_beams
+                              << ", min_search_beams=" << min_search_beams << ")" << std::endl;
+                    warning_shown = true;
+                }
+
                 if (n_fov_tracks <= track_budget) {
                     for (int b = 0; b < n_fov_tracks; b++) {
                         beam_dirs.push_back(track_azimuths[b]);
-                        track_miss_reason[fov_track_ids[b]] = 3;  // ビーム割当済
+                        beam_elevs.push_back(track_elevations[b]);
+                        track_miss_reason[radar_cov_track_ids[b]] = 3;  // ビーム割当済
                     }
                 } else {
                     // ラウンドロビンで回転割当
@@ -1318,7 +1522,8 @@ static int runTrackerMode(
                     for (int b = 0; b < track_budget; b++) {
                         int idx = (offset + b) % n_fov_tracks;
                         beam_dirs.push_back(track_azimuths[idx]);
-                        track_miss_reason[fov_track_ids[idx]] = 3;  // ビーム割当済
+                        beam_elevs.push_back(track_elevations[idx]);
+                        track_miss_reason[radar_cov_track_ids[idx]] = 3;  // ビーム割当済
                     }
                 }
 
@@ -1326,6 +1531,7 @@ static int runTrackerMode(
                 int search_count = radar_params.num_beams - static_cast<int>(beam_dirs.size());
                 for (int s = 0; s < search_count; s++) {
                     beam_dirs.push_back(search_scan_angle);
+                    beam_elevs.push_back(radar_params.search_elevation);
                     search_scan_angle += radar_params.beam_width;
                     if (search_scan_angle > search_max_az) {
                         search_scan_angle = search_min_az;
@@ -1333,6 +1539,7 @@ static int runTrackerMode(
                 }
 
                 radar_sim.setBeamDirections(beam_dirs);
+                radar_sim.setBeamElevations(beam_elevs);
 
                 // ビーム統計を外部変数に保存
                 beam_demand = n_fov_tracks;
@@ -1341,14 +1548,18 @@ static int runTrackerMode(
             }
 
             auto measurements = radar_sim.generate(current_time);
+            // Ground Truth 関連付けを取得（評価専用）
+            const auto& true_associations = radar_sim.getTrueAssociations();
 
             if (write_csv) {
-                for (const auto& m : measurements) {
+                for (size_t i = 0; i < measurements.size(); i++) {
+                    const auto& m = measurements[i];
+                    int true_target_id = (i < true_associations.size()) ? true_associations[i] : -1;
                     meas_file << frame << ","
                               << current_time << ","
                               << m.range << "," << m.azimuth << ","
                               << m.elevation << "," << m.doppler << ","
-                              << m.snr << "," << (m.is_clutter ? 1 : 0) << std::endl;
+                              << m.snr << "," << true_target_id << std::endl;
                 }
             }
 
@@ -1560,8 +1771,12 @@ int main(int argc, char** argv) {
 
     // センサーパラメータ
     float sensor_x = 0.0f, sensor_y = 0.0f;
+    float radar_min_range = 0.0f;
     float radar_max_range = 0.0f;
-    float radar_fov = 2.0f * static_cast<float>(M_PI);
+    float azimuth_coverage = 2.0f * static_cast<float>(M_PI);  // 方位覆域幅 [rad]
+    float min_elevation = -0.5236f;  // 最小仰角 [rad] (-30°)
+    float max_elevation = 1.5708f;   // 最大仰角 [rad] (+90°)
+    float radar_fov = 2.0f * static_cast<float>(M_PI);  // DEPRECATED: 後方互換性のため保持
 
     // 座標変換用
     double target_lat = 35.6762, target_lon = 139.6503;
@@ -1608,6 +1823,9 @@ int main(int argc, char** argv) {
     float search_center = 0.0f;   // サーチセクタ中心方位 [rad] (atan2系)
     float antenna_boresight = 0.0f; // アンテナ中心方位 [rad] (atan2系)
     float search_elevation = 0.0f;  // サーチビーム仰角 [rad]
+    float search_min_range = 0.0f;  // サーチ領域最小距離 [m]
+    float search_max_range = 0.0f;  // サーチ領域最大距離 [m] (0 = レーダー最大距離と同じ)
+    float track_range_width = 0.0f; // 追尾ビーム距離幅 [m] (目標距離±width/2, 0 = 制限なし)
 
     // コマンドライン引数解析
     for (int i = 1; i < argc; i++) {
@@ -1636,8 +1854,15 @@ int main(int argc, char** argv) {
         else if (arg == "--cross-section" && i + 1 < argc) cross_section_area = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--sensor-x" && i + 1 < argc) sensor_x = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--sensor-y" && i + 1 < argc) sensor_y = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--radar-min-range" && i + 1 < argc) radar_min_range = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--radar-max-range" && i + 1 < argc) radar_max_range = static_cast<float>(std::atof(argv[++i]));
-        else if (arg == "--radar-fov" && i + 1 < argc) radar_fov = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--azimuth-coverage" && i + 1 < argc) azimuth_coverage = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--min-elevation" && i + 1 < argc) min_elevation = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--max-elevation" && i + 1 < argc) max_elevation = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--radar-fov" && i + 1 < argc) {
+            azimuth_coverage = static_cast<float>(std::atof(argv[++i]));
+            std::cerr << "Warning: --radar-fov is deprecated, use --azimuth-coverage instead" << std::endl;
+        }
         else if (arg == "--distance-threshold" && i + 1 < argc) distance_threshold = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--target-max-altitude" && i + 1 < argc) target_max_altitude = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--lock-angle") lock_angle = true;
@@ -1663,6 +1888,25 @@ int main(int argc, char** argv) {
         else if (arg == "--process-vel-noise" && i + 1 < argc) cli_process_vel = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--process-acc-noise" && i + 1 < argc) cli_process_acc = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--detect-prob" && i + 1 < argc) cli_detect_prob = static_cast<float>(std::atof(argv[++i]));
+        // UKF パラメータ
+        else if (arg == "--ukf-alpha" && i + 1 < argc) cli_ukf_alpha = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--ukf-beta" && i + 1 < argc) cli_ukf_beta = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--ukf-kappa" && i + 1 < argc) cli_ukf_kappa = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--max-distance" && i + 1 < argc) cli_max_distance = static_cast<float>(std::atof(argv[++i]));
+        // IMM 遷移確率
+        else if (arg == "--imm-cv-cv" && i + 1 < argc) cli_imm_cv_cv = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-cv-bal" && i + 1 < argc) cli_imm_cv_bal = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-cv-ct" && i + 1 < argc) cli_imm_cv_ct = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-bal-cv" && i + 1 < argc) cli_imm_bal_cv = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-bal-bal" && i + 1 < argc) cli_imm_bal_bal = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-bal-ct" && i + 1 < argc) cli_imm_bal_ct = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ct-cv" && i + 1 < argc) cli_imm_ct_cv = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ct-bal" && i + 1 < argc) cli_imm_ct_bal = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ct-ct" && i + 1 < argc) cli_imm_ct_ct = static_cast<float>(std::atof(argv[++i]));
+        // IMM モデルノイズ倍率
+        else if (arg == "--imm-cv-noise" && i + 1 < argc) cli_imm_cv_noise = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-bal-noise" && i + 1 < argc) cli_imm_bal_noise = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ct-noise" && i + 1 < argc) cli_imm_ct_noise = static_cast<float>(std::atof(argv[++i]));
         // センサーパラメータ
         else if (arg == "--range-noise" && i + 1 < argc) cli_range_noise = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--azimuth-noise" && i + 1 < argc) cli_azimuth_noise = static_cast<float>(std::atof(argv[++i]));
@@ -1688,6 +1932,9 @@ int main(int argc, char** argv) {
         else if (arg == "--search-center" && i + 1 < argc) search_center = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--antenna-boresight" && i + 1 < argc) antenna_boresight = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--search-elevation" && i + 1 < argc) search_elevation = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--search-min-range" && i + 1 < argc) search_min_range = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--search-max-range" && i + 1 < argc) search_max_range = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--track-range-width" && i + 1 < argc) track_range_width = static_cast<float>(std::atof(argv[++i]));
     }
 
     if (mode == "trajectory") {
@@ -1735,7 +1982,8 @@ int main(int argc, char** argv) {
         launch_angle, boost_duration, boost_accel,
         initial_mass, fuel_fraction, specific_impulse,
         drag_coefficient, cross_section_area,
-        sensor_x, sensor_y, radar_max_range, radar_fov,
+        sensor_x, sensor_y, radar_min_range, radar_max_range, radar_fov,
+        azimuth_coverage, min_elevation, max_elevation,
         enable_separation, warhead_mass_fraction, warhead_cd, booster_cd,
         num_runs, seed,
         missile_type, cruise_altitude, glide_ratio,
@@ -1743,5 +1991,6 @@ int main(int argc, char** argv) {
         num_skips,
         cluster_count, cluster_spread, launch_time_spread,
         beam_width, num_beams, min_search_beams, track_confirmed_only,
-        search_sector, search_center, antenna_boresight, search_elevation);
+        search_sector, search_center, antenna_boresight, search_elevation,
+        search_min_range, search_max_range, track_range_width);
 }
