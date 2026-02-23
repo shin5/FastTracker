@@ -104,23 +104,49 @@ __global__ void updateModelProbabilitiesKernel(
     int target_idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (target_idx >= num_targets) return;
 
+    // 古い確率を保存（平滑化用）
+    float old_probs[3];
+    for (int i = 0; i < num_models; i++) {
+        old_probs[i] = d_posterior_probs[target_idx * num_models + i];
+    }
+
     // Bayes更新: P(M_i|z) = L_i * P(M_i) / Σ_j L_j * P(M_j)
     float normalization = 0.0f;
-
     for (int i = 0; i < num_models; i++) {
         float prior = d_prior_probs[target_idx * num_models + i];
         float likelihood = d_likelihoods[target_idx * num_models + i];
         normalization += likelihood * prior;
     }
 
+    // ベイズ確率を計算
+    float bayesian_probs[3];
     for (int i = 0; i < num_models; i++) {
         float prior = d_prior_probs[target_idx * num_models + i];
         float likelihood = d_likelihoods[target_idx * num_models + i];
-
-        float posterior = (normalization > 1e-10f) ?
+        bayesian_probs[i] = (normalization > 1e-10f) ?
             (likelihood * prior / normalization) : (1.0f / num_models);
+    }
 
-        d_posterior_probs[target_idx * num_models + i] = posterior;
+    // 指数平滑化でノイズによる振動を抑制
+    // α = 0.7: ベイズ更新70% + 履歴30%（実機動への素早い応答を許容）
+    const float SMOOTHING_ALPHA = 0.7f;
+
+    float smoothed_probs[3];
+    for (int i = 0; i < num_models; i++) {
+        smoothed_probs[i] = SMOOTHING_ALPHA * bayesian_probs[i] +
+                           (1.0f - SMOOTHING_ALPHA) * old_probs[i];
+    }
+
+    // 再正規化
+    float sum = smoothed_probs[0] + smoothed_probs[1] + smoothed_probs[2];
+    if (sum > 1e-6f) {
+        for (int i = 0; i < num_models; i++) {
+            d_posterior_probs[target_idx * num_models + i] = smoothed_probs[i] / sum;
+        }
+    } else {
+        for (int i = 0; i < num_models; i++) {
+            d_posterior_probs[target_idx * num_models + i] = 1.0f / num_models;
+        }
     }
 }
 
@@ -342,6 +368,12 @@ void IMMFilterGPU::predict(
         CUDA_CHECK(cudaMemcpyAsync(model_ukfs_[m]->getDeviceCovariances(), d_input_covs_,
                                     num_targets * sizeof(StateCov),
                                     cudaMemcpyDeviceToDevice, streams_[m]));
+
+        // Synchronize streams_[m] before predict() so the preceding async D2D
+        // copies (streams_[m]) are guaranteed to complete before predict() launches
+        // kernels on ukf[m].stream_predict_ (a different CUDA stream).
+        // Without this, there is a data race: predict kernels may read stale data.
+        CUDA_CHECK(cudaStreamSynchronize(streams_[m]));
 
         // 予測実行（各モデルのmodel_idを渡す: 0=CV, 1=Ballistic, 2=CT）
         model_ukfs_[m]->predict(model_ukfs_[m]->getDeviceStates(),

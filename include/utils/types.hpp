@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <memory>
+#include <cmath>
 #include <Eigen/Dense>
 
 // M_PI定義（Windowsで必要）
@@ -43,7 +44,9 @@ using MeasCov = Eigen::Matrix<float, MEAS_DIM, MEAS_DIM>;
 // シグマポイント行列型
 using SigmaPoints = Eigen::Matrix<float, STATE_DIM, SIGMA_POINTS>;
 
-// レーダー観測データ
+// レーダー観測データ（センサーが生成する生の観測値）
+// 注意: この構造体には Ground Truth 情報を含めない
+// センサーは観測値が真の目標由来かクラッタ由来かを知らない
 struct Measurement {
     float range;        // 距離 [m]
     float azimuth;      // 方位角 [rad]
@@ -52,18 +55,28 @@ struct Measurement {
     float snr;          // SN比 [dB]
     double timestamp;   // タイムスタンプ [s]
     int sensor_id;      // センサーID
-    bool is_clutter;    // クラッタ（誤警報）フラグ
 
     Measurement() : range(0.0f), azimuth(0.0f), elevation(0.0f),
-                    doppler(0.0f), snr(0.0f), timestamp(0.0), sensor_id(0),
-                    is_clutter(false) {}
+                    doppler(0.0f), snr(0.0f), timestamp(0.0), sensor_id(0) {}
+};
+
+// Ground Truth 関連付け（評価専用）
+// センサーやトラッカーからはアクセスできない設計とする
+struct GroundTruthAssociation {
+    int measurement_index;  // 観測値のインデックス（measurements配列内）
+    int true_target_id;     // 真の目標ID（-1 = クラッタ）
+
+    GroundTruthAssociation() : measurement_index(-1), true_target_id(-1) {}
+    GroundTruthAssociation(int meas_idx, int target_id)
+        : measurement_index(meas_idx), true_target_id(target_id) {}
 };
 
 // トラック状態
 enum class TrackState {
     TENTATIVE,      // 仮トラック
     CONFIRMED,      // 確定トラック
-    LOST            // 消失トラック
+    LOST,           // 消失トラック（再捕捉猶予中：データアソシエーションに参加）
+    DELETED         // 完全削除（pruneで除去）
 };
 
 // トラック情報
@@ -73,15 +86,17 @@ struct Track {
     StateCov covariance;        // 共分散行列
     TrackState track_state;     // トラック状態
     int hits;                   // 観測ヒット数
-    int misses;                 // 観測ミス数
+    int misses;                 // 連続観測ミス数
+    int age;                    // 生成からの総フレーム数（M-of-N確認用）
     double last_update_time;    // 最終更新時刻
     std::vector<float> model_probs;  // IMMモデル確率（3モデル用）
 
-    Track() : id(-1), hits(0), misses(0), last_update_time(0.0),
+    Track() : id(-1), hits(0), misses(0), age(0), last_update_time(0.0),
               track_state(TrackState::TENTATIVE) {
         state.setZero();
         covariance.setIdentity();
-        model_probs = {1.0f/3.0f, 1.0f/3.0f, 1.0f/3.0f};  // 初期均等確率
+        // 均等な初期確率（モデルバイアスなし、データから学習）
+        model_probs = {0.333333f, 0.333333f, 0.333333f};  // CV, Ballistic, CT
     }
 };
 
@@ -105,6 +120,8 @@ struct AssociationParams {
     int confirm_window;         // トラック確定判定ウィンドウ
     int delete_misses;          // トラック削除閾値
     float min_snr_for_init;     // トラック生成に必要な最小SNR [dB]
+    float max_jump_velocity;    // 位置ジャンプ制限用の最大速度 [m/s] (0=無制限)
+    float min_init_distance;    // 新規トラック生成時の既存航跡との最小距離 [m] (0=チェックなし)
 
     AssociationParams()
         : gate_threshold(500.0f),
@@ -112,7 +129,9 @@ struct AssociationParams {
           confirm_hits(2),
           confirm_window(5),
           delete_misses(90),       // 30Hzで3秒 — 弾道追尾での一時的検出欠落に対応
-          min_snr_for_init(22.0f) {}
+          min_snr_for_init(22.0f),
+          max_jump_velocity(10000.0f),  // 10 km/s (HGV/弾道ミサイル上限)
+          min_init_distance(0.0f) {}    // 0=無制限（デフォルト）
 };
 
 // プロセスノイズ
@@ -140,6 +159,28 @@ struct MeasurementNoise {
           elevation_noise(0.01f),  // ~0.57度
           doppler_noise(2.0f) {}
 };
+
+// 状態ベクトル・共分散の妥当性チェック
+// NaN/Inf または物理的に有り得ない値を検出したら false を返す
+// 異常値と判定された場合は直前フレームの値を維持することで伝播を防ぐ
+inline bool isStateValid(const StateVector& s, const StateCov& cov) {
+    // NaN / Inf チェック（全9要素）— 最初に最安コストで除外
+    for (int i = 0; i < STATE_DIM; i++) {
+        if (!std::isfinite(s(i))) return false;
+    }
+    // 物理的上限（弾道ミサイル追尾の現実的範囲に対する余裕倍）
+    constexpr float MAX_POS_M   = 1.0e7f;   // 位置: ±10,000 km（地球直径の約80%）
+    constexpr float MAX_VEL_MS  = 1.0e4f;   // 速度: ±10 km/s（低軌道速度 7.9 km/s 超え）
+    constexpr float MAX_ACC_MS2 = 2000.0f;  // 加速度: ±2000 m/s²（約200G）
+    if (std::abs(s(0)) > MAX_POS_M  || std::abs(s(1)) > MAX_POS_M  || std::abs(s(2)) > MAX_POS_M)  return false;
+    if (std::abs(s(3)) > MAX_VEL_MS || std::abs(s(4)) > MAX_VEL_MS || std::abs(s(5)) > MAX_VEL_MS) return false;
+    if (std::abs(s(6)) > MAX_ACC_MS2 || std::abs(s(7)) > MAX_ACC_MS2 || std::abs(s(8)) > MAX_ACC_MS2) return false;
+    // 共分散対角: 有限かつ非負（負の分散は数値崩壊の兆候）
+    for (int i = 0; i < STATE_DIM; i++) {
+        if (!std::isfinite(cov(i, i)) || cov(i, i) < 0.0f) return false;
+    }
+    return true;
+}
 
 // GPU用のフラット配列データ構造（メモリ効率向上）
 struct GPUTrackData {

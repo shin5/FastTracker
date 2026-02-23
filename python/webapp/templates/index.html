@@ -501,6 +501,7 @@
                 <div class="object-list-item active" onclick="switchPanel('target')">Target</div>
                 <div class="object-list-item" onclick="switchPanel('sensor')">Sensor</div>
                 <div class="object-list-item" onclick="switchPanel('tracker')">Tracker</div>
+                <div class="object-list-item" onclick="switchPanel('versions')">History</div>
             </div>
 
             <!-- Detail Pane (right) -->
@@ -695,7 +696,7 @@
                         <div>
                             <div class="control-row">
                                 <label title="Azimuth coverage width [deg]. 360 = omnidirectional, 120 = sector scan.">Azimuth Coverage</label>
-                                <input type="number" id="azimuth-coverage" value="360" min="10" max="360" step="10"> deg
+                                <input type="number" id="azimuth-coverage" value="360" min="10" max="360" step="10" onchange="updateElevScanChart()"> deg
                             </div>
                             <div class="control-row">
                                 <label title="Minimum elevation angle [deg]. Physical lower limit (-90 to +90).">Min Elevation</label>
@@ -776,15 +777,15 @@
                         <div>
                             <div class="control-row">
                                 <label title="Angular width of each radar beam [degrees]. Typical phased array: 1-5 degrees.">Beam Width</label>
-                                <input type="number" id="beam-width" value="3" min="0.5" max="30" step="0.5"> deg
+                                <input type="number" id="beam-width" value="3" min="0.5" max="30" step="0.5" onchange="updateElevScanChart()"> deg
                             </div>
                             <div class="control-row">
                                 <label title="Number of beam dwells per frame. Budget split between track beams (pointing at known targets) and search beams (raster scan for new targets).">Beams/Frame</label>
-                                <input type="number" id="num-beams" value="10" min="1" max="50" step="1" onchange="validateBeamAllocation()">
+                                <input type="number" id="num-beams" value="10" min="1" max="50" step="1" onchange="validateBeamAllocation(); updateElevScanChart()">
                             </div>
                             <div class="control-row">
                                 <label title="Minimum number of beams reserved for search (raster scan). Higher values ensure faster new target discovery but reduce tracking capacity.">Min Search</label>
-                                <input type="number" id="min-search-beams" value="1" min="1" max="20" step="1" onchange="validateBeamAllocation()">
+                                <input type="number" id="min-search-beams" value="1" min="1" max="20" step="1" onchange="validateBeamAllocation(); updateElevScanChart()">
                             </div>
                             <div id="beam-warning" style="display:none; background-color: #fff3cd; border: 3px solid #ff9800; color: #856404; padding: 10px; margin: 8px 0; border-radius: 6px; font-size: 11px; font-weight: 500;">
                                 <div style="font-size: 13px; font-weight: bold; margin-bottom: 4px;">⚠️ WARNING: No track beams available!</div>
@@ -807,15 +808,11 @@
                         <div>
                             <div class="control-row">
                                 <label title="Angular width of the search scan sector [degrees]. Search beams raster-scan within this sector. 0 = use full FOV.">Search Sector</label>
-                                <input type="number" id="search-sector" value="0" min="0" max="360" step="1" disabled onchange="updateSensorCoverage()"> deg
+                                <input type="number" id="search-sector" value="0" min="0" max="360" step="1" disabled onchange="updateSensorCoverage(); updateElevScanChart()"> deg
                             </div>
                             <div class="control-row">
                                 <label title="Center offset of the search sector from boresight (North) [degrees]. Positive = clockwise.">Search Center</label>
                                 <input type="number" id="search-center" value="0" min="-180" max="180" step="1" disabled onchange="updateSensorCoverage()"> deg
-                            </div>
-                            <div class="control-row">
-                                <label title="Search beam elevation angle [degrees above horizon]. Beams scan in azimuth at this fixed elevation.">Search Elev</label>
-                                <input type="number" id="search-elevation" value="0" min="-90" max="90" step="0.5" disabled> deg
                             </div>
                             <div class="control-row">
                                 <label title="Minimum range for search coverage [km]. Search beams focus on targets beyond this range.">Search Min Range</label>
@@ -829,8 +826,31 @@
                                 <label title="Track beam range gate width [km]. Range window centered on each target's position (±width/2). 0 = no range gating (use full radar range).">Track Range Width</label>
                                 <input type="number" id="track-range-width" value="0" min="0" max="500" step="10"> km
                             </div>
+                            <div class="control-row">
+                                <label title="レンジ分解能 [m] = c/(2B)。同一ビーム内でこの距離以内の複数目標は1つの合成観測にマージされます（電力加重平均）。0 = 分解能制限なし（全目標を個別に観測）。">Range Resolution</label>
+                                <input type="number" id="range-resolution" value="150" min="0" max="10000" step="10"> m
+                            </div>
+                            <div class="section-header" style="margin-top: 8px; font-size: 10px; color: #7ec8e3;">Elevation Raster Scan</div>
+                            <div class="control-row">
+                                <label title="サーチビームの仰角スキャン下限 [deg]。水平線(0°)基準の絶対仰角です（Search Elevationからの相対値ではありません）。Min=Max にすると単一仰角で固定されます。">Elev Scan Min</label>
+                                <input type="number" id="elev-scan-min" value="0" min="-10" max="89" step="0.5" onchange="clampElevScanRange('min')"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="サーチビームの仰角スキャン上限 [deg]。水平線(0°)基準の絶対仰角です（Search Elevationからの相対値ではありません）。Min=Max にすると単一仰角で固定されます。">Elev Scan Max</label>
+                                <input type="number" id="elev-scan-max" value="20" min="-10" max="90" step="0.5" onchange="clampElevScanRange('max')"> deg
+                            </div>
+                            <div class="control-row">
+                                <label title="Number of distinct elevation bars per frame. Each bar scans at a different elevation angle simultaneously.">Elev Bars/Frame</label>
+                                <input type="number" id="elev-bars-per-frame" value="3" min="1" max="10" step="1" onchange="updateElevScanChart()">
+                            </div>
+                            <div class="control-row">
+                                <label title="Total number of discrete elevation positions in the cycling pattern. Beams cycle through all positions before repeating.">Elev Cycle Steps</label>
+                                <input type="number" id="elev-cycle-steps" value="9" min="1" max="30" step="1" onchange="updateElevScanChart()">
+                            </div>
                         </div>
                     </div>
+                    <!-- Scan Sequence Timeline Chart -->
+                    <div id="scan-timeline-chart" style="height: 180px; background: #0a1628; border-radius: 4px; margin: 4px 0 8px 0;"></div>
                 </div>
 
                 <!-- Tracker -->
@@ -844,26 +864,38 @@
                                 <input type="number" id="time-step" value="0.5" min="0.1" max="2.0" step="0.1"> s
                             </div>
                             <div class="control-row">
-                                <label title="Mahalanobis distance gate for data association. HGV: 30, Ballistic: 15. Higher = more tolerant to maneuvers.">Gate Threshold</label>
-                                <input type="number" id="gate-threshold" value="30" min="1" max="100" step="1">
+                                <label title="Mahalanobis distance gate for data association. HGV: 50, Ballistic: 15. Higher = more tolerant to maneuvers.">Gate Threshold</label>
+                                <input type="number" id="gate-threshold" value="50" min="1" max="100" step="1">
                             </div>
                             <div class="control-row">
                                 <label title="Maximum distance [m] for data association. Measurements beyond this are rejected regardless of gate.">Max Distance</label>
                                 <input type="number" id="max-distance" value="100000" min="1000" max="500000" step="1000"> m
                             </div>
+                            <div class="control-row">
+                                <label title="Maximum target velocity [m/s] for position jump rejection. Updates exceeding this velocity are rejected as mis-associations. 0 = unlimited.">Max Jump Velocity</label>
+                                <input type="number" id="max-jump-velocity" value="10000" min="0" max="100000" step="500"> m/s
+                            </div>
+                            <div class="control-row">
+                                <label title="Minimum distance [m] from existing tracks for new track initialization. Prevents duplicate tracks on the same target. 0 = no check.">Min Init Distance</label>
+                                <input type="number" id="min-init-distance" value="30000" min="0" max="500000" step="1000"> m
+                            </div>
                         </div>
                         <div>
                             <div class="control-row">
                                 <label title="Number of consecutive hits required to confirm a tentative track. Lower = faster confirmation but more false tracks.">Confirm Hits</label>
-                                <input type="number" id="confirm-hits" value="3" min="1" max="15" step="1">
+                                <input type="number" id="confirm-hits" value="4" min="1" max="15" step="1">
                             </div>
                             <div class="control-row">
-                                <label title="Number of consecutive misses before a track is deleted. HGV: 20, Ballistic: 8. Higher = more robust to maneuvers.">Delete Misses</label>
-                                <input type="number" id="delete-misses" value="20" min="1" max="200" step="1">
+                                <label title="Max consecutive misses allowed for tentative tracks before deletion. Tentative tracks that miss this many times are immediately dropped. Controls false track suppression aggressiveness.">Confirm Window</label>
+                                <input type="number" id="confirm-window" value="5" min="1" max="20" step="1">
+                            </div>
+                            <div class="control-row">
+                                <label title="Number of consecutive misses before a confirmed track is deleted. HGV: 40, Ballistic: 8. Higher = more robust to maneuvers.">Delete Misses</label>
+                                <input type="number" id="delete-misses" value="40" min="1" max="200" step="1">
                             </div>
                             <div class="control-row">
                                 <label title="Minimum SNR [dB] to initiate a new track. Higher = fewer false tracks from clutter.">Min SNR</label>
-                                <input type="number" id="min-snr" value="10" min="-40" max="60" step="1"> dB
+                                <input type="number" id="min-snr" value="12" min="-40" max="60" step="1"> dB
                             </div>
                         </div>
                     </div>
@@ -1011,6 +1043,30 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Versions -->
+                <div class="detail-section" id="panel-versions">
+                    <div class="section-header">Simulation Run History</div>
+                    <div style="font-size: 10px; color: #888; margin-bottom: 8px;">Automatically saves parameters when you run tracker. Load to restore settings.</div>
+
+                    <!-- Retention Settings -->
+                    <div style="background:#0f3460; padding:12px; border-radius:4px; margin-bottom:12px;">
+                        <div style="font-size:11px; font-weight:bold; color:#e94560; margin-bottom:6px;">History Settings</div>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <label style="font-size:11px; color:#aaa;">Keep last</label>
+                            <input type="number" id="max-history" value="20" min="1" max="100" step="1" onchange="updateMaxHistory()" style="width:60px; background:#16213e; border:1px solid #333; color:#e0e0e0; padding:4px 6px; border-radius:3px; font-size:11px;">
+                            <label style="font-size:11px; color:#aaa;">runs</label>
+                            <button onclick="clearAllHistory()" style="background:#8b0000; border:none; color:#fff; padding:4px 10px; border-radius:3px; cursor:pointer; font-size:10px; margin-left:auto;">Clear All</button>
+                        </div>
+                    </div>
+
+                    <!-- Run History List -->
+                    <div style="font-size:11px; font-weight:bold; color:#e94560; margin-bottom:6px;">Saved Runs (<span id="history-count">0</span>)</div>
+                    <div style="font-size:10px; color:#888; margin-bottom:6px;">Click a run to load its results and parameters</div>
+                    <div id="history-list" style="max-height:500px; overflow-y:auto; background:#0f3460; border-radius:4px; padding:8px;">
+                        <div style="text-align:center; color:#666; padding:20px; font-size:11px;">No saved runs</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1121,8 +1177,7 @@ function setLaunchPoint(lat, lon) {
     updateRange();
     autoComputeAntennaBearing();
     autoComputeSearchSector();
-    autoComputeSearchElevation();
-    autoComputePdRefRange();
+       autoComputePdRefRange();
     updateSensorCoverage();
 }
 
@@ -1136,8 +1191,7 @@ function setTargetPoint(lat, lon) {
     updateRange();
     autoComputeAntennaBearing();
     autoComputeSearchSector();
-    autoComputeSearchElevation();
-    autoComputePdRefRange();
+       autoComputePdRefRange();
 }
 
 function updateRange() {
@@ -1164,8 +1218,7 @@ function setSensorPoint(lat, lon) {
     updateSensorMarker();
     autoComputeAntennaBearing();
     autoComputeSearchSector();
-    autoComputeSearchElevation();
-    autoComputePdRefRange();
+       autoComputePdRefRange();
     updateSensorCoverage();
 }
 
@@ -1384,14 +1437,13 @@ function autoComputeSearchSector() {
 
 function onAutoSearchSectorChange() {
     const auto = document.getElementById('auto-search-sector').checked;
-    ['search-sector', 'search-center', 'search-elevation', 'pd-ref-range'].forEach(id => {
+    ['search-sector', 'search-center', 'pd-ref-range'].forEach(id => {
         const el = document.getElementById(id);
         el.disabled = auto;
         el.style.opacity = auto ? '0.4' : '1';
     });
     if (auto) {
         autoComputeSearchSector();
-        autoComputeSearchElevation();
         autoComputePdRefRange();
     }
 }
@@ -1437,6 +1489,152 @@ function onAutoAntennaBearingChange() {
     }
 }
 
+// Enforce Elev Scan Min <= Max
+function clampElevScanRange(changed) {
+    const minEl = document.getElementById('elev-scan-min');
+    const maxEl = document.getElementById('elev-scan-max');
+    const vMin = parseFloat(minEl.value);
+    const vMax = parseFloat(maxEl.value);
+    if (changed === 'min' && vMin > vMax) maxEl.value = vMin;
+    if (changed === 'max' && vMax < vMin) minEl.value = vMax;
+    updateElevScanChart();
+}
+
+// Beam scan pattern visualization (mirrors C++ algorithm in main.cpp)
+function updateElevScanChart() {
+    const elevMinRaw = parseFloat(document.getElementById('elev-scan-min').value);
+    const elevMaxRaw = parseFloat(document.getElementById('elev-scan-max').value);
+    const elevMin = isNaN(elevMinRaw) ? 0 : elevMinRaw;
+    const elevMax = isNaN(elevMaxRaw) ? 20 : elevMaxRaw;
+    const numBars = parseInt(document.getElementById('elev-bars-per-frame').value) || 3;
+    const totalSteps = parseInt(document.getElementById('elev-cycle-steps').value) || 9;
+    const beamWidthDeg = parseFloat(document.getElementById('beam-width').value) || 3;
+    const numBeams = parseInt(document.getElementById('num-beams').value) || 10;
+    const searchSectorDeg = parseFloat(document.getElementById('search-sector').value) || 0;
+    const azCoverageDeg = parseFloat(document.getElementById('azimuth-coverage').value) || 360;
+
+    if (elevMax < elevMin || totalSteps < 1 || numBars < 1) return;
+
+    // Search sector (relative to center=0 for visualization)
+    const sectorWidth = searchSectorDeg > 0 ? searchSectorDeg : azCoverageDeg;
+    const searchMinAz = -sectorWidth / 2;
+    const searchMaxAz = sectorWidth / 2;
+    // 実際に到達する最大インデックス (modulo totalSteps で制限)
+    const rawMaxIdx = Math.floor((totalSteps - 1) / numBars) + (numBars - 1);
+    const effectiveMaxIdx = Math.min(rawMaxIdx, totalSteps - 1);
+    const elevBarStep = (elevMax === elevMin) ? 0 : (elevMax - elevMin) / Math.max(effectiveMaxIdx, 1);
+
+    // Simulate C++ scan algorithm for 1 full elevation cycle
+    const searchCount = numBeams;
+    let scanAngle = searchMinAz;
+    const allBeams = [];
+    let globalIdx = 0;
+
+    for (let frame = 0; frame < totalSteps; frame++) {
+        const elevCycle = frame % totalSteps;
+        const beamsPerBar = Math.max(1, Math.floor(searchCount / numBars));
+        let remaining = searchCount;
+
+        for (let bar = 0; bar < numBars && remaining > 0; bar++) {
+            const elevIdx = (Math.floor(elevCycle / numBars) + bar) % totalSteps;
+            let barElev = elevMin + elevBarStep * elevIdx;
+            barElev = Math.max(elevMin, Math.min(barElev, elevMax));
+            const barBeams = (bar === numBars - 1) ? remaining : beamsPerBar;
+
+            for (let s = 0; s < barBeams; s++) {
+                allBeams.push({
+                    frame, bar, beamInBar: s, az: scanAngle, el: barElev, globalIdx: globalIdx++
+                });
+                scanAngle += beamWidthDeg;
+                if (scanAngle > searchMaxAz) scanAngle = searchMinAz;
+            }
+            remaining -= barBeams;
+        }
+    }
+
+    // ── Scan Sequence Timeline ──
+    // X = global beam index, Y1 = azimuth, Y2 = elevation
+    // Also show frame boundaries
+    const tlTraces = [];
+
+    // Azimuth trace
+    tlTraces.push({
+        x: allBeams.map(b => b.globalIdx),
+        y: allBeams.map(b => b.az),
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'Azimuth',
+        yaxis: 'y',
+        marker: { color: '#ff6b6b', size: 3 },
+        line: { color: '#ff6b6b', width: 1.2 },
+        hovertemplate: 'Beam #%{x}<br>Az: %{y:.1f}°<extra>Azimuth</extra>',
+    });
+
+    // Elevation trace
+    tlTraces.push({
+        x: allBeams.map(b => b.globalIdx),
+        y: allBeams.map(b => b.el),
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'Elevation',
+        yaxis: 'y2',
+        marker: { color: '#00ff88', size: 3 },
+        line: { color: '#00ff88', width: 1.2 },
+        hovertemplate: 'Beam #%{x}<br>El: %{y:.1f}°<extra>Elevation</extra>',
+    });
+
+    // Frame boundary vertical lines
+    const tlShapes = [];
+    for (let frame = 1; frame < totalSteps; frame++) {
+        const firstInFrame = allBeams.find(b => b.frame === frame);
+        if (firstInFrame) {
+            tlShapes.push({
+                type: 'line', x0: firstInFrame.globalIdx - 0.5, x1: firstInFrame.globalIdx - 0.5,
+                y0: 0, y1: 1, yref: 'paper',
+                line: { color: 'rgba(126,200,227,0.3)', width: 1, dash: 'dash' }
+            });
+        }
+    }
+
+    // Frame number annotations at top
+    const tlAnnotations = [];
+    for (let frame = 0; frame < totalSteps; frame++) {
+        const frameBeams = allBeams.filter(b => b.frame === frame);
+        if (frameBeams.length === 0) continue;
+        const midIdx = frameBeams[Math.floor(frameBeams.length / 2)].globalIdx;
+        tlAnnotations.push({
+            x: midIdx, y: 1.0, yref: 'paper', xanchor: 'center', yanchor: 'bottom',
+            text: `F${frame}`, font: { size: 7, color: 'rgba(126,200,227,0.7)' },
+            showarrow: false,
+        });
+    }
+
+    const tlLayout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(10,22,40,0.8)',
+        font: { color: '#aaa', size: 9 },
+        margin: { l: 50, r: 50, t: 8, b: 32 },
+        xaxis: { title: { text: 'Beam sequence #', font: { size: 9 } },
+                 gridcolor: 'rgba(255,255,255,0.08)' },
+        yaxis: { title: { text: 'Az (deg)', font: { size: 9, color: '#ff6b6b' } },
+                 side: 'left', gridcolor: 'rgba(255,100,100,0.08)',
+                 titlefont: { color: '#ff6b6b' }, tickfont: { color: '#ff6b6b' } },
+        yaxis2: { title: { text: 'El (deg)', font: { size: 9, color: '#00ff88' } },
+                  side: 'right', overlaying: 'y',
+                  gridcolor: 'rgba(0,255,136,0.08)',
+                  titlefont: { color: '#00ff88' }, tickfont: { color: '#00ff88' },
+                  range: (elevMax === elevMin) ? [elevMin - 2, elevMax + 2] : undefined },
+        legend: { x: 0.01, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)', font: { size: 8 },
+                  orientation: 'h' },
+        showlegend: true,
+        shapes: tlShapes,
+        annotations: tlAnnotations,
+    };
+
+    Plotly.newPlot('scan-timeline-chart', tlTraces, tlLayout,
+        { responsive: true, displayModeBar: false });
+}
+
 // Beam allocation validation
 function validateBeamAllocation() {
     const numBeams = parseInt(document.getElementById('num-beams').value) || 0;
@@ -1452,91 +1650,6 @@ function validateBeamAllocation() {
         // Hide warning
         warningDiv.style.display = 'none';
     }
-}
-
-// Auto search elevation calculation
-function autoComputeSearchElevation() {
-    if (!document.getElementById('auto-search-sector').checked) return;
-    const sensor = getSensorLatLng();
-
-    // Fallback: compute from currentTrajectory when map points are not set
-    if (!sensor || !launchPoint) {
-        if (currentTrajectory && currentTrajectory.trajectory && currentTrajectory.trajectory.length > 0) {
-            const traj = currentTrajectory.trajectory;
-            // Sensor position in km (default origin if no map sensor set)
-            const snx = sensor ? 0 : 0;  // lat/lon sensor → converted at C++ level; use 0,0 here
-            const sny = 0;
-            let minElevDeg = 90;
-            for (let ti = 0; ti < traj.length; ti++) {
-                const pt = traj[ti];
-                const px = (parseFloat(pt.x) || 0) / 1000;   // m → km
-                const py = (parseFloat(pt.y) || 0) / 1000;
-                const alt = (parseFloat(pt.altitude) || 0) / 1000;  // m → km
-                const horiz = Math.sqrt((px - snx) * (px - snx) + (py - sny) * (py - sny));
-                if (alt <= 0 || horiz <= 0) continue;
-                const elDeg = Math.atan2(alt, horiz) * 180 / Math.PI;
-                if (elDeg < minElevDeg) minElevDeg = elDeg;
-            }
-            document.getElementById('search-elevation').value =
-                Math.round(Math.max(0, minElevDeg < 90 ? minElevDeg : 0) * 2) / 2;
-        } else {
-            document.getElementById('search-elevation').value = 0;
-        }
-        return;
-    }
-
-    const R = 6371;
-    // Haversine distance sensor→launch [km]
-    const dLat = (launchPoint.lat - sensor.lat) * Math.PI / 180;
-    const dLon = (launchPoint.lon - sensor.lon) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2 + Math.cos(sensor.lat * Math.PI/180) * Math.cos(launchPoint.lat * Math.PI/180) * Math.sin(dLon/2)**2;
-    const distToLaunchKm = 2 * R * Math.asin(Math.sqrt(a));
-
-    let distToTargetKm = distToLaunchKm;
-    if (targetPoint) {
-        const dLat2 = (targetPoint.lat - sensor.lat) * Math.PI / 180;
-        const dLon2 = (targetPoint.lon - sensor.lon) * Math.PI / 180;
-        const a2 = Math.sin(dLat2/2)**2 + Math.cos(sensor.lat * Math.PI/180) * Math.cos(targetPoint.lat * Math.PI/180) * Math.sin(dLon2/2)**2;
-        distToTargetKm = 2 * R * Math.asin(Math.sqrt(a2));
-    }
-
-    let totalRangeKm = distToLaunchKm;
-    if (targetPoint) {
-        const dLat3 = (targetPoint.lat - launchPoint.lat) * Math.PI / 180;
-        const dLon3 = (targetPoint.lon - launchPoint.lon) * Math.PI / 180;
-        const a3 = Math.sin(dLat3/2)**2 + Math.cos(launchPoint.lat * Math.PI/180) * Math.cos(targetPoint.lat * Math.PI/180) * Math.sin(dLon3/2)**2;
-        totalRangeKm = 2 * R * Math.asin(Math.sqrt(a3));
-    }
-
-    const launchAngleDeg = parseFloat(document.getElementById('launch-angle').value) || 45;
-    const maxAltKm = totalRangeKm * Math.tan(launchAngleDeg * Math.PI / 180) / 4;
-
-    // Project launch/target to sensor-relative Cartesian [km]
-    const brgLaunch = computeBearing(sensor.lat, sensor.lon, launchPoint.lat, launchPoint.lon) * Math.PI / 180;
-    const lx = distToLaunchKm * Math.sin(brgLaunch);
-    const ly = distToLaunchKm * Math.cos(brgLaunch);
-    const brgTarget = targetPoint
-        ? computeBearing(sensor.lat, sensor.lon, targetPoint.lat, targetPoint.lon) * Math.PI / 180
-        : brgLaunch;
-    const tx = distToTargetKm * Math.sin(brgTarget);
-    const ty = distToTargetKm * Math.cos(brgTarget);
-
-    // Scan trajectory points; find minimum elevation angle (= earliest detectable)
-    let minElevDeg = 90;
-    const N = 40;
-    for (let fi = 1; fi < N; fi++) {
-        const f = fi / N;
-        const px = lx + f * (tx - lx);
-        const py = ly + f * (ty - ly);
-        const horiz = Math.sqrt(px * px + py * py);
-        const alt = 4 * maxAltKm * f * (1 - f);
-        if (alt <= 0 || horiz <= 0) continue;
-        const elDeg = Math.atan2(alt, horiz) * 180 / Math.PI;
-        if (elDeg < minElevDeg) minElevDeg = elDeg;
-    }
-    if (minElevDeg >= 90) minElevDeg = 0;
-
-    document.getElementById('search-elevation').value = Math.round(Math.max(0, minElevDeg) * 2) / 2;
 }
 
 // Auto pd-ref-range computation: set to max sensor-to-trajectory distance
@@ -1579,14 +1692,15 @@ function autoComputePdRefRange() {
 // Update coverage when sensor params change
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('radar-max-range').addEventListener('input', updateSensorCoverage);
-    document.getElementById('azimuth-coverage').addEventListener('input', () => { autoComputeAntennaBearing(); autoComputeSearchSector(); autoComputeSearchElevation(); updateSensorCoverage(); });
+    document.getElementById('azimuth-coverage').addEventListener('input', () => { autoComputeAntennaBearing(); autoComputeSearchSector(); updateSensorCoverage(); });
     document.getElementById('search-min-range').addEventListener('input', updateSensorCoverage);
     document.getElementById('search-max-range').addEventListener('input', updateSensorCoverage);
-    document.getElementById('launch-angle').addEventListener('input', () => { autoComputeSearchElevation(); });
     // Restore previous state from localStorage
     restoreStateFromStorage();
     // Validate beam allocation on page load
     validateBeamAllocation();
+    // Initialize elevation scan chart
+    updateElevScanChart();
     // Initialize auto param visual state (after restore so saved values take effect)
     [['auto-max-range','radar-max-range']].forEach(([cbId, inputId]) => {
         const cb = document.getElementById(cbId);
@@ -1817,6 +1931,9 @@ function switchVizTab(name) {
                 const el = document.getElementById(id);
                 if (el && el.data) Plotly.Plots.resize(el);
             });
+        } else if (name === 'timeline') {
+            const el = document.getElementById('plot-timeline');
+            if (el && el.data) Plotly.Plots.resize(el);
         }
     }, 50);
 }
@@ -1948,8 +2065,7 @@ async function generateTrajectory() {
             draw3DVisualization(data);
             updateSummary(data.summary);
             document.getElementById('btn-run-tracker').disabled = false;
-            autoComputeSearchElevation();
-            autoComputePdRefRange();
+                       autoComputePdRefRange();
 
             // Handle auto-adjust results
             const adjInfo = document.getElementById('auto-adjust-info');
@@ -2183,6 +2299,25 @@ function draw3DVisualization(data) {
             text: b.text, hoverinfo: 'text',
         });
 
+        // Separation marker (booster trajectory start = separation point)
+        const sepTime = data.summary.separation_time;
+        plotTraces.push({
+            type: 'scatter3d', mode: 'markers',
+            x: [b.x[0]], y: [b.y[0]], z: [b.z[0]],
+            marker: { size: 3.5, color: '#FFD700', symbol: 'x', line: { color: 'white', width: 1 } },
+            hovertext: `Separation<br>t=${sepTime != null ? sepTime.toFixed(1) : '?'}s<br>alt=${b.z[0].toFixed(1)}km`,
+            hoverinfo: 'text',
+            legendgroup: 'separation', showlegend: false,
+        });
+        plotTraces.push({
+            type: 'scatter3d', mode: 'markers',
+            x: [null], y: [null], z: [null],
+            name: 'Separation',
+            marker: { size: 5, color: '#FFD700', symbol: 'x', line: { color: 'white', width: 1 } },
+            hoverinfo: 'skip',
+            legendgroup: 'separation',
+        });
+
         const bLastIdx = b.x.length - 1;
         plotTraces.push({
             type: 'scatter3d', mode: 'markers',
@@ -2302,10 +2437,14 @@ function _buildTrackerParams() {
             ? parseFloat(document.getElementById('search-sector').value) * Math.PI / 180 : -1,
         search_center: parseFloat(document.getElementById('search-center').value) || 0,
         antenna_boresight: parseFloat(document.getElementById('antenna-bearing').value) || 0,
-        search_elevation: parseFloat(document.getElementById('search-elevation').value) || 0,
         search_min_range: parseFloat(document.getElementById('search-min-range').value) * 1000,
         search_max_range: parseFloat(document.getElementById('search-max-range').value) * 1000,
         track_range_width: parseFloat(document.getElementById('track-range-width').value) * 1000,
+        range_resolution: parseFloat(document.getElementById('range-resolution').value) || 0,
+        elev_scan_min: +document.getElementById('elev-scan-min').value,
+        elev_scan_max: +document.getElementById('elev-scan-max').value,
+        elev_bars_per_frame: parseInt(document.getElementById('elev-bars-per-frame').value) || 3,
+        elev_cycle_steps: parseInt(document.getElementById('elev-cycle-steps').value) || 9,
         pfa: parseFloat(document.getElementById('pfa').value) || 1e-6,
         pd_ref: parseFloat(document.getElementById('pd-ref').value),
         pd_ref_range_km: parseFloat(document.getElementById('pd-ref-range').value),
@@ -2315,6 +2454,7 @@ function _buildTrackerParams() {
         doppler_noise: parseFloat(document.getElementById('doppler-noise').value),
         gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
         confirm_hits: parseInt(document.getElementById('confirm-hits').value),
+        confirm_window: parseInt(document.getElementById('confirm-window').value),
         delete_misses: parseInt(document.getElementById('delete-misses').value),
         min_snr: parseFloat(document.getElementById('min-snr').value),
         process_pos_noise: parseFloat(document.getElementById('process-pos-noise').value),
@@ -2324,6 +2464,8 @@ function _buildTrackerParams() {
         ukf_beta: parseFloat(document.getElementById('ukf-beta').value),
         ukf_kappa: parseFloat(document.getElementById('ukf-kappa').value),
         max_distance: parseFloat(document.getElementById('max-distance').value),
+        max_jump_velocity: parseFloat(document.getElementById('max-jump-velocity').value),
+        min_init_distance: parseFloat(document.getElementById('min-init-distance').value),
         imm_cv_cv: parseFloat(document.getElementById('imm-cv-cv').value),
         imm_cv_bal: parseFloat(document.getElementById('imm-cv-bal').value),
         imm_cv_ct: parseFloat(document.getElementById('imm-cv-ct').value),
@@ -2440,8 +2582,7 @@ async function cancelTracker() {
 async function runTracker() {
     if (!currentTrajectory) return;
 
-    // Ensure search elevation and pd-ref-range are up-to-date before building params
-    autoComputeSearchElevation();
+    // Ensure pd-ref-range is up-to-date before building params
     autoComputePdRefRange();
 
     const numRuns = parseInt(document.getElementById('num-runs').value) || 1;
@@ -2475,6 +2616,8 @@ async function runTracker() {
         }
         if (result.success) {
             await _renderTrackerResult(result);
+            // Auto-save simulation run with parameters and results
+            saveSimulationRun(result);
         } else {
             alert('Tracker error: ' + (result.error || 'Unknown error'));
             updateStatus('Tracker failed: ' + (result.error || ''));
@@ -2640,7 +2783,6 @@ function draw3DWithTracks(data) {
     // === 3D Search Coverage Volume ===
     (function() {
         try {
-            var covSElevDeg  = parseFloat(document.getElementById('search-elevation').value) || 0;
             var covBwDeg     = parseFloat(document.getElementById('beam-width').value) || 3;
             var covFovDeg    = parseFloat(document.getElementById('azimuth-coverage').value) || 360;
             var covBsightDeg = parseFloat(document.getElementById('antenna-bearing').value) || 0;
@@ -2669,10 +2811,15 @@ function draw3DWithTracks(data) {
                 covMaxRangeKm = (covGtMax > 10) ? Math.min(covRadarRange, covGtMax * 1.3) : covRadarRange;
             }
 
-            var covSElevRad  = covSElevDeg * Math.PI / 180;
-            var covHalfElRad = (covBwDeg / 2) * Math.PI / 180;
-            var covElBot     = covSElevRad - covHalfElRad;
-            var covElTop     = covSElevRad + covHalfElRad;
+            // 仰角覆域: Elev Scan Min ~ Max + beam_width/2 のマージン
+            var covElevMinDeg = parseFloat(document.getElementById('elev-scan-min').value);
+            var covElevMaxDeg = parseFloat(document.getElementById('elev-scan-max').value);
+            if (isNaN(covElevMinDeg)) covElevMinDeg = 0;
+            if (isNaN(covElevMaxDeg)) covElevMaxDeg = 20;
+            var covHalfBwRad = (covBwDeg / 2) * Math.PI / 180;
+            var covElBot     = covElevMinDeg * Math.PI / 180 - covHalfBwRad;
+            var covElTop     = covElevMaxDeg * Math.PI / 180 + covHalfBwRad;
+            var covSElevRad  = (covElBot + covElTop) / 2;
 
             var covHasSector = covSectDeg > 0 && covSectDeg < 360;
             var covAzSpanDeg = covHasSector ? covSectDeg : covFovDeg;
@@ -2812,7 +2959,7 @@ function draw3DWithTracks(data) {
             var covRangeName = (covMinRangeKm > 0)
                 ? covMinRangeKm.toFixed(0) + '-' + covEffectiveMaxKm.toFixed(0) + 'km'
                 : '0-' + covEffectiveMaxKm.toFixed(0) + 'km';
-            var covElevName = 'Elev ' + covSElevDeg.toFixed(1) + '\u00b0 \xb1' + (covBwDeg / 2).toFixed(1) + '\u00b0';
+            var covElevName = 'Elev ' + covElevMinDeg.toFixed(1) + '\u00b0\u2013' + covElevMaxDeg.toFixed(1) + '\u00b0';
 
             traces.push({
                 type: 'scatter3d',
@@ -2833,9 +2980,19 @@ function draw3DWithTracks(data) {
     // z: true detections use GT altitude lookup for clean visualization;
     //    clutter uses elevation-based z (near ground level)
     if (measurements.length > 0) {
-        const dx = [], dy = [], dz = [], dtext = [];
-        const cx = [], cy = [], cz = [], ctext = [];
-        const step = measurements.length > 5000 ? Math.floor(measurements.length / 5000) : 1;
+        // Split by beam type: search (0) vs track (1)
+        const sdx = [], sdy = [], sdz = [], sdtext = [];  // Search beam detections
+        const tdx = [], tdy = [], tdz = [], tdtext = [];  // Track beam detections
+        const scx = [], scy = [], scz = [], sctext = [];  // Search beam false alarms
+        const tcx = [], tcy = [], tcz = [], tctext = [];  // Track beam false alarms
+        // Count clutter to compute thinning step (detections are always shown in full)
+        let clutterCount = 0;
+        for (let i = 0; i < measurements.length; i++) {
+            const m = measurements[i];
+            if ((m.true_target_id === -1) || (m.is_clutter === 1 || m.is_clutter === true)) clutterCount++;
+        }
+        const clutterStep = clutterCount > 5000 ? Math.floor(clutterCount / 5000) : 1;
+        let clutterIdx = 0;
 
         // Debug: compare Truth vs Detection coordinates for first 3 non-clutter detections
         let dbgCount = 0;
@@ -2858,19 +3015,22 @@ function draw3DWithTracks(data) {
             console.log(`[3D Chart Debug] gt[0] sensor-relative: x=${(gt[0].x/1000 - sx).toFixed(1)}km, y=${(gt[0].y/1000 - sy).toFixed(1)}km`);
         }
 
-        for (let i = 0; i < measurements.length; i += step) {
+        for (let i = 0; i < measurements.length; i++) {
             const m = measurements[i];
+            const isClutterM = (m.true_target_id === -1) || (m.is_clutter === 1 || m.is_clutter === true);
+            // Thin clutter only; always show all true detections
+            if (isClutterM) {
+                if (clutterIdx % clutterStep !== 0) { clutterIdx++; continue; }
+                clutterIdx++;
+            }
             const az = m.azimuth;
             const el = m.elevation || 0;
             const r_horiz_km = m.range * Math.cos(el) / 1000;
             const px = r_horiz_km * Math.cos(az);
             const py = r_horiz_km * Math.sin(az);
 
-            // Check if clutter: true_target_id === -1 (new format) or is_clutter === 1 (legacy)
-            const isClutter = (m.true_target_id === -1) || (m.is_clutter === 1 || m.is_clutter === true);
-
             // Debug log for first few true detections
-            if (dbgCount < 3 && !isClutter) {
+            if (dbgCount < 3 && !isClutterM) {
                 const frameGt = gt.filter(r => r.frame === m.frame);
                 if (frameGt.length > 0) {
                     const g = frameGt[0];
@@ -2881,48 +3041,96 @@ function draw3DWithTracks(data) {
                 }
                 dbgCount++;
             }
-            const hover = `t=${m.time.toFixed(1)}s R=${m.range.toFixed(0)}m Az=${(az*180/Math.PI).toFixed(1)}° El=${(el*180/Math.PI).toFixed(1)}° SNR=${m.snr.toFixed(1)}dB`;
-            if (isClutter) {
+            const beamType = m.beam_type !== undefined ? m.beam_type : 0;
+            const beamLabel = beamType === 1 ? 'Track' : 'Search';
+            const hover = `t=${m.time.toFixed(1)}s R=${m.range.toFixed(0)}m Az=${(az*180/Math.PI).toFixed(1)}° El=${(el*180/Math.PI).toFixed(1)}° SNR=${m.snr.toFixed(1)}dB [${beamLabel}]`;
+            if (isClutterM) {
                 const pz = m.range * Math.sin(el) / 1000;
-                cx.push(px); cy.push(py); cz.push(pz); ctext.push('[False Alarm] ' + hover);
+                if (beamType === 1) {
+                    tcx.push(px); tcy.push(py); tcz.push(pz); tctext.push('[Track FA] ' + hover);
+                } else {
+                    scx.push(px); scy.push(py); scz.push(pz); sctext.push('[Search FA] ' + hover);
+                }
             } else {
                 const pz = getDetectionAltitude(m);
                 const targetId = m.true_target_id !== undefined ? ` Target#${m.true_target_id}` : '';
-                dx.push(px); dy.push(py); dz.push(pz); dtext.push(`[Detection${targetId}] ` + hover);
+                if (beamType === 1) {
+                    tdx.push(px); tdy.push(py); tdz.push(pz); tdtext.push(`[Track Det${targetId}] ` + hover);
+                } else {
+                    sdx.push(px); sdy.push(py); sdz.push(pz); sdtext.push(`[Search Det${targetId}] ` + hover);
+                }
             }
         }
-        if (dx.length > 0) {
+        // Search beam detections (green)
+        if (sdx.length > 0) {
             traces.push({
                 type: 'scatter3d', mode: 'markers',
-                x: dx, y: dy, z: dz,
-                marker: { size: 4, color: '#00ffff', opacity: 0.85, symbol: 'cross' },
-                text: dtext, hoverinfo: 'text',
-                legendgroup: 'detections', showlegend: false,
+                x: sdx, y: sdy, z: sdz,
+                marker: { size: 2, color: '#00ff88', opacity: 0.85, symbol: 'circle-open' },
+                text: sdtext, hoverinfo: 'text',
+                legendgroup: 'det_search', showlegend: false,
             });
             traces.push({
                 type: 'scatter3d', mode: 'markers',
                 x: [null], y: [null], z: [null],
-                name: '✓ Target Detections',
-                marker: { size: 10, color: '#00ffff', symbol: 'cross' },
+                name: 'Search Det',
+                marker: { size: 5, color: '#00ff88', symbol: 'circle-open' },
                 hoverinfo: 'skip',
-                legendgroup: 'detections',
+                legendgroup: 'det_search',
             });
         }
-        if (cx.length > 0) {
+        // Track beam detections (cyan)
+        if (tdx.length > 0) {
             traces.push({
                 type: 'scatter3d', mode: 'markers',
-                x: cx, y: cy, z: cz,
-                marker: { size: 2.5, color: 'rgba(255, 80, 80, 0.5)', symbol: 'x' },
-                text: ctext, hoverinfo: 'text',
-                legendgroup: 'falsealarms', showlegend: false,
+                x: tdx, y: tdy, z: tdz,
+                marker: { size: 3, color: '#00ccff', opacity: 0.95, symbol: 'diamond-open' },
+                text: tdtext, hoverinfo: 'text',
+                legendgroup: 'det_track', showlegend: false,
             });
             traces.push({
                 type: 'scatter3d', mode: 'markers',
                 x: [null], y: [null], z: [null],
-                name: '✗ False Alarms (Clutter)',
-                marker: { size: 10, color: '#FF5050', symbol: 'x' },
+                name: 'Track Det',
+                marker: { size: 5, color: '#00ccff', symbol: 'diamond-open' },
                 hoverinfo: 'skip',
-                legendgroup: 'falsealarms',
+                legendgroup: 'det_track',
+            });
+        }
+        // Search beam false alarms (red)
+        if (scx.length > 0) {
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: scx, y: scy, z: scz,
+                marker: { size: 1.25, color: 'rgba(255, 80, 80, 0.5)', symbol: 'x' },
+                text: sctext, hoverinfo: 'text',
+                legendgroup: 'fa_search', showlegend: false,
+            });
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: [null], y: [null], z: [null],
+                name: 'Search FA',
+                marker: { size: 5, color: '#FF5050', symbol: 'x' },
+                hoverinfo: 'skip',
+                legendgroup: 'fa_search',
+            });
+        }
+        // Track beam false alarms (orange)
+        if (tcx.length > 0) {
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: tcx, y: tcy, z: tcz,
+                marker: { size: 1.5, color: 'rgba(255, 165, 0, 0.6)', symbol: 'x' },
+                text: tctext, hoverinfo: 'text',
+                legendgroup: 'fa_track', showlegend: false,
+            });
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: [null], y: [null], z: [null],
+                name: 'Track FA',
+                marker: { size: 5, color: '#FFA500', symbol: 'x' },
+                hoverinfo: 'skip',
+                legendgroup: 'fa_track',
             });
         }
     }
@@ -2952,6 +3160,44 @@ function draw3DWithTracks(data) {
             showlegend: idx === 0,
         });
     });
+
+    // === Separation markers ===
+    // 初期高度 > 1km の目標 = 空中で分離した目標（地上発射のクラスタ目標は除外）
+    if (Object.keys(gtGroups).length >= 2) {
+        const targetIds = Object.keys(gtGroups).map(Number).sort((a, b) => a - b);
+        let sepCount = 0;
+        for (let i = 1; i < targetIds.length; i++) {
+            const rows = gtGroups[targetIds[i]];
+            if (!rows || rows.length === 0) continue;
+            const first = rows[0];
+            const firstAltKm = (first.z != null) ? first.z / 1000 : 0;
+            if (firstAltKm < 1) continue;  // 地上付近 → クラスタ打上げ、スキップ
+            const sepX = first.x / 1000 - sx;
+            const sepY = first.y / 1000 - sy;
+            sepCount++;
+            traces.push({
+                type: 'scatter3d', mode: 'markers',
+                x: [sepX], y: [sepY], z: [firstAltKm],
+                marker: { size: 3, color: '#FFD700', symbol: 'x',
+                          line: { color: 'white', width: 1 } },
+                hovertext: `Separation<br>t=${first.time.toFixed(1)}s (frame ${first.frame})<br>` +
+                           `alt=${firstAltKm.toFixed(1)}km`,
+                hoverinfo: 'text',
+                showlegend: false,
+                legendgroup: 'separation',
+            });
+            if (sepCount === 1) {
+                traces.push({
+                    type: 'scatter3d', mode: 'markers',
+                    x: [null], y: [null], z: [null],
+                    name: 'Separation',
+                    marker: { size: 5, color: '#FFD700', symbol: 'x', line: { color: 'white', width: 1 } },
+                    hoverinfo: 'skip',
+                    legendgroup: 'separation',
+                });
+            }
+        }
+    }
 
     function getTrackAltitude(row) {
         const frameGt = gtByFrame[row.frame];
@@ -3122,7 +3368,7 @@ function drawTimeline(data) {
         t.rows.push(r);
     });
 
-    // 3. Track→Target マッチング（確認時の位置で最近傍GT割当）
+    // 3. Track→Target マッチング（全フレーム3D距離の多数決）
     const targetIds = Object.keys(gtTargets).map(Number).sort((a, b) => a - b);
     const trackIds = Object.keys(trackInfo).map(Number).sort((a, b) => a - b);
 
@@ -3134,25 +3380,32 @@ function drawTimeline(data) {
         gtByFrame[f].push(r);
     });
 
-    // 各 track の確認時点で最近傍 GT target を検索
+    // 各 track の全フレームで最近傍GTを集計し、多数決で割当
     const trackToTarget = {};
     trackIds.forEach(tid => {
         const info = trackInfo[tid];
-        // 確認時 or 初期時のフレームを使用
-        const matchTime = info.confirmTime !== null ? info.confirmTime : info.init;
-        const matchRow = info.rows.find(r => r.time === matchTime) || info.rows[0];
-        if (!matchRow) return;
+        const votes = {};  // target_id → 投票数
 
-        const frameGt = gtByFrame[matchRow.frame];
-        if (!frameGt || frameGt.length === 0) return;
+        for (const row of info.rows) {
+            const frameGt = gtByFrame[row.frame];
+            if (!frameGt || frameGt.length === 0) continue;
 
-        let bestDist = Infinity, bestId = -1;
-        for (const g of frameGt) {
-            const dx = matchRow.x - g.x, dy = matchRow.y - g.y;
-            const d = dx * dx + dy * dy;
-            if (d < bestDist) { bestDist = d; bestId = g.target_id !== undefined ? g.target_id : 0; }
+            let bestDist = Infinity, bestId = -1;
+            for (const g of frameGt) {
+                const dx = row.x - g.x, dy = row.y - g.y;
+                const dz = (row.z || 0) - (g.z || 0);
+                const d = dx * dx + dy * dy + dz * dz;
+                if (d < bestDist) { bestDist = d; bestId = g.target_id !== undefined ? g.target_id : 0; }
+            }
+            if (bestId >= 0) votes[bestId] = (votes[bestId] || 0) + 1;
         }
-        trackToTarget[tid] = bestId;
+
+        // 最多投票のGT targetを選択
+        let maxVotes = 0, winId = -1;
+        for (const [id, cnt] of Object.entries(votes)) {
+            if (cnt > maxVotes) { maxVotes = cnt; winId = Number(id); }
+        }
+        if (winId >= 0) trackToTarget[tid] = winId;
     });
 
     // 4. 各 target に対する track リストを構築
@@ -3180,8 +3433,10 @@ function drawTimeline(data) {
         const nTracks = Math.max(confirmedTids.length, 1); // 最低1行確保
         const yCenter = yPos + (nTracks - 1) / 2;
 
-        // Y軸ラベル: ターゲット名を中央に配置
-        yLabels.push({ pos: yCenter, label: `Target ${targetId}` });
+        // Y軸ラベル: ターゲット名を中央に配置（トラックが0の場合のみ）
+        if (confirmedTids.length === 0) {
+            yLabels.push({ pos: yCenter, label: `Target ${targetId}` });
+        }
 
         // GT ライフタイム (背景バー) — シンプルな背景
         shapes.push({
@@ -3233,7 +3488,8 @@ function drawTimeline(data) {
             const info = trackInfo[tid];
             const ty = yPos + idx;  // サブ行のY位置
 
-            // Tentativeフェーズは非表示（confirmedのみ表示）
+            // Y軸にTrack IDを表示（Target名の横にサブラベル）
+            yLabels.push({ pos: ty, label: `Tgt${targetId} T${tid}` });
 
             // Confirmed phase — 探知/未探知理由/着弾後で色分け
             // miss_reason: 0=探知, 1=覆域外, 2=ビームリソース不足, 3=ビーム照射未探知
@@ -3323,7 +3579,7 @@ function drawTimeline(data) {
         paper_bgcolor: '#0f3460',
         plot_bgcolor: '#16213e',
         font: { color: '#e0e0e0' },
-        margin: { l: 80, r: 20, t: 8, b: 40 },
+        margin: { l: 90, r: 20, t: 8, b: 40 },
         xaxis: {
             title: 'Time [s]', gridcolor: '#1a1a2e', zerolinecolor: '#333',
             color: '#aaa',
@@ -3337,6 +3593,7 @@ function drawTimeline(data) {
         },
         legend: { x: 0, y: 1, orientation: 'h', bgcolor: 'rgba(0,0,0,0.3)', font: { size: 11 }, xanchor: 'left', yanchor: 'bottom' },
         shapes: shapes,
+        annotations: annotations,
         height: computedHeight,
     };
 
@@ -3682,8 +3939,6 @@ async function drawEvalCharts(rows, resultsRows) {
           name: 'GT', line: { color: '#ffd700', width: 1.5 } },
         { x: times, y: rows.map(r => parseInt(r.num_tracks)), type: 'scatter', mode: 'lines',
           name: 'Tracks', line: { color: '#00ff88', width: 1.5 } },
-        { x: times, y: rows.map(r => parseInt(r.num_confirmed)), type: 'scatter', mode: 'lines',
-          name: 'Confirmed', line: { color: '#00ff88', width: 1, dash: 'dot' } },
     ], { ...darkLayout, title: { text: 'Tracks vs Truth', font: { size: 10, color: '#ffd700' } },
         yaxis: { ...darkLayout.yaxis, title: { text: 'Count', font: { size: 9 } } }
     }, cfg);
@@ -3761,6 +4016,11 @@ async function drawDetectionDensityCharts(measurements, groundTruth, sensorX, se
     // Shows the SNR distribution under H0 (clutter/false alarm) and H1 (target) hypothesis.
     // This is the evaluation version with clear separation for assessment.
     const snrBinSize = 2;
+
+    // Get detection threshold from tracker settings
+    const minSnrInput = document.getElementById('min-snr');
+    const detectionThreshold = minSnrInput ? parseFloat(minSnrInput.value) : 0;
+
     Plotly.newPlot('eval-chart-snr-density', [
         {
             x: trueDet.map(m => m.snr),
@@ -3784,12 +4044,47 @@ async function drawDetectionDensityCharts(measurements, groundTruth, sensorX, se
         title: { text: 'SNR Probability Density — Target vs. Clutter Separation', font: { size: 10, color: '#ffd700' } },
         xaxis: { gridcolor: '#333', title: { text: 'SNR (dB)', font: { size: 9 } } },
         yaxis: { gridcolor: '#333', title: { text: 'Probability Density', font: { size: 9 } } },
-        annotations: [{
-            x: 0.5, y: 1.02, xref: 'paper', yref: 'paper',
-            text: 'H₁: Target Hypothesis (Green) | H₀: Clutter Hypothesis (Red)',
-            showarrow: false, font: { size: 8, color: '#999' },
-            xanchor: 'center'
-        }]
+        shapes: [{
+            type: 'line',
+            x0: detectionThreshold,
+            x1: detectionThreshold,
+            y0: 0,
+            y1: 1,
+            yref: 'paper',
+            line: {
+                color: '#ffaa00',
+                width: 2,
+                dash: 'dash'
+            }
+        }],
+        annotations: [
+            {
+                x: 0.5, y: 1.02, xref: 'paper', yref: 'paper',
+                text: 'H₁: Target Hypothesis (Green) | H₀: Clutter Hypothesis (Red)',
+                showarrow: false, font: { size: 8, color: '#999' },
+                xanchor: 'center'
+            },
+            {
+                x: detectionThreshold,
+                y: 0.5,
+                yref: 'paper',
+                text: `Threshold<br>${detectionThreshold.toFixed(1)} dB`,
+                showarrow: true,
+                arrowhead: 2,
+                arrowsize: 1,
+                arrowwidth: 1.5,
+                arrowcolor: '#ffaa00',
+                ax: 40,
+                ay: -30,
+                font: { size: 9, color: '#ffaa00', weight: 'bold' },
+                bgcolor: 'rgba(0,0,0,0.85)',
+                bordercolor: '#ffaa00',
+                borderwidth: 1.5,
+                borderpad: 4,
+                xanchor: 'left',
+                align: 'center'
+            }
+        ]
     }, cfg);
     await yieldToUI();
 
@@ -3960,14 +4255,19 @@ function saveStateToStorage() {
                 auto_search_sector: document.getElementById('auto-search-sector').checked,
                 antenna_bearing: document.getElementById('antenna-bearing').value,
                 auto_antenna_bearing: document.getElementById('auto-antenna-bearing').checked,
-                search_elevation: document.getElementById('search-elevation').value,
                 search_min_range: document.getElementById('search-min-range').value,
                 search_max_range: document.getElementById('search-max-range').value,
                 track_range_width: document.getElementById('track-range-width').value,
+                range_resolution: document.getElementById('range-resolution').value,
+                elev_scan_min: document.getElementById('elev-scan-min').value,
+                elev_scan_max: document.getElementById('elev-scan-max').value,
+                elev_bars_per_frame: document.getElementById('elev-bars-per-frame').value,
+                elev_cycle_steps: document.getElementById('elev-cycle-steps').value,
             },
             tracker: {
                 gate_threshold: document.getElementById('gate-threshold').value,
                 confirm_hits: document.getElementById('confirm-hits').value,
+                confirm_window: document.getElementById('confirm-window').value,
                 delete_misses: document.getElementById('delete-misses').value,
                 min_snr: document.getElementById('min-snr').value,
                 process_pos_noise: document.getElementById('process-pos-noise').value,
@@ -4095,10 +4395,14 @@ function restoreStateFromStorage() {
                 document.getElementById('auto-antenna-bearing').checked = s.radar.auto_antenna_bearing;
                 onAutoAntennaBearingChange();
             }
-            if (s.radar.search_elevation != null) document.getElementById('search-elevation').value = s.radar.search_elevation;
             if (s.radar.search_min_range != null) document.getElementById('search-min-range').value = s.radar.search_min_range;
             if (s.radar.search_max_range != null) document.getElementById('search-max-range').value = s.radar.search_max_range;
             if (s.radar.track_range_width != null) document.getElementById('track-range-width').value = s.radar.track_range_width;
+            if (s.radar.range_resolution != null) document.getElementById('range-resolution').value = s.radar.range_resolution;
+            if (s.radar.elev_scan_min != null) document.getElementById('elev-scan-min').value = s.radar.elev_scan_min;
+            if (s.radar.elev_scan_max != null) document.getElementById('elev-scan-max').value = s.radar.elev_scan_max;
+            if (s.radar.elev_bars_per_frame != null) document.getElementById('elev-bars-per-frame').value = s.radar.elev_bars_per_frame;
+            if (s.radar.elev_cycle_steps != null) document.getElementById('elev-cycle-steps').value = s.radar.elev_cycle_steps;
             if (s.radar.auto_max_range != null) {
                 document.getElementById('auto-max-range').checked = s.radar.auto_max_range;
                 toggleAutoParam(document.getElementById('auto-max-range'), 'radar-max-range');
@@ -4109,6 +4413,7 @@ function restoreStateFromStorage() {
         if (s.tracker) {
             if (s.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = s.tracker.gate_threshold;
             if (s.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = s.tracker.confirm_hits;
+            if (s.tracker.confirm_window != null) document.getElementById('confirm-window').value = s.tracker.confirm_window;
             if (s.tracker.delete_misses != null) document.getElementById('delete-misses').value = s.tracker.delete_misses;
             if (s.tracker.min_snr != null) document.getElementById('min-snr').value = s.tracker.min_snr;
             if (s.tracker.process_pos_noise != null) document.getElementById('process-pos-noise').value = s.tracker.process_pos_noise;
@@ -4141,6 +4446,400 @@ function restoreStateFromStorage() {
         updateStatus('Previous state restored');
     } catch (e) { /* ignore parse errors */ }
 }
+
+// ========================================
+// Simulation Run History Management
+// ========================================
+const HISTORY_STORAGE_KEY = 'fasttracker_run_history';
+const MAX_HISTORY_KEY = 'fasttracker_max_history';
+
+function getAllParametersAsObject() {
+    // Use same structure as saveStateToStorage to ensure consistency
+    return {
+        missile_type: document.getElementById('missile-type').value,
+        launch: launchPoint ? { lat: launchPoint.lat, lon: launchPoint.lon } : null,
+        target: targetPoint ? { lat: targetPoint.lat, lon: targetPoint.lon } : null,
+        sensor: sensorPoint ? { lat: sensorPoint.lat, lon: sensorPoint.lon } : null,
+        missile: {
+            boost_duration: document.getElementById('boost-duration').value,
+            boost_acceleration: document.getElementById('boost-accel').value,
+            launch_angle: document.getElementById('launch-angle').value,
+            time_step: document.getElementById('time-step').value,
+        },
+        hgv: {
+            cruise_altitude: document.getElementById('cruise-altitude').value,
+            glide_ratio: document.getElementById('glide-ratio').value,
+            terminal_dive_range: document.getElementById('terminal-dive-range').value,
+            bank_angle_max: document.getElementById('bank-angle-max').value,
+            num_skips: document.getElementById('num-skips').value,
+        },
+        physics: {
+            initial_mass: document.getElementById('initial-mass').value,
+            fuel_fraction: document.getElementById('fuel-fraction').value,
+            specific_impulse: document.getElementById('specific-impulse').value,
+            drag_coefficient: document.getElementById('drag-coefficient').value,
+            cross_section: document.getElementById('cross-section').value,
+            auto_adjust: document.getElementById('auto-adjust').checked,
+            enable_separation: document.getElementById('enable-separation').checked,
+            warhead_mass_frac: document.getElementById('warhead-mass-frac').value,
+            cluster_count: document.getElementById('cluster-count').value,
+            cluster_spread: document.getElementById('cluster-spread').value,
+            launch_time_spread: document.getElementById('launch-time-spread').value,
+            lock_angle: document.getElementById('lock-angle').checked,
+            lock_isp: document.getElementById('lock-isp').checked,
+            lock_fuel: document.getElementById('lock-fuel').checked,
+        },
+        radar: {
+            min_range: document.getElementById('radar-min-range').value,
+            max_range: document.getElementById('radar-max-range').value,
+            auto_max_range: document.getElementById('auto-max-range').checked,
+            fov: document.getElementById('azimuth-coverage').value,
+            pfa: document.getElementById('pfa').value,
+            pd_ref: document.getElementById('pd-ref').value,
+            pd_ref_range_km: document.getElementById('pd-ref-range').value,
+            range_noise: document.getElementById('range-noise').value,
+            azimuth_noise: document.getElementById('azimuth-noise').value,
+            elevation_noise: document.getElementById('elevation-noise').value,
+            doppler_noise: document.getElementById('doppler-noise').value,
+            beam_width: document.getElementById('beam-width').value,
+            num_beams: document.getElementById('num-beams').value,
+            min_search_beams: document.getElementById('min-search-beams').value,
+            track_priority: document.getElementById('track-priority').value,
+            search_sector: document.getElementById('search-sector').value,
+            search_center: document.getElementById('search-center').value,
+            auto_search_sector: document.getElementById('auto-search-sector').checked,
+            antenna_bearing: document.getElementById('antenna-bearing').value,
+            auto_antenna_bearing: document.getElementById('auto-antenna-bearing').checked,
+            search_min_range: document.getElementById('search-min-range').value,
+            search_max_range: document.getElementById('search-max-range').value,
+            track_range_width: document.getElementById('track-range-width').value,
+            elev_scan_min: document.getElementById('elev-scan-min').value,
+            elev_scan_max: document.getElementById('elev-scan-max').value,
+            elev_bars_per_frame: document.getElementById('elev-bars-per-frame').value,
+            elev_cycle_steps: document.getElementById('elev-cycle-steps').value,
+        },
+        tracker: {
+            gate_threshold: document.getElementById('gate-threshold').value,
+            confirm_hits: document.getElementById('confirm-hits').value,
+            confirm_window: document.getElementById('confirm-window').value,
+            delete_misses: document.getElementById('delete-misses').value,
+            min_snr: document.getElementById('min-snr').value,
+            process_pos_noise: document.getElementById('process-pos-noise').value,
+            process_vel_noise: document.getElementById('process-vel-noise').value,
+            process_acc_noise: document.getElementById('process-acc-noise').value,
+            num_runs: document.getElementById('num-runs').value,
+            seed: document.getElementById('random-seed').value,
+        },
+        target_max_altitude: document.getElementById('target-max-altitude').value,
+    };
+}
+
+// Auto-save simulation run with parameters and results
+async function saveSimulationRun(result) {
+    console.log('[Run History] saveSimulationRun called (auto-saved to server)', result);
+
+    try {
+        // Run history is now automatically saved to server by backend
+        // Just refresh the history list from server
+        await renderHistoryList();
+
+        const scenario = document.getElementById('missile-type').value || 'ballistic';
+        const numTargets = result.summary?.num_tracks || 0;
+        console.log(`[Run History] ✓ Run saved to server: ${scenario}, ${numTargets} tracks`);
+        updateStatus(`Run saved to server: ${scenario} (${numTargets} tracks)`);
+    } catch (e) {
+        console.error('[Run History] ✗ Failed to refresh history:', e);
+    }
+}
+
+async function getSimulationHistory() {
+    try {
+        const response = await fetch('/api/run-history/list');
+        const data = await response.json();
+        if (data.success) {
+            return data.history || [];
+        } else {
+            console.error('[Run History] Failed to fetch:', data.error);
+            return [];
+        }
+    } catch (e) {
+        console.error('[Run History] Fetch error:', e);
+        return [];
+    }
+}
+
+function getMaxHistory() {
+    try {
+        const val = localStorage.getItem(MAX_HISTORY_KEY);
+        return val ? parseInt(val) : 10;
+    } catch (e) {
+        return 10;
+    }
+}
+
+function updateMaxHistory() {
+    const maxHistory = parseInt(document.getElementById('max-history').value) || 10;
+    localStorage.setItem(MAX_HISTORY_KEY, maxHistory.toString());
+    cleanupOldHistory();
+}
+
+async function cleanupOldHistory() {
+    // Server-side history has no max limit - show current count instead
+    try {
+        const history = await getSimulationHistory();
+        updateStatus(`Server has ${history.length} run(s). Use "Clear All" to delete.`);
+    } catch (e) {
+        alert('Failed to get history count: ' + e.message);
+    }
+}
+
+async function loadSimulationRun(runId) {
+    try {
+        const history = await getSimulationHistory();
+        const run = history.find(r => r.id === runId);
+        if (!run) {
+            alert('Run not found');
+            return;
+        }
+
+        // Confirmation dialog
+        const dateStr = run.timestamp || 'Unknown';
+        const msg = `Load parameters from this run?\n\n` +
+                    `Scenario: ${run.scenario.toUpperCase()}\n` +
+                    `Date: ${dateStr}\n` +
+                    `Targets: ${run.num_targets}\n\n` +
+                    `This will overwrite current parameters.`;
+
+        if (!confirm(msg)) {
+            return; // User cancelled
+        }
+
+        console.log('[Run History] Loading run:', run);
+
+        // Apply parameters from request_data.params
+        const s = run.request_data?.params || {};
+
+        // Same logic as restoreStateFromStorage
+        if (s.missile_type != null) document.getElementById('missile-type').value = s.missile_type;
+
+        // Missile params
+        if (s.missile) {
+            if (s.missile.boost_duration != null) document.getElementById('boost-duration').value = s.missile.boost_duration;
+            if (s.missile.boost_acceleration != null) document.getElementById('boost-accel').value = s.missile.boost_acceleration;
+            if (s.missile.launch_angle != null) document.getElementById('launch-angle').value = s.missile.launch_angle;
+            if (s.missile.time_step != null) document.getElementById('time-step').value = s.missile.time_step;
+        }
+
+        // HGV params
+        if (s.hgv) {
+            if (s.hgv.cruise_altitude != null) document.getElementById('cruise-altitude').value = s.hgv.cruise_altitude;
+            if (s.hgv.glide_ratio != null) document.getElementById('glide-ratio').value = s.hgv.glide_ratio;
+            if (s.hgv.terminal_dive_range != null) document.getElementById('terminal-dive-range').value = s.hgv.terminal_dive_range;
+            if (s.hgv.bank_angle_max != null) document.getElementById('bank-angle-max').value = s.hgv.bank_angle_max;
+            if (s.hgv.num_skips != null) document.getElementById('num-skips').value = s.hgv.num_skips;
+        }
+
+        // Physics
+        if (s.physics) {
+            if (s.physics.initial_mass != null) document.getElementById('initial-mass').value = s.physics.initial_mass;
+            if (s.physics.fuel_fraction != null) document.getElementById('fuel-fraction').value = s.physics.fuel_fraction;
+            if (s.physics.specific_impulse != null) document.getElementById('specific-impulse').value = s.physics.specific_impulse;
+            if (s.physics.drag_coefficient != null) document.getElementById('drag-coefficient').value = s.physics.drag_coefficient;
+            if (s.physics.cross_section != null) document.getElementById('cross-section').value = s.physics.cross_section;
+            if (s.physics.auto_adjust != null) document.getElementById('auto-adjust').checked = s.physics.auto_adjust;
+            if (s.physics.enable_separation != null) document.getElementById('enable-separation').checked = s.physics.enable_separation;
+            if (s.physics.warhead_mass_frac != null) document.getElementById('warhead-mass-frac').value = s.physics.warhead_mass_frac;
+            if (s.physics.cluster_count != null) document.getElementById('cluster-count').value = s.physics.cluster_count;
+            if (s.physics.cluster_spread != null) document.getElementById('cluster-spread').value = s.physics.cluster_spread;
+            if (s.physics.launch_time_spread != null) document.getElementById('launch-time-spread').value = s.physics.launch_time_spread;
+            if (s.physics.lock_angle != null) document.getElementById('lock-angle').checked = s.physics.lock_angle;
+            if (s.physics.lock_isp != null) document.getElementById('lock-isp').checked = s.physics.lock_isp;
+            if (s.physics.lock_fuel != null) document.getElementById('lock-fuel').checked = s.physics.lock_fuel;
+        }
+
+        // Radar
+        if (s.radar) {
+            if (s.radar.min_range != null) document.getElementById('radar-min-range').value = s.radar.min_range;
+            if (s.radar.max_range != null) document.getElementById('radar-max-range').value = s.radar.max_range;
+            if (s.radar.auto_max_range != null) {
+                document.getElementById('auto-max-range').checked = s.radar.auto_max_range;
+                toggleAutoParam(document.getElementById('auto-max-range'), 'radar-max-range');
+            }
+            if (s.radar.fov != null) document.getElementById('azimuth-coverage').value = s.radar.fov;
+            if (s.radar.pfa != null) document.getElementById('pfa').value = s.radar.pfa;
+            if (s.radar.pd_ref != null) document.getElementById('pd-ref').value = s.radar.pd_ref;
+            if (s.radar.pd_ref_range_km != null) document.getElementById('pd-ref-range').value = s.radar.pd_ref_range_km;
+            if (s.radar.range_noise != null) document.getElementById('range-noise').value = s.radar.range_noise;
+            if (s.radar.azimuth_noise != null) document.getElementById('azimuth-noise').value = s.radar.azimuth_noise;
+            if (s.radar.elevation_noise != null) document.getElementById('elevation-noise').value = s.radar.elevation_noise;
+            if (s.radar.doppler_noise != null) document.getElementById('doppler-noise').value = s.radar.doppler_noise;
+            if (s.radar.beam_width != null) document.getElementById('beam-width').value = s.radar.beam_width;
+            if (s.radar.num_beams != null) document.getElementById('num-beams').value = s.radar.num_beams;
+            if (s.radar.min_search_beams != null) document.getElementById('min-search-beams').value = s.radar.min_search_beams;
+            if (s.radar.track_priority != null) document.getElementById('track-priority').value = s.radar.track_priority;
+            if (s.radar.search_sector != null) document.getElementById('search-sector').value = s.radar.search_sector;
+            if (s.radar.search_center != null) document.getElementById('search-center').value = s.radar.search_center;
+            if (s.radar.auto_search_sector != null) {
+                document.getElementById('auto-search-sector').checked = s.radar.auto_search_sector;
+                onAutoSearchSectorChange();
+            }
+            if (s.radar.antenna_bearing != null) document.getElementById('antenna-bearing').value = s.radar.antenna_bearing;
+            if (s.radar.auto_antenna_bearing != null) {
+                document.getElementById('auto-antenna-bearing').checked = s.radar.auto_antenna_bearing;
+                onAutoAntennaBearingChange();
+            }
+            if (s.radar.search_min_range != null) document.getElementById('search-min-range').value = s.radar.search_min_range;
+            if (s.radar.search_max_range != null) document.getElementById('search-max-range').value = s.radar.search_max_range;
+            if (s.radar.track_range_width != null) document.getElementById('track-range-width').value = s.radar.track_range_width;
+            if (s.radar.range_resolution != null) document.getElementById('range-resolution').value = s.radar.range_resolution;
+            if (s.radar.elev_scan_min != null) document.getElementById('elev-scan-min').value = s.radar.elev_scan_min;
+            if (s.radar.elev_scan_max != null) document.getElementById('elev-scan-max').value = s.radar.elev_scan_max;
+            if (s.radar.elev_bars_per_frame != null) document.getElementById('elev-bars-per-frame').value = s.radar.elev_bars_per_frame;
+            if (s.radar.elev_cycle_steps != null) document.getElementById('elev-cycle-steps').value = s.radar.elev_cycle_steps;
+        }
+
+        // Tracker
+        if (s.tracker) {
+            if (s.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = s.tracker.gate_threshold;
+            if (s.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = s.tracker.confirm_hits;
+            if (s.tracker.confirm_window != null) document.getElementById('confirm-window').value = s.tracker.confirm_window;
+            if (s.tracker.delete_misses != null) document.getElementById('delete-misses').value = s.tracker.delete_misses;
+            if (s.tracker.min_snr != null) document.getElementById('min-snr').value = s.tracker.min_snr;
+            if (s.tracker.process_pos_noise != null) document.getElementById('process-pos-noise').value = s.tracker.process_pos_noise;
+            if (s.tracker.process_vel_noise != null) document.getElementById('process-vel-noise').value = s.tracker.process_vel_noise;
+            if (s.tracker.process_acc_noise != null) document.getElementById('process-acc-noise').value = s.tracker.process_acc_noise;
+            if (s.tracker.num_runs != null) document.getElementById('num-runs').value = s.tracker.num_runs;
+            if (s.tracker.seed != null) document.getElementById('random-seed').value = s.tracker.seed;
+        }
+
+        // Target max altitude
+        if (s.target_max_altitude != null) document.getElementById('target-max-altitude').value = s.target_max_altitude;
+
+        // Map points
+        if (s.launch && s.launch.lat && s.launch.lon) {
+            setLaunchPoint(s.launch.lat, s.launch.lon);
+        }
+        if (s.target && s.target.lat && s.target.lon) {
+            setTargetPoint(s.target.lat, s.target.lon);
+        }
+        if (s.sensor && s.sensor.lat && s.sensor.lon) {
+            setSensorPoint(s.sensor.lat, s.sensor.lon);
+        }
+
+        // Show summary info if available
+        if (run.resultSummary && run.resultSummary.summary) {
+            const info = `Previous run results: ${run.numTargets} targets tracked`;
+            console.log('[Run History] ' + info, run.resultSummary);
+        }
+
+        updateStatus(`✓ Loaded: ${run.scenario} (${run.dateStr}) - Click "Generate Trajectory" then "Run Tracker"`);
+    } catch (e) {
+        console.error('[Run History] Load failed:', e);
+        alert('Failed to load run: ' + e.message);
+    }
+}
+
+async function deleteSimulationRun(runId) {
+    if (!confirm('Delete this simulation run from server?')) return;
+
+    try {
+        const response = await fetch(`/api/run-history/${runId}`, { method: 'DELETE' });
+        const data = await response.json();
+
+        if (data.success) {
+            await renderHistoryList();
+            updateStatus('Run deleted');
+        } else {
+            alert('Failed to delete: ' + data.error);
+        }
+    } catch (e) {
+        alert('Failed to delete: ' + e.message);
+    }
+}
+
+async function renderHistoryList() {
+    const history = await getSimulationHistory();
+    const listEl = document.getElementById('history-list');
+    const countEl = document.getElementById('history-count');
+    const maxHistoryEl = document.getElementById('max-history');
+
+    countEl.textContent = history.length;
+    maxHistoryEl.value = getMaxHistory();
+
+    if (history.length === 0) {
+        listEl.innerHTML = '<div style="text-align:center; color:#666; padding:20px; font-size:11px;">No simulation runs yet</div>';
+        return;
+    }
+
+    listEl.innerHTML = history.map(r => {
+        // Format aggregated results from eval_summary
+        let resultsText = 'No results';
+        if (r.eval_summary) {
+            const e = r.eval_summary;
+            const ospa = e['Mean OSPA'] ? parseFloat(e['Mean OSPA']).toFixed(0) : '-';
+            const tp = e['True Positives'] || 0;
+            const fp = e['False Positives'] || 0;
+            const recall = e['Recall'] ? parseFloat(e['Recall']).toFixed(1) : '-';
+            const precision = e['Precision'] ? parseFloat(e['Precision']).toFixed(1) : '-';
+            resultsText = `OSPA:${ospa}m TP:${tp} FP:${fp} R:${recall}% P:${precision}%`;
+        }
+
+        // Format timestamp
+        const dateStr = r.timestamp || 'Unknown';
+
+        // Format history ID (debug: show [NO_ID] if missing)
+        const historyId = r.history_id ? `#${r.history_id.toString().padStart(3, '0')}` : '[NO_ID]';
+
+        // Debug: log to console if history_id is missing
+        if (!r.history_id) {
+            console.warn('[History] Missing history_id:', r);
+        }
+
+        return `
+        <div style="background:#16213e; padding:6px 8px; border-radius:3px; margin-bottom:4px; border-left:2px solid #e94560; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="flex:1; display:flex; align-items:center; gap:8px; min-width:0;">
+                <div style="font-weight:bold; font-size:10px; color:#4ecdc4; white-space:nowrap; min-width:35px;">${historyId}</div>
+                <div style="font-weight:bold; font-size:10px; color:#e94560; white-space:nowrap;">${r.scenario.toUpperCase()}</div>
+                <div style="font-size:8px; color:#aaa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${resultsText}</div>
+                <div style="font-size:8px; color:#888; white-space:nowrap;">${dateStr.substring(5, 16)}</div>
+            </div>
+            <div style="display:flex; gap:4px; flex-shrink:0;">
+                <button onclick="loadSimulationRun('${r.id}')" style="background:#0f3460; border:1px solid #e94560; color:#e94560; padding:2px 6px; border-radius:2px; cursor:pointer; font-size:9px; font-weight:bold;">Load</button>
+                <button onclick="deleteSimulationRun('${r.id}')" style="background:#333; border:none; color:#aaa; padding:2px 6px; border-radius:2px; cursor:pointer; font-size:9px;">×</button>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+
+async function clearAllHistory() {
+    if (!confirm('Delete ALL simulation runs from server? This cannot be undone.')) return;
+
+    try {
+        const response = await fetch('/api/run-history/clear', { method: 'DELETE' });
+        const data = await response.json();
+
+        if (data.success) {
+            await renderHistoryList();
+            updateStatus(`Cleared ${data.deleted_count} run(s)`);
+        } else {
+            alert('Failed to clear: ' + data.error);
+        }
+    } catch (e) {
+        alert('Failed to clear history: ' + e.message);
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Initialize history list when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    renderHistoryList();
+});
 
 function saveScenario() {
     if (!launchPoint || !targetPoint) {
@@ -4204,13 +4903,13 @@ function saveScenario() {
             auto_search_sector: document.getElementById('auto-search-sector').checked,
             antenna_bearing_deg: parseFloat(document.getElementById('antenna-bearing').value),
             auto_antenna_bearing: document.getElementById('auto-antenna-bearing').checked,
-            search_elevation_deg: parseFloat(document.getElementById('search-elevation').value),
             search_min_range_km: parseFloat(document.getElementById('search-min-range').value),
             search_max_range_km: parseFloat(document.getElementById('search-max-range').value),
         },
         tracker: {
             gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
             confirm_hits: parseInt(document.getElementById('confirm-hits').value),
+            confirm_window: parseInt(document.getElementById('confirm-window').value),
             delete_misses: parseInt(document.getElementById('delete-misses').value),
             min_snr: parseFloat(document.getElementById('min-snr').value),
             process_pos_noise: parseFloat(document.getElementById('process-pos-noise').value),
@@ -4301,6 +5000,7 @@ function loadScenario(event) {
             if (scenario.tracker) {
                 if (scenario.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = scenario.tracker.gate_threshold;
                 if (scenario.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = scenario.tracker.confirm_hits;
+                if (scenario.tracker.confirm_window != null) document.getElementById('confirm-window').value = scenario.tracker.confirm_window;
                 if (scenario.tracker.delete_misses != null) document.getElementById('delete-misses').value = scenario.tracker.delete_misses;
                 if (scenario.tracker.min_snr != null) document.getElementById('min-snr').value = scenario.tracker.min_snr;
                 if (scenario.tracker.process_pos_noise != null) document.getElementById('process-pos-noise').value = scenario.tracker.process_pos_noise;
@@ -4344,7 +5044,6 @@ function loadScenario(event) {
                     document.getElementById('auto-antenna-bearing').checked = scenario.radar.auto_antenna_bearing;
                     onAutoAntennaBearingChange();
                 }
-                if (scenario.radar.search_elevation_deg != null) document.getElementById('search-elevation').value = scenario.radar.search_elevation_deg;
                 if (scenario.radar.search_min_range_km != null) document.getElementById('search-min-range').value = scenario.radar.search_min_range_km;
                 if (scenario.radar.search_max_range_km != null) document.getElementById('search-max-range').value = scenario.radar.search_max_range_km;
             }
@@ -4509,6 +5208,9 @@ window.addEventListener('resize', () => {
             const el = document.getElementById(id);
             if (el && el.data) Plotly.Plots.resize(el);
         });
+    } else if (activeVizTab === 'timeline') {
+        const el = document.getElementById('plot-timeline');
+        if (el && el.data) Plotly.Plots.resize(el);
     }
 });
 </script>

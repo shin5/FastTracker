@@ -24,6 +24,11 @@ namespace cuda {
     } while(0)
 
 // CUDAカーネル起動エラーチェック
+// Note: cudaDeviceSynchronize() is intentionally removed here.
+// WSL2/WDDM環境では、GPUエラー発生時にcudaDeviceSynchronize()が
+// 無限ブロックするケースが報告されている。
+// カーネル実行エラーは直後の同期的cudaMemcpy（DeviceMemory::copyTo/copyFrom）
+// で検出されるため、ここではlaunchエラーのみ確認する。
 #define CUDA_CHECK_KERNEL() \
     do { \
         cudaError_t error = cudaGetLastError(); \
@@ -33,7 +38,6 @@ namespace cuda {
             throw std::runtime_error(std::string("CUDA kernel error: ") + \
                                      cudaGetErrorString(error)); \
         } \
-        CUDA_CHECK(cudaDeviceSynchronize()); \
     } while(0)
 
 // デバイスメモリ管理用RAIIラッパー

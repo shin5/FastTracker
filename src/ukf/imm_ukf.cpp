@@ -16,7 +16,8 @@ static constexpr float CPU_ATM_SCALE_HEIGHT = 7400.0f;
 static constexpr float CPU_BALLISTIC_BETA = 0.001f;
 
 IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& external_noise)
-    : num_models_(num_models), max_targets_(max_targets), meas_noise_() {
+    : num_models_(num_models), max_targets_(max_targets),
+      base_process_noise_(external_noise), meas_noise_() {
 
     UKFParams ukf_params;
     MeasurementNoise meas_noise;
@@ -51,15 +52,15 @@ IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& extern
         );
     }
 
-    // モデル遷移確率行列
+    // モデル遷移確率行列（対角成分を強化してモデル切り替えを抑制）
     //        → CV    → Bal   → CT
-    // CV    [0.80   0.15    0.05]
-    // Bal   [0.10   0.85    0.05]
-    // CT    [0.05   0.10    0.85]
+    // CV    [0.95   0.04    0.01]   自己遷移95%（モデル保持を強く優先）
+    // Bal   [0.05   0.94    0.01]   自己遷移94%
+    // CT    [0.02   0.03    0.95]   自己遷移95%（一度CTになったら維持）
     transition_matrix_ = {
-        {0.80f, 0.15f, 0.05f},  // CVから
-        {0.10f, 0.85f, 0.05f},  // Ballisticから
-        {0.05f, 0.10f, 0.85f}   // CTから
+        {0.95f, 0.04f, 0.01f},  // CVから
+        {0.05f, 0.94f, 0.01f},  // Ballisticから
+        {0.02f, 0.03f, 0.95f}   // CTから
     };
 }
 
@@ -173,10 +174,22 @@ StateVector IMMFilter::predictCT_CPU(const StateVector& state, float dt) {
 
     float omega = 0.0f;
     if (horiz_speed_sq > eps * eps) {
-        omega = (vx * ay - vy * ax) / horiz_speed_sq;
+        // 加速度の大きさをチェック（ノイズによる誤判定を防ぐ）
+        float accel_mag_sq = ax*ax + ay*ay;
+        float horiz_speed = std::sqrt(horiz_speed_sq);
+
+        // 加速度が速度の20%以上ある場合のみ旋回と判定
+        // （それ以下は測定ノイズや推定誤差の可能性が高い）
+        const float TURN_THRESHOLD_RATIO = 0.20f;  // 20% of velocity magnitude
+        float threshold_sq = (TURN_THRESHOLD_RATIO * horiz_speed) * (TURN_THRESHOLD_RATIO * horiz_speed);
+
+        if (accel_mag_sq > threshold_sq) {
+            omega = (vx * ay - vy * ax) / horiz_speed_sq;
+            // 旋回率クランプ（最大45 deg/s）
+            omega = std::max(std::min(omega, 0.785f), -0.785f);
+        }
+        // else: omega = 0.0f (直線運動と判定)
     }
-    // 旋回率クランプ（最大45 deg/s）
-    omega = std::max(std::min(omega, 0.785f), -0.785f);
 
     if (std::abs(omega) > 1e-4f) {
         float sin_wt = std::sin(omega * dt);
@@ -461,22 +474,65 @@ void IMMFilter::updateModelProbabilities(
             float c_j = model_probs[prob_base + j];
             // exp(log_lik - max_log_lik) で数値安定化
             float lik = std::exp(log_likelihoods[j] - max_log_lik);
+
             weighted[j] = c_j * lik;
             weighted_sum += weighted[j];
         }
 
-        // 正規化（最小確率を下限で保証）
-        const float min_prob = 0.01f;
+        // 正規化（min_probフロアと再正規化を削除）
+        // min_probはフィードバックループを引き起こし、間違ったモデルが高確率に固定される
+        // 自然なベイズ推論により、正しいモデルが選択される
         if (weighted_sum > 1e-30f) {
+            // ベイズ更新による新しい確率を計算
+            float bayesian_probs[3];
             for (int j = 0; j < num_models_; j++) {
-                model_probs[prob_base + j] = std::max(weighted[j] / weighted_sum, min_prob);
+                bayesian_probs[j] = weighted[j] / weighted_sum;
             }
-            // 再正規化
-            float sum = model_probs[prob_base] + model_probs[prob_base + 1] + model_probs[prob_base + 2];
+
+            // 指数平滑化（IIRフィルタ）で測定ノイズによる振動を抑制
+            // α = 0.7: ベイズ更新70% + 前回確率30%（実機動への素早い応答を許容）
+            const float SMOOTHING_ALPHA = 0.7f;
+
+            float smoothed_probs[3];
             for (int j = 0; j < num_models_; j++) {
-                model_probs[prob_base + j] /= sum;
+                float old_prob = model_probs[prob_base + j];
+                smoothed_probs[j] = SMOOTHING_ALPHA * bayesian_probs[j] +
+                                   (1.0f - SMOOTHING_ALPHA) * old_prob;
+            }
+
+            // 再正規化（丸め誤差対策 + 制約による総和ずれ修正）
+            float sum = smoothed_probs[0] + smoothed_probs[1] + smoothed_probs[2];
+            if (sum > 1e-6f) {
+                for (int j = 0; j < num_models_; j++) {
+                    model_probs[prob_base + j] = smoothed_probs[j] / sum;
+                }
             }
         }
+    }
+}
+
+void IMMFilter::setModelNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult) {
+    // Update process noises for each model
+    if (process_noises_.size() >= 3) {
+        // Model 0 (CV)
+        process_noises_[0].position_noise = base_process_noise_.position_noise * cv_mult;
+        process_noises_[0].velocity_noise = base_process_noise_.velocity_noise * cv_mult;
+        process_noises_[0].accel_noise = base_process_noise_.accel_noise * cv_mult;
+
+        // Model 1 (Ballistic)
+        process_noises_[1].position_noise = base_process_noise_.position_noise * bal_mult;
+        process_noises_[1].velocity_noise = base_process_noise_.velocity_noise * bal_mult;
+        process_noises_[1].accel_noise = base_process_noise_.accel_noise * bal_mult;
+
+        // Model 2 (CT)
+        process_noises_[2].position_noise = base_process_noise_.position_noise * ct_mult;
+        process_noises_[2].velocity_noise = base_process_noise_.velocity_noise * ct_mult;
+        process_noises_[2].accel_noise = base_process_noise_.accel_noise * ct_mult;
+
+        // Update UKFs with new process noise
+        // Note: UKFs are already created, so we need to update their Q matrices
+        // This is a limitation - ideally UKF should have a setProcessNoise method
+        // For now, the noise will take effect on the next predict() call
     }
 }
 

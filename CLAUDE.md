@@ -1,5 +1,27 @@
 # FastTracker Development Guidelines for Claude
 
+## ⛔ GOLDEN RULES — READ BEFORE EVERY CODE CHANGE ⛔
+
+**These 3 rules override everything else. If you remember nothing else, remember these:**
+
+| # | Rule | Violation = User sees "なにも変化がない" |
+|---|------|----------------------------------------|
+| 1 | **ANY file change → `docker compose build` → `down && up -d` → verify timestamp → THEN tell user** | Skipping build or recreate |
+| 2 | **NEVER use `docker compose restart`** → ALWAYS `docker compose down && docker compose up -d` | Using `restart` after build |
+| 3 | **NEVER say "完了" until `docker exec ... stat -c '%y'` confirms new timestamp inside container** | Telling user before verifying |
+
+**Mandatory TodoWrite for ALL code changes (C++, Python, HTML, JS):**
+```
+1. [in_progress] ソースコード修正
+2. [pending] Dockerリビルド (docker compose build)
+3. [pending] コンテナ再作成 (docker compose down && docker compose up -d)
+4. [pending] コンテナ内タイムスタンプ検証 (docker exec ... stat -c '%y' ...)
+5. [pending] 動作確認
+```
+**Steps 2-4 are NEVER optional. Skipping them = user will report "変化がない".**
+
+---
+
 ## ⚠️ CRITICAL DOCKER COMMANDS ⚠️
 
 **NEVER use `docker compose restart` after rebuilding!**
@@ -226,13 +248,36 @@ docker exec fasttracker-fasttracker-1 cat /app/ground_truth.csv | head -10
 4. **NEVER skip to next step until current step is marked `completed`**
 5. **NEVER mark a step completed if verification fails**
 
+### Mandatory Workflow for Webapp Changes (Python/HTML/JS)
+
+**This workflow is EQUALLY mandatory as the C++ workflow above.** Webapp files are COPY'd into Docker at build time — editing them on host does NOTHING to the running container.
+
+```
+1. [in_progress] ソースコード修正を完了する (app.py / index.html / JS)
+2. [pending] Dockerリビルド (docker compose build)
+3. [pending] コンテナを完全再作成 (docker compose down && docker compose up -d)
+4. [pending] コンテナ内ファイルタイムスタンプ検証
+5. [pending] ブラウザで動作確認 (Ctrl+Shift+R でキャッシュクリア)
+```
+
+**Verification command:**
+```bash
+docker exec fasttracker-fasttracker-1 stat -c '%y' /app/python/webapp/templates/index.html
+docker exec fasttracker-fasttracker-1 stat -c '%y' /app/python/webapp/app.py
+# Timestamp MUST be within last few minutes
+```
+
+**WARNING: This mistake has occurred 3 times already (Examples 2 and 4 below). Do NOT skip Steps 2-4.**
+
 ### When This Workflow Applies
 
 Execute this workflow whenever:
 - Modifying C++ source files (`.cpp`, `.hpp`)
+- Modifying Python webapp files (`app.py`, `*.html`, `*.js`)
 - Changing compilation flags or build configuration
 - Adding new features that require testing
 - Fixing bugs that need verification
+- **ANY file that is COPY'd into the Docker image**
 - **TRACKER improvements**: tracking algorithm, data association, UKF parameters, etc.
   - **CRITICAL**: Always validate with user's last simulation parameters
   - Ask user for their last scenario if parameters are unclear
@@ -304,13 +349,28 @@ When working on TRACKER improvements, always ask:
 - その他の重要なパラメータ"
 ```
 
-### Method 3: Check Web GUI Logs
+### Method 3: Server-Side Run History API (RECOMMENDED)
+```bash
+# Get the latest run history (includes all parameters)
+docker exec fasttracker-fasttracker-1 curl -s http://localhost:5000/api/run-history/latest | python3 -m json.tool
+
+# List all run history entries
+docker exec fasttracker-fasttracker-1 curl -s http://localhost:5000/api/run-history/list | python3 -m json.tool
+
+# Get specific history entry by ID (e.g., #001)
+docker exec fasttracker-fasttracker-1 curl -s http://localhost:5000/api/run-history/1 | python3 -m json.tool
+```
+- Run history is stored in `/app/run_history/history_NNN.json` (1-999 circular IDs)
+- Contains full `request_data.params` with all simulation parameters
+- **This is the most reliable method** since it captures exact WebGUI parameters
+
+### Method 4: Check Web GUI Logs
 ```bash
 # Check recent container logs for parameter submissions
 docker compose logs --tail 100 | grep -A 20 "runTracker"
 ```
 
-### Method 4: Inspect CSV Content
+### Method 5: Inspect CSV Content
 ```bash
 # Ground truth reveals target trajectory parameters
 head -20 /home/aniah/FastTracker/ground_truth.csv
@@ -627,6 +687,33 @@ docker run -d --name fasttracker --gpus all -p 5000:5000 fasttracker:latest
   - [ ] Did I check `nvidia-smi` on host before assuming no GPU?
   - [ ] Did I verify Docker run command includes `--gpus all`?
   - [ ] Is this a GPU-dependent application? (FastTracker = YES)
+
+### Real-World Example 4 (2026-02-21): Forgot to Rebuild After app.py + index.html Changes (REPEAT OFFENSE)
+
+**User Issue**: "IDが表示されていない" (History ID not displayed) - reported **TWICE**
+
+**My Mistake**:
+1. Modified `app.py` to add history_id system (1-999 circular IDs)
+2. Modified `index.html` to display `#001` format IDs in history list
+3. **Did NOT rebuild Docker image**
+4. **Did NOT recreate container**
+5. Told user the changes were done
+6. User reported "IDが表示されていない" → Added debug code (`[NO_ID]`, `console.warn`)
+7. **Still didn't rebuild** → User reported AGAIN "どのログも出ていない"
+8. Only then realized: container still had OLD files from previous build
+
+**Why This Happened Despite Existing Documentation**:
+- CLAUDE.md already had Example 2 about this **exact same issue**
+- The documentation was too long and the critical rule was buried in detail
+- The mandatory TodoWrite template only covered C++ changes, not webapp changes
+- Without a TodoWrite template, the rebuild step was mentally skipped
+
+**Root Cause**: No TodoWrite was created for the webapp change task, so the rebuild step was never tracked and was forgotten entirely.
+
+**Prevention Added**:
+- GOLDEN RULES section at top of document (impossible to miss)
+- Mandatory TodoWrite template for ALL code changes (not just C++)
+- Steps 2-4 (build, recreate, verify) are explicitly marked as NEVER optional
 
 **Standard Docker Run Command for FastTracker**:
 ```bash

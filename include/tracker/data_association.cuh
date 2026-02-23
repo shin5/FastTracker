@@ -88,6 +88,7 @@ private:
     // 作業用メモリ
     cuda::DeviceMemory<float> d_pred_meas_;         // [max_tracks * MEAS_DIM]
     cuda::DeviceMemory<float> d_innovation_covs_;   // [max_tracks * MEAS_DIM * MEAS_DIM]
+    cuda::DeviceMemory<float> d_meas_noise_stds_;   // [MEAS_DIM] pre-allocated to avoid per-frame malloc
 
     /**
      * @brief コスト行列を計算（GPU）

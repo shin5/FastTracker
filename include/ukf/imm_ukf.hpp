@@ -65,6 +65,24 @@ public:
 
     int getNumModels() const { return num_models_; }
 
+    /**
+     * @brief モデル遷移確率行列を設定
+     * @param matrix 3x3遷移確率行列
+     */
+    void setTransitionMatrix(const std::vector<std::vector<float>>& matrix) {
+        if (matrix.size() >= 3 && matrix[0].size() >= 3) {
+            transition_matrix_ = matrix;
+        }
+    }
+
+    /**
+     * @brief モデル別プロセスノイズ倍率を設定
+     * @param cv_mult CV モデルのノイズ倍率 (デフォルト: 0.1)
+     * @param bal_mult Ballistic モデルのノイズ倍率 (デフォルト: 0.3)
+     * @param ct_mult CT モデルのノイズ倍率 (デフォルト: 1.0)
+     */
+    void setModelNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult);
+
 private:
     int num_models_;
     int max_targets_;
@@ -77,6 +95,9 @@ private:
 
     // プロセスノイズ（各モデル用）
     std::vector<ProcessNoise> process_noises_;
+
+    // 基準プロセスノイズ（倍率計算用）
+    ProcessNoise base_process_noise_;
 
     // 観測ノイズ（尤度計算用）
     MeasurementNoise meas_noise_;

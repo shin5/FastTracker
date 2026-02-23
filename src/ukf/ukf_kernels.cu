@@ -542,7 +542,13 @@ __global__ void fusedPredict(
     if (tid == 0) {
         const float scale = sqrtf(n + lambda);
         float L[STATE_DIM * STATE_DIM];
-        cholesky(cov, L, n);
+        bool chol_ok = cholesky(cov, L, n);
+        if (!chol_ok) {
+            // Covariance is not positive-definite (numerical drift); use identity
+            // to prevent NaN sigma points that would corrupt downstream calculations.
+            for (int i = 0; i < n * n; i++) L[i] = 0.0f;
+            for (int i = 0; i < n; i++) L[i * n + i] = 1.0f;
+        }
 
         for (int i = 0; i < n; i++) {
             s_sigma_points[i] = state[i];

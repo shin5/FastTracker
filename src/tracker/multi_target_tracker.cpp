@@ -240,21 +240,141 @@ void MultiTargetTracker::update(const std::vector<Measurement>& measurements,
         for (int j = 0; j < num_assoc; j++) {
             int ti = associated_track_indices[j];
             if (isStateValid(assoc_states[j], assoc_covs[j])) {
-                track_manager_->updateTrack(tracks[ti].id,
-                                            assoc_states[j], assoc_covs[j],
-                                            current_time);
+                // 位置ジャンプチェック: 予測→更新の移動距離が物理上限を超えたら棄却
+                float dx = assoc_states[j](0) - tracks[ti].state(0);
+                float dy = assoc_states[j](1) - tracks[ti].state(1);
+                float dz = assoc_states[j](2) - tracks[ti].state(2);
+                float jump_dist = std::sqrt(dx*dx + dy*dy + dz*dz);
+                // 最大許容ジャンプ: max_jump_velocity × dt × 5倍安全率、最低10km (0=無制限)
+                float max_jump_vel = assoc_params_.max_jump_velocity;
+                float max_jump = (max_jump_vel > 0.0f)
+                    ? std::max(max_jump_vel * static_cast<float>(dt) * 5.0f, 10000.0f)
+                    : std::numeric_limits<float>::max();
+
+                if (jump_dist > max_jump) {
+                    std::cerr << "  [JUMP REJECT] Track " << tracks[ti].id
+                              << " jump=" << (jump_dist/1000.0f) << " km"
+                              << " > max=" << (max_jump/1000.0f) << " km"
+                              << " -> predict only" << std::endl;
+                    track_manager_->predictOnlyTrack(tracks[ti].id,
+                                                     tracks[ti].state,
+                                                     tracks[ti].covariance,
+                                                     current_time);
+                    // 棄却された観測値を未割り当てに戻す（新規トラック初期化に利用可能）
+                    assoc_result.unassigned_measurements.push_back(associated_meas_indices[j]);
+                } else {
+                    track_manager_->updateTrack(tracks[ti].id,
+                                                assoc_states[j], assoc_covs[j],
+                                                current_time);
+                }
             } else {
                 // UKF更新結果が異常値 → 今フレームの予測状態を維持してミス扱い
                 track_manager_->predictOnlyTrack(tracks[ti].id,
                                                  tracks[ti].state,
                                                  tracks[ti].covariance,
                                                  current_time);
+                // 異常値の観測値も未割り当てに戻す
+                assoc_result.unassigned_measurements.push_back(associated_meas_indices[j]);
+            }
+        }
+    }
+
+    // === 観測値共有（簡易JPDA）: 未分解目標の航跡継続を支援 ===
+    // 若いTENTATIVE/CONFIRMED航跡が観測なしの場合、近傍の確定航跡に割り当て済み
+    // の観測値を共有してUKF更新する。レンジ分解能内で目標がマージされた場合に、
+    // 2つ目の航跡が観測を得られず消滅する問題を防止する。
+    const int SHARING_AGE_LIMIT = 30;  // この年齢以下の航跡のみ共有対象
+    const float SHARING_DIST_SQ = 5000.0f * 5000.0f;  // 5km以内の観測を共有
+
+    std::vector<int> shared_track_indices;
+    std::vector<int> shared_meas_indices;
+    std::vector<int> remaining_unassoc_tracks;
+
+    for (int ti : unassociated_track_indices) {
+        const Track& unassigned = tracks[ti];
+        // 共有条件: 若い航跡で、少なくとも1回は検出済み（クラッタ航跡を排除）
+        bool eligible = (unassigned.age <= SHARING_AGE_LIMIT)
+                     && (unassigned.hits > 0)
+                     && (unassigned.track_state == TrackState::TENTATIVE
+                         || unassigned.track_state == TrackState::CONFIRMED);
+
+        if (eligible && !associated_meas_indices.empty()) {
+            // 最近傍の割り当て済み観測を検索（直交座標距離）
+            int best_meas = -1;
+            float best_dist_sq = SHARING_DIST_SQ;
+
+            for (size_t j = 0; j < associated_meas_indices.size(); j++) {
+                int mi = associated_meas_indices[j];
+                float r = measurements[mi].range;
+                float az = measurements[mi].azimuth;
+                float el = measurements[mi].elevation;
+                float r_h = r * std::cos(el);
+                float mx = r_h * std::cos(az) + sensor_x_;
+                float my = r_h * std::sin(az) + sensor_y_;
+                float mz = r * std::sin(el) + sensor_z_;
+
+                float dx = mx - unassigned.state(0);
+                float dy = my - unassigned.state(1);
+                float dz = mz - unassigned.state(2);
+                float dist_sq = dx*dx + dy*dy + dz*dz;
+
+                if (dist_sq < best_dist_sq) {
+                    best_dist_sq = dist_sq;
+                    best_meas = mi;
+                }
+            }
+
+            if (best_meas >= 0) {
+                shared_track_indices.push_back(ti);
+                shared_meas_indices.push_back(best_meas);
+                continue;
+            }
+        }
+        remaining_unassoc_tracks.push_back(ti);
+    }
+
+    // 共有航跡のバッチUKF更新
+    if (!shared_track_indices.empty()) {
+        int num_shared = static_cast<int>(shared_track_indices.size());
+        std::vector<StateVector> shared_states(num_shared);
+        std::vector<StateCov> shared_covs(num_shared);
+        std::vector<float> shared_meas(num_shared * MEAS_DIM);
+
+        for (int j = 0; j < num_shared; j++) {
+            int ti = shared_track_indices[j];
+            int mi = shared_meas_indices[j];
+            shared_states[j] = tracks[ti].state;
+            shared_covs[j] = tracks[ti].covariance;
+            shared_meas[j * MEAS_DIM + 0] = measurements[mi].range;
+            shared_meas[j * MEAS_DIM + 1] = measurements[mi].azimuth;
+            shared_meas[j * MEAS_DIM + 2] = measurements[mi].elevation;
+            shared_meas[j * MEAS_DIM + 3] = measurements[mi].doppler;
+        }
+
+        ukf_->copyToDevice(shared_states, shared_covs);
+        d_meas_.copyFrom(shared_meas.data(), static_cast<size_t>(num_shared) * MEAS_DIM);
+        ukf_->update(ukf_->getDeviceStates(), ukf_->getDeviceCovariances(),
+                     d_meas_.get(), num_shared, sensor_x_, sensor_y_, sensor_z_);
+        ukf_->copyToHost(shared_states, shared_covs, num_shared);
+
+        for (int j = 0; j < num_shared; j++) {
+            int ti = shared_track_indices[j];
+            if (isStateValid(shared_states[j], shared_covs[j])) {
+                track_manager_->updateTrack(tracks[ti].id,
+                                            shared_states[j], shared_covs[j],
+                                            current_time);
+            } else {
+                track_manager_->predictOnlyTrack(tracks[ti].id,
+                                                 tracks[ti].state,
+                                                 tracks[ti].covariance,
+                                                 current_time);
+                remaining_unassoc_tracks.push_back(ti);
             }
         }
     }
 
     // 観測が割り当てられなかったトラック: 予測のみ
-    for (int ti : unassociated_track_indices) {
+    for (int ti : remaining_unassoc_tracks) {
         track_manager_->predictOnlyTrack(tracks[ti].id,
                                          tracks[ti].state,
                                          tracks[ti].covariance,
@@ -387,26 +507,104 @@ void MultiTargetTracker::predictTracks(double dt) {
             }
         }
     }
+
+    // コースト膨張: 連続ミス中の航跡の共分散を膨張させ、ゲートを広く保つ
+    // これにより一時的な検出途切れ後の再捕捉確率が向上する
+    for (const auto& orig_track : tracks) {
+        if (orig_track.misses > 0) {
+            Track& track = track_manager_->getTrackMutable(orig_track.id);
+            // 二次的膨張: ミス数が増えるほど急速にゲート拡大
+            float coast_factor = 1.0f + 0.05f * static_cast<float>(orig_track.misses * orig_track.misses);
+            // 最大10倍に制限（発散防止）
+            coast_factor = std::min(coast_factor, 10.0f);
+            track.covariance *= coast_factor;
+        }
+    }
 }
 
 void MultiTargetTracker::initializeNewTracks(
     const std::vector<int>& unassigned_measurements,
     const std::vector<Measurement>& measurements)
 {
+    // 重複航跡防止リスト: 同一フレーム内の新規航跡 + 既存確認済み航跡
+    std::vector<StateVector> new_track_states;
+
+    // 既存航跡の位置を収集（重複生成防止）
+    // CONFIRMED/LOST: min_init_distance で抑制
+    // 成熟TENTATIVE (hits>=2): min_init_distance の半分で抑制（近距離のみ）
+    struct ProximityEntry { StateVector state; float dist_sq; };
+    std::vector<ProximityEntry> existing_track_entries;
+    if (assoc_params_.min_init_distance > 0.0f) {
+        float full_dist_sq = assoc_params_.min_init_distance * assoc_params_.min_init_distance;
+        float half_dist_sq = full_dist_sq * 0.25f;  // (min_init_distance/2)^2
+        auto all_tracks = track_manager_->getAllTracks();
+        for (const auto& t : all_tracks) {
+            if (t.track_state == TrackState::CONFIRMED || t.track_state == TrackState::LOST) {
+                existing_track_entries.push_back({t.state, full_dist_sq});
+            } else if (t.track_state == TrackState::TENTATIVE && t.hits >= 2) {
+                existing_track_entries.push_back({t.state, half_dist_sq});
+            }
+        }
+    }
+
     for (int idx : unassigned_measurements) {
         // トラック数の上限チェック
         if (track_manager_->getNumTracks() >= max_targets_) {
-            break;  // これ以上トラックを生成しない
+            break;
         }
 
         const auto& meas = measurements[idx];
 
-        // SNRベースのフィルタリング：低品質観測（クラッタ）を除外
+        // SNRベースのフィルタリング
         if (meas.snr < assoc_params_.min_snr_for_init) {
-            continue;  // クラッタと判断して新規トラック生成をスキップ
+            continue;
         }
 
-        track_manager_->initializeTrack(meas);
+        // 既存航跡・同一フレーム新規航跡との距離チェック
+        if (assoc_params_.min_init_distance > 0.0f) {
+            float r = meas.range;
+            float az = meas.azimuth;
+            float el = meas.elevation;
+            float r_horiz = r * std::cos(el);
+            float mx = r_horiz * std::cos(az) + sensor_x_;
+            float my = r_horiz * std::sin(az) + sensor_y_;
+            float mz = r * std::sin(el) + sensor_z_;
+
+            bool too_close = false;
+            float full_dist_sq = assoc_params_.min_init_distance * assoc_params_.min_init_distance;
+            // 既存航跡との距離チェック（状態別に異なる距離閾値）
+            for (const auto& entry : existing_track_entries) {
+                float dx = mx - entry.state(0), dy = my - entry.state(1), dz = mz - entry.state(2);
+                if (dx*dx + dy*dy + dz*dz < entry.dist_sq) {
+                    too_close = true;
+                    break;
+                }
+            }
+            // 同一フレーム内新規航跡との距離チェック
+            if (!too_close) {
+                for (const auto& s : new_track_states) {
+                    float dx = mx - s(0), dy = my - s(1), dz = mz - s(2);
+                    if (dx*dx + dy*dy + dz*dz < full_dist_sq) {
+                        too_close = true;
+                        break;
+                    }
+                }
+            }
+            if (too_close) continue;
+        }
+
+        int new_id = track_manager_->initializeTrack(meas);
+
+        // 新規航跡の位置を重複防止リストに追加
+        if (assoc_params_.min_init_distance > 0.0f) {
+            auto all_tracks = track_manager_->getAllTracks();
+            for (const auto& t : all_tracks) {
+                if (t.id == new_id) {
+                    new_track_states.push_back(t.state);
+                    break;
+                }
+            }
+        }
     }
 }
 

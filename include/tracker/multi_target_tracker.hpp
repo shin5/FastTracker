@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include "utils/types.hpp"
+#include "utils/cuda_utils.cuh"
 #include "ukf/ukf.cuh"
 #include "ukf/imm_ukf.hpp"
 #include "ukf/imm_ukf.cuh"
@@ -92,6 +93,20 @@ public:
     }
 
     /**
+     * @brief IMM遷移確率行列を設定
+     * @param matrix 3x3遷移確率行列 (行優先: [CV→CV, CV→Bal, CV→CT, Bal→CV, ...])
+     */
+    void setIMMTransitionMatrix(const std::vector<std::vector<float>>& matrix);
+
+    /**
+     * @brief IMMモデル別プロセスノイズ倍率を設定
+     * @param cv_mult CV モデルのノイズ倍率
+     * @param bal_mult Ballistic モデルのノイズ倍率
+     * @param ct_mult CT モデルのノイズ倍率
+     */
+    void setIMMNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult);
+
+    /**
      * @brief パフォーマンス統計を取得
      */
     struct PerformanceStats {
@@ -114,6 +129,11 @@ private:
     std::unique_ptr<IMMFilter> imm_cpu_;     // CPU版IMM
     std::unique_ptr<TrackManager> track_manager_;
     std::unique_ptr<DataAssociation> data_association_;
+
+    // UKF測定更新用デバイスメモリ（事前確保: ホットループ内cudaMalloc/cudaFreeを回避）
+    // WSL2/WDDM環境では反復cudaMallocがGPUメモリ断片化を引き起こし、
+    // エラーなし失敗（nullptr返却）からGPUフォルトに繋がる可能性がある。
+    cuda::DeviceMemory<float> d_meas_;
 
     // パラメータ
     int max_targets_;

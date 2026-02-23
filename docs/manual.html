@@ -337,6 +337,7 @@ td code { font-size: 12px; }
         <a href="#sec5-track" class="sub">5.4 トラック管理</a>
         <a href="#sec5-coord" class="sub">5.5 座標系</a>
         <a href="#sec5-eval" class="sub">5.6 評価指標</a>
+        <a href="#sec5-phases" class="sub">5.7 軌道フェーズ定義</a>
         <a href="#sec6">6. 付録</a>
         <a href="#sec6-params" class="sub">6.1 パラメータ一覧</a>
         <a href="#sec6-csvformat" class="sub">6.2 CSV出力フォーマット</a>
@@ -923,7 +924,6 @@ fasttracker.exe --mode auto-adjust \
     <tr><td><code>--search-sector</code></td><td>-1</td><td>サーチセクタ幅 [rad] (-1=FOV全体)</td></tr>
     <tr><td><code>--search-center</code></td><td>0</td><td>サーチセクタ中心方位 [rad]</td></tr>
     <tr><td><code>--antenna-boresight</code></td><td>0</td><td>アンテナ中心方位 [rad]</td></tr>
-    <tr><td><code>--search-elevation</code></td><td>0</td><td>サーチビーム仰角 [rad]</td></tr>
 </table>
 
 <h4>トラッカーパラメータ</h4>
@@ -1244,6 +1244,283 @@ $$
     <tr><td>Mostly Tracked (MT)</td><td>80%+フレームで追尾</td><td>十分に追尾できた目標数</td></tr>
     <tr><td>Partially Tracked (PT)</td><td>20-80%フレームで追尾</td><td>部分的に追尾できた目標数</td></tr>
     <tr><td>Mostly Lost (ML)</td><td>20%未満で追尾</td><td>ほぼ追尾できなかった目標数</td></tr>
+</table>
+
+
+
+<h3 id="sec5-phases">5.7 軌道フェーズ定義</h3>
+
+<p>
+弾道ミサイルとHGV（極超音速滑空体）の軌道は、複数のフェーズに分割されます。
+各フェーズは異なる物理的特性と制御ロジックを持ち、可視化時には異なる色で表示されます。
+</p>
+
+<h4>フェーズカラーコード</h4>
+<table>
+    <tr><th>フェーズ</th><th>色</th><th>適用対象</th><th>説明</th></tr>
+    <tr style="background: rgba(255,140,0,0.2);">
+        <td><strong>BOOST</strong></td>
+        <td><span style="color:#ff8c00;">●</span> オレンジ</td>
+        <td>弾道ミサイル / HGV</td>
+        <td>ブースト段階（上昇）</td>
+    </tr>
+    <tr style="background: rgba(50,200,255,0.2);">
+        <td><strong>MIDCOURSE</strong></td>
+        <td><span style="color:#32c8ff;">●</span> シアン</td>
+        <td>弾道ミサイル</td>
+        <td>中間飛翔段階（放物線）</td>
+    </tr>
+    <tr style="background: rgba(255,32,80,0.2);">
+        <td><strong>TERMINAL</strong></td>
+        <td><span style="color:#ff2050;">●</span> 赤</td>
+        <td>弾道ミサイル / HGV</td>
+        <td>終末段階（落下・機動）</td>
+    </tr>
+    <tr style="background: rgba(255,204,0,0.2);">
+        <td><strong>PULLUP</strong></td>
+        <td><span style="color:#ffcc00;">●</span> ゴールド</td>
+        <td>HGV専用</td>
+        <td>引き起こし遷移</td>
+    </tr>
+    <tr style="background: rgba(157,78,221,0.2);">
+        <td><strong>GLIDE</strong></td>
+        <td><span style="color:#9d4edd;">●</span> 紫</td>
+        <td>HGV専用</td>
+        <td>超音速滑空飛翔</td>
+    </tr>
+</table>
+
+<h4>弾道ミサイルのフェーズ遷移</h4>
+
+<div class="box" style="background: var(--code-bg); padding: 12px; margin: 16px 0; border-left: 3px solid var(--accent);">
+    <strong>BOOST</strong> → <strong>MIDCOURSE</strong> → <strong>TERMINAL</strong>
+</div>
+
+<h5>1. BOOST（ブースト段階）</h5>
+<p><strong>開始条件:</strong> <code>t = 0</code>（発射時刻）</p>
+<p><strong>終了条件:</strong> <code>t >= boost_duration</code>（ブースト燃焼時間経過）</p>
+<p><strong>物理的特性:</strong></p>
+<ul>
+    <li>エンジン推力による加速上昇</li>
+    <li>質量減少（燃料消費）</li>
+    <li>大気抵抗が支配的（低高度）</li>
+</ul>
+
+<h5>2. MIDCOURSE（中間飛翔段階）</h5>
+<p><strong>開始条件:</strong> ブースト終了後 <strong>かつ</strong> 以下のいずれか</p>
+<ul>
+    <li><code>vz > 0</code>（上昇中）</li>
+    <li><code>z > 50,000 m</code>（高度50km以上）</li>
+</ul>
+<p><strong>終了条件:</strong> <code>vz ≤ 0</code> <strong>かつ</strong> <code>z ≤ 50,000 m</code></p>
+<p><strong>物理的特性:</strong></p>
+<ul>
+    <li>推力なし（慣性飛行）</li>
+    <li>放物線軌道</li>
+    <li>大気圏外または希薄大気（抵抗小）</li>
+</ul>
+
+<h5>3. TERMINAL（終末段階）</h5>
+<p><strong>開始条件:</strong> <code>vz ≤ 0</code>（降下中） <strong>かつ</strong> <code>z ≤ 50,000 m</code>（再突入）</p>
+<p><strong>終了条件:</strong> <code>z ≤ 0</code>（着弾）</p>
+<p><strong>物理的特性:</strong></p>
+<ul>
+    <li>急速降下・再突入</li>
+    <li>大気抵抗による減速（高温加熱）</li>
+    <li>回避機動が有効（<code>terminal_maneuver_amp</code> / <code>terminal_maneuver_freq</code>）</li>
+</ul>
+
+<div class="math-block">
+$$
+\text{Phase} = \begin{cases}
+\text{BOOST} & \text{if } t < t_{\text{boost}} \\
+\text{MIDCOURSE} & \text{if } v_z > 0 \text{ or } z > 50\,\text{km} \\
+\text{TERMINAL} & \text{if } v_z \leq 0 \text{ and } z \leq 50\,\text{km}
+\end{cases}
+$$
+</div>
+
+<h4>HGVのフェーズ遷移</h4>
+
+<div class="box" style="background: var(--code-bg); padding: 12px; margin: 16px 0; border-left: 3px solid var(--accent);">
+    <strong>BOOST</strong> → <strong>PULLUP</strong> → <strong>GLIDE</strong> → <strong>TERMINAL</strong>
+</div>
+
+<h5>1. BOOST（ブースト段階）</h5>
+<p>弾道ミサイルと同様。</p>
+
+<h5>2. PULLUP（引き起こし遷移）</h5>
+<p><strong>開始条件:</strong> <code>t >= boost_duration</code>（ブースト終了直後）</p>
+<p><strong>終了条件:</strong> 以下のいずれかを満たす（物理ベースの遷移）</p>
+
+<table>
+    <tr><th>条件名</th><th>判定式</th><th>意味</th></tr>
+    <tr>
+        <td><code>angle_ok</code></td>
+        <td><code>|γ| &lt; 4.6°</code> <strong>かつ</strong> <code>L/W > 0.5</code> <strong>かつ</strong> <code>Δt > 10s</code></td>
+        <td>ほぼ水平飛行達成</td>
+    </tr>
+    <tr>
+        <td><code>descending_with_lift</code></td>
+        <td><code>γ &lt; -1.1°</code> <strong>かつ</strong> <code>L/W > 0.3</code> <strong>かつ</strong> <code>z &lt; 1.5×h_cruise</code> <strong>かつ</strong> <code>Δt > 15s</code></td>
+        <td>降下中だが揚力で引き起こし可能</td>
+    </tr>
+    <tr>
+        <td><code>near_cruise</code></td>
+        <td><code>|z - h_cruise| &lt; 15km</code> <strong>かつ</strong> <code>|γ| &lt; 14.3°</code> <strong>かつ</strong> <code>L/W > 0.1</code></td>
+        <td>巡航高度帯で中程度の経路角</td>
+    </tr>
+    <tr>
+        <td><code>timeout</code></td>
+        <td><code>Δt > 300s</code> <strong>かつ</strong> <code>L/W > 0.05</code></td>
+        <td>タイムアウト（安全装置）</td>
+    </tr>
+</table>
+
+<p>ただし、<code>γ</code> = 飛翔経路角、<code>L</code> = 揚力、<code>W</code> = 重力、<code>h_cruise</code> = 巡航高度、<code>Δt</code> = PULLUP開始からの経過時間</p>
+
+<p><strong>制御ロジック:</strong></p>
+<ul>
+    <li><strong>目標:</strong> 飛翔経路角 γ を 0 に減衰させる（上昇軌道 → 水平飛行）</li>
+    <li><strong>制御手段:</strong> バンク角 σ を調整して揚力の鉛直成分を制御</li>
+    <li>γ > 0（上昇中） → バンクを増やして鉛直揚力を減らす</li>
+    <li>γ ≈ 0（水平） → バンクなし（揚力 = 重力）</li>
+    <li>γ < 0（降下中） → バンクを減らして引き起こし</li>
+</ul>
+
+<div class="math-block">
+$$
+\text{目標: } \gamma \to 0, \qquad
+L \cos\sigma = W \cos\gamma + \text{補正項}
+$$
+</div>
+
+<p><strong>物理的意味:</strong></p>
+<ul>
+    <li>ブースト終了時は高速上昇中（γ > 0）</li>
+    <li>そのまま放置すると宇宙空間に飛び出す</li>
+    <li>バンク角で揚力の向きを調整し、経路を水平に曲げる</li>
+    <li>大気との相互作用で水平飛行に遷移させる<strong>制御フェーズ</strong></li>
+</ul>
+
+<h5>3. GLIDE（超音速滑空飛翔）</h5>
+<p><strong>開始条件:</strong> PULLUP終了条件を満たす</p>
+<p><strong>終了条件:</strong> 以下のいずれかを満たす</p>
+<ul>
+    <li><code>距離 < terminal_dive_range</code>（目標までの水平距離が終末ダイブ開始距離以下、デフォルト20km）</li>
+    <li><code>スキップ回数 >= num_skips</code>（指定スキップ回数に到達）</li>
+</ul>
+
+<p><strong>物理的特性:</strong></p>
+<ul>
+    <li>揚抗比（L/D）による効率的な滑空飛行</li>
+    <li>スキップ軌道（大気圏への出入りを繰り返す）の実現</li>
+    <li>バンク角制御による方位修正と揚力調整</li>
+</ul>
+
+<p><strong>スキップ検出:</strong> <code>vz</code> が正→負に変化（高度ピーク通過）でスキップ1回とカウント</p>
+
+<h5>4. TERMINAL（終末ダイブ）</h5>
+<p><strong>開始条件:</strong></p>
+<ul>
+    <li><code>距離 < terminal_dive_range</code>（目標近接、デフォルト20km）</li>
+    <li><strong>または</strong> <code>スキップ回数 >= num_skips</code>（指定スキップ完了）</li>
+</ul>
+<p><strong>終了条件:</strong> <code>z ≤ 0</code>（着弾）</p>
+
+<p><strong>物理的特性:</strong></p>
+<ul>
+    <li>目標に向かって最終ダイブ</li>
+    <li>高速降下による運動エネルギー最大化</li>
+    <li>回避機動による迎撃回避</li>
+</ul>
+
+<h4>コード実装リファレンス</h4>
+<table>
+    <tr><th>フェーズ</th><th>ミサイル種別</th><th>判定ロジック実装箇所</th></tr>
+    <tr>
+        <td>BOOST → MIDCOURSE</td>
+        <td>弾道ミサイル</td>
+        <td><code>target_generator_missiles.cpp:238-246</code></td>
+    </tr>
+    <tr>
+        <td>MIDCOURSE → TERMINAL</td>
+        <td>弾道ミサイル</td>
+        <td><code>target_generator_missiles.cpp:241-244</code></td>
+    </tr>
+    <tr>
+        <td>BOOST → PULLUP</td>
+        <td>HGV</td>
+        <td><code>target_generator_missiles.cpp:684-700</code></td>
+    </tr>
+    <tr>
+        <td>PULLUP → GLIDE</td>
+        <td>HGV</td>
+        <td><code>target_generator_missiles.cpp:701-742</code></td>
+    </tr>
+    <tr>
+        <td>GLIDE → TERMINAL</td>
+        <td>HGV</td>
+        <td><code>target_generator_missiles.cpp:759-771</code></td>
+    </tr>
+    <tr>
+        <td>PULLUP制御ロジック</td>
+        <td>HGV</td>
+        <td><code>target_generator_missiles.cpp:408-445</code></td>
+    </tr>
+</table>
+
+<h4>パラメータ</h4>
+<table>
+    <tr><th>パラメータ名</th><th>デフォルト値</th><th>説明</th><th>適用フェーズ</th></tr>
+    <tr>
+        <td><code>boost_duration</code></td>
+        <td>65 s</td>
+        <td>ブースト燃焼時間</td>
+        <td>BOOST</td>
+    </tr>
+    <tr>
+        <td><code>terminal_maneuver_amp</code></td>
+        <td>5.0 m/s²</td>
+        <td>終末機動振幅</td>
+        <td>TERMINAL</td>
+    </tr>
+    <tr>
+        <td><code>terminal_maneuver_freq</code></td>
+        <td>0.5 Hz</td>
+        <td>終末機動周波数</td>
+        <td>TERMINAL</td>
+    </tr>
+    <tr>
+        <td><code>cruise_altitude</code></td>
+        <td>40,000 m</td>
+        <td>目標巡航高度</td>
+        <td>PULLUP / GLIDE</td>
+    </tr>
+    <tr>
+        <td><code>glide_ratio</code></td>
+        <td>4.0</td>
+        <td>揚抗比 (L/D)</td>
+        <td>PULLUP / GLIDE</td>
+    </tr>
+    <tr>
+        <td><code>terminal_dive_range</code></td>
+        <td>20,000 m</td>
+        <td>終末ダイブ開始距離</td>
+        <td>GLIDE → TERMINAL遷移</td>
+    </tr>
+    <tr>
+        <td><code>num_skips</code></td>
+        <td>0</td>
+        <td>許可するスキップ回数</td>
+        <td>GLIDE</td>
+    </tr>
+    <tr>
+        <td><code>bank_angle_max</code></td>
+        <td>0 rad</td>
+        <td>最大バンク角</td>
+        <td>PULLUP / GLIDE</td>
+    </tr>
 </table>
 
 

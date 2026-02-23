@@ -412,8 +412,11 @@ void TrackingEvaluator::printSummary() const {
             total_truth += frame.num_ground_truth;
             total_tracks += frame.num_tracks;
         }
-        std::cout << "  Avg GT Targets: " << (total_truth / (int)history_.size()) << std::endl;
-        std::cout << "  Avg Tracks: " << (total_tracks / (int)history_.size()) << std::endl;
+        float n = static_cast<float>(history_.size());
+        std::cout << std::fixed << std::setprecision(2);
+        std::cout << "  Avg GT Targets: " << (total_truth / n) << std::endl;
+        std::cout << "  Avg Tracks: " << (total_tracks / n) << std::endl;
+        std::cout << std::defaultfloat;
     }
 
     // Accuracy metrics

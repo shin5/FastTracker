@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iostream>
+#include <unordered_map>
 
 namespace fasttracker {
 
@@ -29,25 +30,60 @@ RadarSimulator::RadarSimulator(const TargetGenerator& target_gen,
 std::vector<Measurement> RadarSimulator::generate(double time) {
     std::vector<Measurement> measurements;
     true_associations_.clear();
+    beam_types_.clear();
 
     // 真の目標状態を取得
     std::vector<StateVector> true_states = target_gen_.generateStates(time);
     std::vector<int> active_ids = target_gen_.getActiveTargets(time);
     total_targets_ += static_cast<int>(true_states.size());
 
-    // 各目標からの観測を生成
+    // === Phase 1: 各目標の探知判定（ノイズ付加前） ===
+    struct PreDetection {
+        Measurement meas;   // ノイズ付加前の観測
+        int beam_idx;       // 探知ビームインデックス
+        int target_id;      // 真の目標ID
+        float snr_linear;   // 線形SNR（電力加算・重み付け用）
+    };
+    std::vector<PreDetection> pre_detections;
+
     for (size_t i = 0; i < true_states.size(); i++) {
         const auto& state = true_states[i];
 
-        // 視野内チェック
-        if (!isInFieldOfView(state)) continue;
+        // レーダー覆域内チェック（距離＋仰角のみ、方位角制限なし）
+        if (!isInRadarCoverage(state)) continue;
 
-        // ビームステアリング: アクティブビーム内かチェック
+        // ビームステアリング: アクティブビーム内かチェック（方位角・仰角の両方で判定）
+        int det_beam_idx = -1;
         {
             float dx = state(0) - params_.sensor_x;
             float dy = state(1) - params_.sensor_y;
+            float dz = state(2) - params_.sensor_z;
+            float r_horiz = std::sqrt(dx * dx + dy * dy);
             float az = std::atan2(dy, dx);
-            if (!isOnBeam(az)) continue;
+            float el = std::atan2(dz, r_horiz);
+            if (!isOnBeamWithIndex(az, el, det_beam_idx)) {
+                // 診断ログ: ビームミスの詳細（最初の10回のみ）
+                static int miss_log_count = 0;
+                if (miss_log_count < 10 && !beam_directions_.empty()) {
+                    float half_bw = params_.beam_width / 2.0f;
+                    std::cout << "[Beam Miss] Target el=" << (el * 180.0f / M_PI)
+                              << "deg, az=" << (az * 180.0f / M_PI) << "deg | Beams: ";
+                    for (size_t bi = 0; bi < std::min(beam_directions_.size(), size_t(3)); bi++) {
+                        float beam_el = (bi < beam_elevations_.size())
+                                        ? beam_elevations_[bi]
+                                        : 0.0f;
+                        float diff_el = std::fabs(el - beam_el) * 180.0f / M_PI;
+                        float diff_az = std::fabs(az - beam_directions_[bi]) * 180.0f / M_PI;
+                        std::cout << "[" << bi << "] el=" << (beam_el * 180.0f / M_PI)
+                                  << "deg (Δ=" << diff_el << "), az="
+                                  << (beam_directions_[bi] * 180.0f / M_PI)
+                                  << "deg (Δ=" << diff_az << ") ";
+                    }
+                    std::cout << "| half_bw=" << (half_bw * 180.0f / M_PI) << "deg" << std::endl;
+                    miss_log_count++;
+                }
+                continue;
+            }
         }
 
         // 観測生成（Swerling II SNRサンプリングを含む）
@@ -59,22 +95,129 @@ std::vector<Measurement> RadarSimulator::generate(double time) {
             continue;
         }
 
-        addNoise(meas);
-        meas.timestamp = time;
-        meas.sensor_id = sensor_id_;
-
-        measurements.push_back(meas);
         int target_id = (i < active_ids.size()) ? active_ids[i] : static_cast<int>(i);
-        true_associations_.push_back(target_id);
+        float snr_lin = std::pow(10.0f, meas.snr / 10.0f);
+        pre_detections.push_back({meas, det_beam_idx, target_id, snr_lin});
         total_detections_++;
+    }
+
+    // === Phase 2: レンジ分解能セル内の未分解目標をマージ ===
+    // 同一ビーム内で距離差 < range_resolution の目標群を1つの合成観測に統合
+    float res = params_.range_resolution;
+    if (res > 0.0f && pre_detections.size() > 1) {
+        // ビームインデックスでグループ化
+        std::unordered_map<int, std::vector<size_t>> beam_groups;
+        for (size_t i = 0; i < pre_detections.size(); i++) {
+            beam_groups[pre_detections[i].beam_idx].push_back(i);
+        }
+
+        std::vector<PreDetection> merged_detections;
+        static int merge_log_count = 0;
+
+        for (auto& [bidx, indices] : beam_groups) {
+            if (indices.size() <= 1) {
+                for (size_t idx : indices) {
+                    merged_detections.push_back(pre_detections[idx]);
+                }
+                continue;
+            }
+
+            // レンジ順にソート
+            std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
+                return pre_detections[a].meas.range < pre_detections[b].meas.range;
+            });
+
+            // 固定窓クラスタリング: クラスタ先頭からの距離差 < range_resolution でグループ化
+            // チェーン効果を防止（A-B未分解、B-C未分解でもA-C分解なら別クラスタ）
+            std::vector<std::vector<size_t>> clusters;
+            clusters.push_back({indices[0]});
+            float cluster_anchor = pre_detections[indices[0]].meas.range;
+            for (size_t j = 1; j < indices.size(); j++) {
+                float curr_range = pre_detections[indices[j]].meas.range;
+                if (curr_range - cluster_anchor < res) {
+                    clusters.back().push_back(indices[j]);
+                } else {
+                    cluster_anchor = curr_range;
+                    clusters.push_back({indices[j]});
+                }
+            }
+
+            for (auto& cluster : clusters) {
+                if (cluster.size() == 1) {
+                    merged_detections.push_back(pre_detections[cluster[0]]);
+                } else {
+                    // 電力加重平均で合成観測を生成
+                    float total_snr_lin = 0.0f;
+                    float w_range = 0.0f, w_az = 0.0f, w_el = 0.0f, w_doppler = 0.0f;
+                    int dominant_id = -1;
+                    float max_snr = -1.0f;
+
+                    for (size_t idx : cluster) {
+                        auto& pd = pre_detections[idx];
+                        float w = pd.snr_linear;
+                        total_snr_lin += w;
+                        w_range += w * pd.meas.range;
+                        w_az += w * pd.meas.azimuth;
+                        w_el += w * pd.meas.elevation;
+                        w_doppler += w * pd.meas.doppler;
+                        if (w > max_snr) {
+                            max_snr = w;
+                            dominant_id = pd.target_id;
+                        }
+                    }
+
+                    PreDetection merged;
+                    merged.beam_idx = pre_detections[cluster[0]].beam_idx;
+                    merged.target_id = dominant_id;  // 最大SNR目標のIDを継承
+                    merged.snr_linear = total_snr_lin;
+                    merged.meas.range = w_range / total_snr_lin;
+                    merged.meas.azimuth = w_az / total_snr_lin;
+                    merged.meas.elevation = w_el / total_snr_lin;
+                    merged.meas.doppler = w_doppler / total_snr_lin;
+                    merged.meas.snr = 10.0f * std::log10(total_snr_lin);  // 非干渉電力加算
+
+                    if (merge_log_count < 20) {
+                        float range_spread = pre_detections[cluster.back()].meas.range
+                                           - pre_detections[cluster[0]].meas.range;
+                        std::cout << "[Resolution Merge] " << cluster.size()
+                                  << " targets in beam " << merged.beam_idx
+                                  << " merged (Δr=" << range_spread << "m < "
+                                  << res << "m), dominant=tgt" << dominant_id
+                                  << ", SNR=" << merged.meas.snr << "dB" << std::endl;
+                        merge_log_count++;
+                    }
+
+                    merged_detections.push_back(merged);
+                }
+            }
+        }
+        pre_detections = merged_detections;
+    }
+
+    // === Phase 3: ノイズ付加・出力構築 ===
+    for (auto& pd : pre_detections) {
+        addNoise(pd.meas);
+        pd.meas.timestamp = time;
+        pd.meas.sensor_id = sensor_id_;
+
+        measurements.push_back(pd.meas);
+        true_associations_.push_back(pd.target_id);
+        // ビーム種別: beam_target_ranges_[beam_idx] > 0 なら追尾ビーム
+        int btype = 0;  // デフォルト: サーチ
+        if (pd.beam_idx >= 0 && pd.beam_idx < static_cast<int>(beam_target_ranges_.size())
+            && beam_target_ranges_[pd.beam_idx] > 0.0f) {
+            btype = 1;  // 追尾ビーム
+        }
+        beam_types_.push_back(btype);
     }
 
     // クラッタ生成
     auto clutter = generateClutter(time);
-    for (auto& c : clutter) {
-        c.is_clutter = true;
-        measurements.push_back(c);
-        true_associations_.push_back(-1);  // -1 = クラッタ
+    for (size_t ci = 0; ci < clutter.size(); ci++) {
+        measurements.push_back(clutter[ci]);
+        true_associations_.push_back(-1);  // -1 = クラッタ（評価用のみ）
+        int cbtype = (ci < clutter_beam_types_.size()) ? clutter_beam_types_[ci] : 0;
+        beam_types_.push_back(cbtype);
     }
     total_clutter_ += static_cast<int>(clutter.size());
 
@@ -85,13 +228,16 @@ std::vector<Measurement> RadarSimulator::generate(double time) {
 
     std::vector<Measurement> shuffled_meas;
     std::vector<int> shuffled_assoc;
+    std::vector<int> shuffled_beam_types;
     for (int idx : indices) {
         shuffled_meas.push_back(measurements[idx]);
         shuffled_assoc.push_back(true_associations_[idx]);
+        shuffled_beam_types.push_back(beam_types_[idx]);
     }
 
     measurements = shuffled_meas;
     true_associations_ = shuffled_assoc;
+    beam_types_ = shuffled_beam_types;
 
     return measurements;
 }
@@ -164,15 +310,37 @@ void RadarSimulator::addNoise(Measurement& meas) {
 
 std::vector<Measurement> RadarSimulator::generateClutter(double time) {
     std::vector<Measurement> clutter;
+    clutter_beam_types_.clear();
 
-    // 監視領域の面積
+    // サーチ領域の有効範囲を決定
+    float search_min = params_.search_min_range;
+    float search_max = (params_.search_max_range > 0.0f && params_.search_max_range < params_.max_range)
+                       ? params_.search_max_range
+                       : params_.max_range;
+
+    // 監視領域の面積（扇環形: sector annulus）
+    // 追尾ビームとサーチビームで距離範囲が異なる場合がある
     float surveillance_area;
     if (!beam_directions_.empty()) {
-        // ビームステアリング時: ビームセクタの合計面積
-        surveillance_area = static_cast<float>(beam_directions_.size()) *
-                           0.5f * params_.beam_width * params_.max_range * params_.max_range;
+        // ビームステアリング時: 各ビームの面積を個別計算
+        surveillance_area = 0.0f;
+        for (size_t b = 0; b < beam_directions_.size(); b++) {
+            float r_min, r_max;
+            // 追尾ビーム: 目標距離を中心とした限定範囲
+            if (params_.track_range_width > 0.0f &&
+                b < beam_target_ranges_.size() && beam_target_ranges_[b] > 0.0f) {
+                float half_w = params_.track_range_width / 2.0f;
+                r_min = std::max(beam_target_ranges_[b] - half_w, params_.min_range);
+                r_max = std::min(beam_target_ranges_[b] + half_w, params_.max_range);
+            } else {
+                // サーチビーム: フルレンジ
+                r_min = search_min;
+                r_max = search_max;
+            }
+            surveillance_area += 0.5f * params_.beam_width * (r_max * r_max - r_min * r_min);
+        }
     } else {
-        surveillance_area = M_PI * params_.max_range * params_.max_range;
+        surveillance_area = M_PI * (search_max * search_max - search_min * search_min);
     }
 
     // クラッタ数の期待値
@@ -185,27 +353,71 @@ std::vector<Measurement> RadarSimulator::generateClutter(double time) {
     for (int i = 0; i < num_clutter; i++) {
         Measurement meas;
 
-        // ランダムな位置にクラッタを生成
-        float r = params_.max_range * std::sqrt(uniform_dist_(rng_));
         float theta;
+        float clutter_el;
+        float r;
 
         if (!beam_directions_.empty()) {
             // ビーム内にクラッタを配置
             int beam_idx = static_cast<int>(uniform_dist_(rng_) * beam_directions_.size());
             if (beam_idx >= static_cast<int>(beam_directions_.size()))
                 beam_idx = static_cast<int>(beam_directions_.size()) - 1;
+
+            // ビームごとの距離範囲を決定
+            float r_min, r_max;
+            if (params_.track_range_width > 0.0f &&
+                beam_idx < static_cast<int>(beam_target_ranges_.size()) &&
+                beam_target_ranges_[beam_idx] > 0.0f) {
+                // 追尾ビーム: 目標距離±width/2 に制限
+                float half_w = params_.track_range_width / 2.0f;
+                r_min = std::max(beam_target_ranges_[beam_idx] - half_w, params_.min_range);
+                r_max = std::min(beam_target_ranges_[beam_idx] + half_w, params_.max_range);
+            } else {
+                // サーチビーム: フルレンジ
+                r_min = search_min;
+                r_max = search_max;
+            }
+
+            // 扇環形内で均一分布（r² 分布）
+            float u = uniform_dist_(rng_);
+            float r_sq = r_min * r_min + (r_max * r_max - r_min * r_min) * u;
+            r = std::sqrt(r_sq);
+
             float offset = (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
             theta = beam_directions_[beam_idx] + offset;
             // [-π, π] に正規化
             while (theta > static_cast<float>(M_PI)) theta -= 2.0f * static_cast<float>(M_PI);
             while (theta < -static_cast<float>(M_PI)) theta += 2.0f * static_cast<float>(M_PI);
+            // ビーム仰角: beam_elevations_ が設定されていれば使用、なければ 0°
+            float beam_el = (beam_idx < static_cast<int>(beam_elevations_.size()))
+                            ? beam_elevations_[beam_idx]
+                            : 0.0f;
+            clutter_el = beam_el + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
+
+            // ビーム種別記録
+            int cbtype = 0;
+            if (beam_idx < static_cast<int>(beam_target_ranges_.size())
+                && beam_target_ranges_[beam_idx] > 0.0f) {
+                cbtype = 1;  // 追尾ビーム
+            }
+            clutter_beam_types_.push_back(cbtype);
         } else {
-            theta = (uniform_dist_(rng_) - 0.5f) * params_.field_of_view;
+            // ビームステアリングなし: 方位覆域全体にクラッタ生成（antenna_boresight中心）
+            float u = uniform_dist_(rng_);
+            float r_sq = search_min * search_min + (search_max * search_max - search_min * search_min) * u;
+            r = std::sqrt(r_sq);
+            theta = params_.antenna_boresight + (uniform_dist_(rng_) - 0.5f) * params_.azimuth_coverage;
+            // [-π, π] に正規化
+            while (theta > static_cast<float>(M_PI)) theta -= 2.0f * static_cast<float>(M_PI);
+            while (theta < -static_cast<float>(M_PI)) theta += 2.0f * static_cast<float>(M_PI);
+            // ビームステアリングなし: 仰角0° ± beam_width/2 の範囲でクラッタ生成
+            clutter_el = 0.0f + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
+            clutter_beam_types_.push_back(0);  // サーチビーム
         }
 
         meas.range = r;
         meas.azimuth = theta;
-        meas.elevation = 0.0f;
+        meas.elevation = clutter_el;
         meas.doppler = (uniform_dist_(rng_) - 0.5f) * 200.0f;  // -100~100 m/s
 
         // クラッタは低SN比（0-15 dB程度）
@@ -258,10 +470,10 @@ bool RadarSimulator::isInFieldOfView(const StateVector& state) const {
     float dz = state(2) - params_.sensor_z;
 
     float range = std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (range > params_.max_range) return false;
+    if (range < params_.min_range || range > params_.max_range) return false;
 
     float azimuth = std::atan2(dy, dx);
-    float half_fov = params_.field_of_view / 2.0f;
+    float half_fov = params_.azimuth_coverage / 2.0f;
 
     // アンテナ中心方位からの角度差
     float diff = azimuth - params_.antenna_boresight;
@@ -271,15 +483,56 @@ bool RadarSimulator::isInFieldOfView(const StateVector& state) const {
     return (std::fabs(diff) <= half_fov);
 }
 
-bool RadarSimulator::isOnBeam(float azimuth) const {
-    if (beam_directions_.empty()) return false;
+bool RadarSimulator::isInRadarCoverage(const StateVector& state) const {
+    // センサーからの3D相対座標
+    float dx = state(0) - params_.sensor_x;
+    float dy = state(1) - params_.sensor_y;
+    float dz = state(2) - params_.sensor_z;
+
+    // Range check
+    float range = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (range < params_.min_range || range > params_.max_range) return false;
+
+    // Elevation check
+    float r_horiz = std::sqrt(dx * dx + dy * dy);
+    float elevation = std::atan2(dz, r_horiz);
+    if (elevation < params_.min_elevation || elevation > params_.max_elevation)
+        return false;
+
+    // NO azimuth check - track beams can illuminate anywhere within physical limits
+    return true;
+}
+
+bool RadarSimulator::isOnBeam(float azimuth, float elevation) const {
+    int dummy;
+    return isOnBeamWithIndex(azimuth, elevation, dummy);
+}
+
+bool RadarSimulator::isOnBeamWithIndex(float azimuth, float elevation, int& beam_idx) const {
+    beam_idx = -1;
+    // ビーム方向が未設定の場合は、ビームステアリングなし（FOV全体を検出）
+    if (beam_directions_.empty()) return true;
 
     float half_bw = params_.beam_width / 2.0f;
-    for (float beam_center : beam_directions_) {
-        float diff = azimuth - beam_center;
-        while (diff > static_cast<float>(M_PI)) diff -= 2.0f * static_cast<float>(M_PI);
-        while (diff < -static_cast<float>(M_PI)) diff += 2.0f * static_cast<float>(M_PI);
-        if (std::fabs(diff) <= half_bw) return true;
+    for (size_t i = 0; i < beam_directions_.size(); i++) {
+        // 仰角: beam_elevations_ が設定されていれば対応する値を使用、
+        // 未設定の場合は仰角0°にフォールバック
+        float beam_el = (i < beam_elevations_.size())
+                        ? beam_elevations_[i]
+                        : 0.0f;
+
+        // 方位角チェック
+        float diff_az = azimuth - beam_directions_[i];
+        while (diff_az >  static_cast<float>(M_PI)) diff_az -= 2.0f * static_cast<float>(M_PI);
+        while (diff_az < -static_cast<float>(M_PI)) diff_az += 2.0f * static_cast<float>(M_PI);
+        if (std::fabs(diff_az) > half_bw) continue;
+
+        // 仰角チェック（方位角が通過した場合のみ評価）
+        float diff_el = elevation - beam_el;
+        if (std::fabs(diff_el) <= half_bw) {
+            beam_idx = static_cast<int>(i);
+            return true;
+        }
     }
     return false;
 }

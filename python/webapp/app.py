@@ -47,6 +47,10 @@ elif platform.system() == 'Windows':
 else:
     FASTTRACKER_EXE = PROJECT_ROOT / 'build' / 'fasttracker'
 
+# Run history directory
+RUN_HISTORY_DIR = PROJECT_ROOT / 'run_history'
+RUN_HISTORY_DIR.mkdir(exist_ok=True)
+
 # Async job tracking: job_id -> job state dict
 _jobs = {}
 _jobs_lock = threading.Lock()
@@ -72,6 +76,139 @@ def _cleanup_old_jobs():
 
 
 threading.Thread(target=_cleanup_old_jobs, daemon=True).start()
+
+
+def get_latest_run_history():
+    """
+    Get the most recent run history from server-side storage.
+
+    Returns:
+        dict: Latest run history record, or None if no history exists
+    """
+    try:
+        history_files = sorted(RUN_HISTORY_DIR.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not history_files:
+            return None
+
+        latest_file = history_files[0]
+        with open(latest_file, 'r') as f:
+            return json.load(f)
+
+    except Exception as e:
+        print(f"[Run History] Error reading history: {e}")
+        return None
+
+
+def _get_next_history_id():
+    """
+    Get next history ID (1-999,循環).
+
+    Returns:
+        int: Next history ID
+    """
+    try:
+        max_id = 0
+        for filepath in RUN_HISTORY_DIR.glob('history_*.json'):
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                    hist_id = data.get('history_id', 0)
+                    if hist_id > max_id:
+                        max_id = hist_id
+            except Exception:
+                continue
+
+        next_id = (max_id % 999) + 1
+        return next_id
+
+    except Exception as e:
+        print(f"[Run History] Error getting next ID: {e}")
+        return 1
+
+
+def _cleanup_old_history_files():
+    """
+    Keep maximum 999 history files. Delete oldest ones if exceeded.
+    """
+    try:
+        MAX_HISTORY = 999
+        history_files = sorted(RUN_HISTORY_DIR.glob('history_*.json'),
+                              key=lambda p: p.stat().st_mtime)
+
+        if len(history_files) > MAX_HISTORY:
+            to_delete = len(history_files) - MAX_HISTORY
+            for filepath in history_files[:to_delete]:
+                filepath.unlink()
+                print(f"[Run History] Deleted old history: {filepath.name}")
+
+    except Exception as e:
+        print(f"[Run History] Error cleaning up: {e}")
+
+
+def _save_run_history(job_id, request_data, command, stdout_text, eval_summary, result_files):
+    """
+    Save complete run history to server-side JSON file with sequential ID (1-999).
+
+    Args:
+        job_id: Unique job identifier
+        request_data: Full request data including params and trajectory
+        command: Command line executed
+        stdout_text: Full console output
+        eval_summary: Parsed evaluation metrics
+        result_files: Dict of result data (results, tracks, ground_truth, etc.)
+    """
+    try:
+        import time as _time
+
+        # Get next history ID (1-999, circular)
+        history_id = _get_next_history_id()
+
+        timestamp = _time.strftime('%Y%m%d_%H%M%S')
+
+        # Extract scenario name for metadata
+        params = request_data.get('params', {})
+        scenario = params.get('scenario', 'unknown')
+        num_targets = params.get('num_targets', 1)
+
+        # Create history record
+        history_record = {
+            'history_id': history_id,
+            'timestamp': _time.strftime('%Y-%m-%d %H:%M:%S'),
+            'job_id': job_id,
+            'scenario': scenario,
+            'num_targets': num_targets,
+            'command': command,
+            'request_data': request_data,  # 全リクエストデータ（params + trajectory）
+            'eval_summary': eval_summary,
+            'stdout': stdout_text,
+            'result_files': {
+                'results': result_files.get('results', []),
+                'tracks': result_files.get('tracks', []),
+                'ground_truth': result_files.get('ground_truth', []),
+                'evaluation': result_files.get('evaluation', []),
+                'measurements': result_files.get('measurements', []),
+            }
+        }
+
+        # Save with ID-based filename (history_001.json ~ history_999.json)
+        filename = f'history_{history_id:03d}.json'
+        filepath = RUN_HISTORY_DIR / filename
+
+        with open(filepath, 'w') as f:
+            json.dump(history_record, f, indent=2, ensure_ascii=False)
+
+        print(f"[Run History] Saved: ID={history_id}, {filepath}")
+
+        # Cleanup old files (keep max 999)
+        _cleanup_old_history_files()
+
+        return filepath
+
+    except Exception as e:
+        print(f"[Run History] Error saving history: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def _kill_stale_fasttracker():
@@ -342,6 +479,7 @@ def _build_tracker_cmd(data):
 
     gate_threshold = params.get('gate_threshold')
     confirm_hits = params.get('confirm_hits')
+    confirm_window = params.get('confirm_window')
     delete_misses = params.get('delete_misses')
     min_snr = params.get('min_snr')
     process_pos_noise = params.get('process_pos_noise')
@@ -352,6 +490,8 @@ def _build_tracker_cmd(data):
     ukf_beta = params.get('ukf_beta')
     ukf_kappa = params.get('ukf_kappa')
     max_distance = params.get('max_distance')
+    max_jump_velocity = params.get('max_jump_velocity')
+    min_init_distance = params.get('min_init_distance')
 
     imm_cv_cv = params.get('imm_cv_cv')
     imm_cv_bal = params.get('imm_cv_bal')
@@ -382,11 +522,16 @@ def _build_tracker_cmd(data):
     search_center_rad = math.radians(90 - search_center_deg)
     antenna_boresight_deg = float(params.get('antenna_boresight', 0))
     antenna_boresight_rad = math.radians(90 - antenna_boresight_deg)
-    search_elevation_deg = float(params.get('search_elevation', 0))
-    search_elevation_rad = math.radians(search_elevation_deg)
     search_min_range_m = float(params.get('search_min_range', 0))
     search_max_range_m = float(params.get('search_max_range', 0))
     track_range_width_m = float(params.get('track_range_width', 0))
+    range_resolution_m = float(params.get('range_resolution', 150))
+
+    # 多仰角サーチスキャンパラメータ (GUI: degrees → CLI: radians)
+    elev_scan_min_rad = math.radians(float(params.get('elev_scan_min', 0)))
+    elev_scan_max_rad = math.radians(float(params.get('elev_scan_max', 20)))
+    elev_bars_per_frame = int(params.get('elev_bars_per_frame', 3))
+    elev_cycle_steps = int(params.get('elev_cycle_steps', 9))
 
     sensor_x_m = 0.0
     sensor_y_m = 0.0
@@ -472,6 +617,8 @@ def _build_tracker_cmd(data):
         cmd.extend(['--gate-threshold', str(float(gate_threshold))])
     if confirm_hits is not None:
         cmd.extend(['--confirm-hits', str(int(confirm_hits))])
+    if confirm_window is not None:
+        cmd.extend(['--confirm-window', str(int(confirm_window))])
     if delete_misses is not None:
         cmd.extend(['--delete-misses', str(int(delete_misses))])
     if min_snr is not None:
@@ -491,6 +638,10 @@ def _build_tracker_cmd(data):
         cmd.extend(['--ukf-kappa', str(float(ukf_kappa))])
     if max_distance is not None:
         cmd.extend(['--max-distance', str(float(max_distance))])
+    if max_jump_velocity is not None:
+        cmd.extend(['--max-jump-velocity', str(float(max_jump_velocity))])
+    if min_init_distance is not None:
+        cmd.extend(['--min-init-distance', str(float(min_init_distance))])
 
     if imm_cv_cv is not None:
         cmd.extend(['--imm-cv-cv', str(float(imm_cv_cv))])
@@ -537,13 +688,19 @@ def _build_tracker_cmd(data):
         cmd.extend(['--search-sector', str(search_sector_rad)])
     cmd.extend(['--search-center', str(search_center_rad)])
     cmd.extend(['--antenna-boresight', str(antenna_boresight_rad)])
-    cmd.extend(['--search-elevation', str(search_elevation_rad)])
     if search_min_range_m > 0:
         cmd.extend(['--search-min-range', str(search_min_range_m)])
     if search_max_range_m > 0:
         cmd.extend(['--search-max-range', str(search_max_range_m)])
     if track_range_width_m > 0:
         cmd.extend(['--track-range-width', str(track_range_width_m)])
+    cmd.extend(['--range-resolution', str(range_resolution_m)])
+
+    # 多仰角サーチスキャンパラメータ
+    cmd.extend(['--elev-scan-min', str(elev_scan_min_rad)])
+    cmd.extend(['--elev-scan-max', str(elev_scan_max_rad)])
+    cmd.extend(['--elev-bars-per-frame', str(elev_bars_per_frame)])
+    cmd.extend(['--elev-cycle-steps', str(elev_cycle_steps)])
 
     return cmd, sensor_x_m, sensor_y_m
 
@@ -726,7 +883,25 @@ def _run_job_thread(job_id, cmd):
         meas_data = read_csv_safe(PROJECT_ROOT / 'measurements.csv')
         eval_summary = parse_eval_summary(stdout_text)
 
-        # Save full console output and parameters to file for debugging
+        # Save run history to server-side JSON file
+        result_files = {
+            'results': results_data,
+            'tracks': track_data,
+            'ground_truth': gt_data,
+            'evaluation': eval_data,
+            'measurements': meas_data,
+        }
+        request_data = job.get('request_data', {})
+        _save_run_history(
+            job_id=job_id,
+            request_data=request_data,
+            command=' '.join(run_cmd),
+            stdout_text=stdout_text,
+            eval_summary=eval_summary,
+            result_files=result_files
+        )
+
+        # Also save to last_run_debug.json for backward compatibility
         try:
             import json
             import time as _time
@@ -735,7 +910,7 @@ def _run_job_thread(job_id, cmd):
                 'job_id': job_id,
                 'command': ' '.join(run_cmd),
                 'stdout': stdout_text,
-                'params': job.get('params', {}),
+                'params': request_data.get('params', {}),
                 'eval_summary': eval_summary,
             }
             debug_file = PROJECT_ROOT / 'last_run_debug.json'
@@ -833,11 +1008,13 @@ def run_tracker():
     # Tracker parameters
     gate_threshold = params.get('gate_threshold')
     confirm_hits = params.get('confirm_hits')
+    confirm_window = params.get('confirm_window')
     delete_misses = params.get('delete_misses')
     min_snr = params.get('min_snr')
     process_pos_noise = params.get('process_pos_noise')
     process_vel_noise = params.get('process_vel_noise')
     process_acc_noise = params.get('process_acc_noise')
+    max_jump_velocity = params.get('max_jump_velocity')
 
     # Multi-run parameters
     num_runs = int(params.get('num_runs', 1))
@@ -859,11 +1036,16 @@ def run_tracker():
     search_center_rad = math.radians(90 - search_center_deg)
     antenna_boresight_deg = float(params.get('antenna_boresight', 0))
     antenna_boresight_rad = math.radians(90 - antenna_boresight_deg)
-    search_elevation_deg = float(params.get('search_elevation', 0))
-    search_elevation_rad = math.radians(search_elevation_deg)
     search_min_range_m = float(params.get('search_min_range', 0))
     search_max_range_m = float(params.get('search_max_range', 0))
     track_range_width_m = float(params.get('track_range_width', 0))
+    range_resolution_m = float(params.get('range_resolution', 150))
+
+    # 多仰角サーチスキャンパラメータ (GUI: degrees → CLI: radians)
+    elev_scan_min_rad = math.radians(float(params.get('elev_scan_min', 0)))
+    elev_scan_max_rad = math.radians(float(params.get('elev_scan_max', 20)))
+    elev_bars_per_frame = int(params.get('elev_bars_per_frame', 3))
+    elev_cycle_steps = int(params.get('elev_cycle_steps', 9))
 
     # Convert sensor lat/lon to meters (warhead impact = origin)
     sensor_x_m = 0.0
@@ -961,6 +1143,8 @@ def run_tracker():
         cmd.extend(['--gate-threshold', str(float(gate_threshold))])
     if confirm_hits is not None:
         cmd.extend(['--confirm-hits', str(int(confirm_hits))])
+    if confirm_window is not None:
+        cmd.extend(['--confirm-window', str(int(confirm_window))])
     if delete_misses is not None:
         cmd.extend(['--delete-misses', str(int(delete_misses))])
     if min_snr is not None:
@@ -971,6 +1155,10 @@ def run_tracker():
         cmd.extend(['--process-vel-noise', str(float(process_vel_noise))])
     if process_acc_noise is not None:
         cmd.extend(['--process-acc-noise', str(float(process_acc_noise))])
+    if max_jump_velocity is not None:
+        cmd.extend(['--max-jump-velocity', str(float(max_jump_velocity))])
+    if min_init_distance is not None:
+        cmd.extend(['--min-init-distance', str(float(min_init_distance))])
 
     # Multi-run parameters
     if num_runs > 1:
@@ -994,13 +1182,19 @@ def run_tracker():
         cmd.extend(['--search-sector', str(search_sector_rad)])
     cmd.extend(['--search-center', str(search_center_rad)])
     cmd.extend(['--antenna-boresight', str(antenna_boresight_rad)])
-    cmd.extend(['--search-elevation', str(search_elevation_rad)])
     if search_min_range_m > 0:
         cmd.extend(['--search-min-range', str(search_min_range_m)])
     if search_max_range_m > 0:
         cmd.extend(['--search-max-range', str(search_max_range_m)])
     if track_range_width_m > 0:
         cmd.extend(['--track-range-width', str(track_range_width_m)])
+    cmd.extend(['--range-resolution', str(range_resolution_m)])
+
+    # 多仰角サーチスキャンパラメータ
+    cmd.extend(['--elev-scan-min', str(elev_scan_min_rad)])
+    cmd.extend(['--elev-scan-max', str(elev_scan_max_rad)])
+    cmd.extend(['--elev-bars-per-frame', str(elev_bars_per_frame)])
+    cmd.extend(['--elev-cycle-steps', str(elev_cycle_steps)])
 
     # Log the C++ command for debugging — write to file to avoid stdout buffering
     debug_log = PROJECT_ROOT / 'debug_run_tracker.log'
@@ -1104,6 +1298,7 @@ def run_tracker_start():
         'sensor_y': sensor_y_m,
         'num_runs': num_runs,
         'timeout': timeout,
+        'request_data': data,  # 全リクエストデータを保存（パラメータ+軌道情報）
     }
 
     t = threading.Thread(target=_run_job_thread, args=(job_id, cmd), daemon=True)
@@ -1166,6 +1361,145 @@ def get_gpu_error_log():
         return jsonify({'exists': True, 'content': content})
     else:
         return jsonify({'exists': False, 'content': None})
+
+
+@app.route('/api/run-history/latest', methods=['GET'])
+def get_latest_run():
+    """Get the most recent run history."""
+    history = get_latest_run_history()
+    if history:
+        return jsonify({'success': True, 'history': history})
+    else:
+        return jsonify({'success': False, 'error': 'No run history found'})
+
+
+@app.route('/api/run-history/list', methods=['GET'])
+def list_run_history():
+    """List all run history files (metadata + params for UI)."""
+    try:
+        history_files = sorted(RUN_HISTORY_DIR.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)
+        history_list = []
+
+        for filepath in history_files:
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                    # Return metadata + params for UI display and reload
+                    history_id = data.get('history_id', 0)
+                    history_list.append({
+                        'id': str(history_id) if history_id else data.get('job_id', filepath.stem),
+                        'history_id': history_id,
+                        'filename': filepath.name,
+                        'timestamp': data.get('timestamp'),
+                        'job_id': data.get('job_id'),
+                        'scenario': data.get('scenario', 'unknown'),
+                        'num_targets': data.get('num_targets', 0),
+                        'eval_summary': data.get('eval_summary', {}),
+                        'request_data': data.get('request_data', {}),
+                    })
+            except Exception as e:
+                print(f"Error reading {filepath}: {e}")
+                continue
+
+        return jsonify({'success': True, 'history': history_list})
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/run-history/<run_id>', methods=['GET'])
+def get_run_history(run_id):
+    """Get full history data for a specific run by history_id or job_id."""
+    try:
+        # Try to parse as history_id (integer)
+        try:
+            history_id = int(run_id)
+            for filepath in RUN_HISTORY_DIR.glob('history_*.json'):
+                try:
+                    with open(filepath, 'r') as f:
+                        data = json.load(f)
+                        if data.get('history_id') == history_id:
+                            return jsonify({'success': True, 'history': data})
+                except Exception:
+                    continue
+        except ValueError:
+            pass
+
+        # Fallback to job_id search
+        for filepath in RUN_HISTORY_DIR.glob('*.json'):
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                    if data.get('job_id') == run_id:
+                        return jsonify({'success': True, 'history': data})
+            except Exception:
+                continue
+
+        return jsonify({'success': False, 'error': 'Run not found'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/run-history/<run_id>', methods=['DELETE'])
+def delete_run_history(run_id):
+    """Delete a specific run history by history_id or job_id."""
+    try:
+        deleted = False
+
+        # Try to parse as history_id (integer)
+        try:
+            history_id = int(run_id)
+            for filepath in RUN_HISTORY_DIR.glob('history_*.json'):
+                try:
+                    with open(filepath, 'r') as f:
+                        data = json.load(f)
+                        if data.get('history_id') == history_id:
+                            filepath.unlink()
+                            deleted = True
+                            print(f"[Run History] Deleted: ID={history_id}, {filepath.name}")
+                            break
+                except Exception:
+                    continue
+        except ValueError:
+            pass
+
+        # Fallback to job_id search
+        if not deleted:
+            for filepath in RUN_HISTORY_DIR.glob('*.json'):
+                try:
+                    with open(filepath, 'r') as f:
+                        data = json.load(f)
+                        if data.get('job_id') == run_id:
+                            filepath.unlink()
+                            deleted = True
+                            print(f"[Run History] Deleted: {filepath.name}")
+                            break
+                except Exception:
+                    continue
+
+        if deleted:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Run not found'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/run-history/clear', methods=['DELETE'])
+def clear_run_history():
+    """Clear all run history."""
+    try:
+        deleted_count = 0
+        for filepath in RUN_HISTORY_DIR.glob('*.json'):
+            try:
+                filepath.unlink()
+                deleted_count += 1
+            except Exception as e:
+                print(f"Error deleting {filepath}: {e}")
+        print(f"[Run History] Cleared {deleted_count} files")
+        return jsonify({'success': True, 'deleted_count': deleted_count})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 def read_csv_safe(filepath):

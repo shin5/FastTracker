@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <limits>
 #include <cmath>
-#include <iostream>
 #include <utility>
 
 #ifndef M_PI
@@ -23,7 +22,8 @@ DataAssociation::DataAssociation(int max_tracks, int max_measurements,
       d_cost_matrix_(max_tracks * max_measurements),
       d_assignments_(max_tracks),
       d_pred_meas_(max_tracks * MEAS_DIM),
-      d_innovation_covs_(max_tracks * MEAS_DIM * MEAS_DIM)
+      d_innovation_covs_(max_tracks * MEAS_DIM * MEAS_DIM),
+      d_meas_noise_stds_(MEAS_DIM)
 {
 }
 
@@ -110,29 +110,30 @@ void DataAssociation::computeCostMatrix(int num_tracks, int num_measurements) {
     );
 
     // 観測ノイズ標準偏差をデバイスに渡す（正規化距離計算用）
+    // Use pre-allocated class member to avoid per-frame cudaMalloc/cudaFree which
+    // is slow and risky (cudaMalloc failure with nullptr causes silent kernel UB).
     float meas_noise_stds[MEAS_DIM] = {
         meas_noise_.range_noise,
         meas_noise_.azimuth_noise,
         meas_noise_.elevation_noise,
         meas_noise_.doppler_noise
     };
-    float* d_meas_noise_stds = nullptr;
-    cudaMalloc(&d_meas_noise_stds, MEAS_DIM * sizeof(float));
-    cudaMemcpy(d_meas_noise_stds, meas_noise_stds, MEAS_DIM * sizeof(float), cudaMemcpyHostToDevice);
+    d_meas_noise_stds_.copyFrom(meas_noise_stds, MEAS_DIM);
+
+    // Check predictMeasurements kernel before continuing
+    CUDA_CHECK_KERNEL();
 
     // コスト行列を計算（正規化距離）
     grid_size = (num_tracks * num_measurements + block_size - 1) / block_size;
     cuda::computeMahalanobisCostMatrix<<<grid_size, block_size>>>(
         d_pred_meas_.get(),
         d_measurements_.get(),
-        d_meas_noise_stds,
+        d_meas_noise_stds_.get(),
         d_cost_matrix_.get(),
         num_tracks,
         num_measurements,
         params_.gate_threshold
     );
-
-    cudaFree(d_meas_noise_stds);
 
     CUDA_CHECK_KERNEL();
 }
@@ -196,7 +197,15 @@ std::vector<int> DataAssociation::hungarianAlgorithm(
         }
     }
 
+    // Epsilon for zero detection: catches exact zeros and floating-point drifted
+    // values that should be zero after row/column reduction operations.
+    const float HUNGARIAN_EPS = 1e-9f;
+
     // メインループ
+    // NOTE: gotoを使用してネストしたループから一括脱出する。
+    // pr<0（安全限界 or min_val劣化）でStep 4-6ループを抜けた後、
+    // メインループ先頭（Step 3）に戻ると同じ縮退状態で無限ループする。
+    // gotoで直接 extract_results へジャンプして現在のスターを使用する。
     for (;;) {
         // Step 3: スター列をカバー
         std::fill(col_cover.begin(), col_cover.end(), false);
@@ -213,12 +222,22 @@ std::vector<int> DataAssociation::hungarianAlgorithm(
         for (;;) {
             // Step 4: 未カバーゼロを探してプライム
             int pr = -1, pc = -1;
+            // Safety iteration limit: the inner Step 4/Step 6 loop runs at most
+            // O(N^2) times before creating a new zero that Step 4 can find.
+            // A bound of N*N*4 is extremely conservative; exceeding it means
+            // floating-point drift has corrupted the matrix — break and use the
+            // best assignment found so far.
+            int step46_iter = 0;
+            const int MAX_STEP46_ITER = N * N * 4 + 16;
             for (;;) {
+                if (++step46_iter > MAX_STEP46_ITER) { pr = -2; break; }
                 pr = -1; pc = -1;
                 for (int i = 0; i < N && pr == -1; i++) {
                     if (row_cover[i]) continue;
                     for (int j = 0; j < N; j++) {
-                        if (!col_cover[j] && C[i * N + j] == 0.0f) {
+                        // Use epsilon tolerance instead of exact == 0.0f to handle
+                        // floating-point drift after repeated Step 6 subtractions.
+                        if (!col_cover[j] && C[i * N + j] <= HUNGARIAN_EPS) {
                             pr = i; pc = j;
                             break;
                         }
@@ -234,6 +253,13 @@ std::vector<int> DataAssociation::hungarianAlgorithm(
                                 min_val = C[i * N + j];
                         }
                     }
+                    // Guard: if min_val is not meaningfully positive the algorithm
+                    // cannot make progress (all uncovered values are ≈ 0 but were
+                    // missed by the epsilon check above, or the matrix has been
+                    // corrupted by accumulated floating-point error).
+                    if (min_val <= HUNGARIAN_EPS ||
+                        min_val >= std::numeric_limits<float>::max() / 2)
+                        goto extract_results;  // メインループも含めて完全脱出
                     for (int i = 0; i < N; i++) {
                         for (int j = 0; j < N; j++) {
                             if (row_cover[i]) C[i * N + j] += min_val;
@@ -245,6 +271,7 @@ std::vector<int> DataAssociation::hungarianAlgorithm(
                 }
                 break;
             }
+            if (pr < 0) goto extract_results;  // 安全限界到達: メインループも含めて完全脱出
 
             // プライムを記録
             prime_col[pr] = pc;
@@ -281,6 +308,7 @@ std::vector<int> DataAssociation::hungarianAlgorithm(
             }
         }
     }
+    extract_results:
 
     // 結果抽出（ゲートフィルタ付き）
     for (int i = 0; i < n; i++) {
