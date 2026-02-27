@@ -1,0 +1,7 @@
+flask
+numpy
+matplotlib
+python-docx
+python-pptx
+Pillow
+playwright

@@ -493,19 +493,27 @@ def _build_tracker_cmd(data):
     max_jump_velocity = params.get('max_jump_velocity')
     min_init_distance = params.get('min_init_distance')
 
-    imm_cv_cv = params.get('imm_cv_cv')
-    imm_cv_bal = params.get('imm_cv_bal')
-    imm_cv_ct = params.get('imm_cv_ct')
-    imm_bal_cv = params.get('imm_bal_cv')
+    imm_ca_ca = params.get('imm_ca_ca')
+    imm_ca_bal = params.get('imm_ca_bal')
+    imm_ca_ct = params.get('imm_ca_ct')
+    imm_ca_sg = params.get('imm_ca_sg')
+    imm_bal_ca = params.get('imm_bal_ca')
     imm_bal_bal = params.get('imm_bal_bal')
     imm_bal_ct = params.get('imm_bal_ct')
-    imm_ct_cv = params.get('imm_ct_cv')
+    imm_bal_sg = params.get('imm_bal_sg')
+    imm_ct_ca = params.get('imm_ct_ca')
     imm_ct_bal = params.get('imm_ct_bal')
     imm_ct_ct = params.get('imm_ct_ct')
+    imm_ct_sg = params.get('imm_ct_sg')
+    imm_sg_ca = params.get('imm_sg_ca')
+    imm_sg_bal = params.get('imm_sg_bal')
+    imm_sg_ct = params.get('imm_sg_ct')
+    imm_sg_sg = params.get('imm_sg_sg')
 
-    imm_cv_noise = params.get('imm_cv_noise')
+    imm_ca_noise = params.get('imm_ca_noise')
     imm_bal_noise = params.get('imm_bal_noise')
     imm_ct_noise = params.get('imm_ct_noise')
+    imm_sg_noise = params.get('imm_sg_noise')
 
     num_runs = int(params.get('num_runs', 1))
     random_seed = int(params.get('seed', 0))
@@ -532,6 +540,39 @@ def _build_tracker_cmd(data):
     elev_scan_max_rad = math.radians(float(params.get('elev_scan_max', 20)))
     elev_bars_per_frame = int(params.get('elev_bars_per_frame', 3))
     elev_cycle_steps = int(params.get('elev_cycle_steps', 9))
+
+    # データアソシエーション手法 (GNN/JPDA/PMBM)
+    association_method = params.get('association_method', 'gnn')
+    jpda_pd = params.get('jpda_pd')
+    jpda_clutter_density = params.get('jpda_clutter_density')
+    pmbm_pd = params.get('pmbm_pd')
+    pmbm_gate = params.get('pmbm_gate')
+    pmbm_clutter_density = params.get('pmbm_clutter_density')
+    pmbm_k_best = params.get('pmbm_k_best')
+    pmbm_survival = params.get('pmbm_survival')
+    pmbm_init_existence = params.get('pmbm_init_existence')
+
+    # MHT parameters
+    mht_pd = params.get('mht_pd')
+    mht_gate = params.get('mht_gate')
+    mht_clutter_density = params.get('mht_clutter_density')
+    mht_k_best = params.get('mht_k_best')
+    mht_max_hypotheses = params.get('mht_max_hypotheses')
+    mht_score_decay = params.get('mht_score_decay')
+    mht_prune_ratio = params.get('mht_prune_ratio')
+    # GLMB parameters
+    glmb_pd = params.get('glmb_pd')
+    glmb_gate = params.get('glmb_gate')
+    glmb_clutter_density = params.get('glmb_clutter_density')
+    glmb_k_best = params.get('glmb_k_best')
+    glmb_max_hypotheses = params.get('glmb_max_hypotheses')
+    glmb_survival = params.get('glmb_survival')
+    glmb_birth_weight = params.get('glmb_birth_weight')
+    glmb_score_decay = params.get('glmb_score_decay')
+    glmb_init_existence = params.get('glmb_init_existence')
+    glmb_sampler = params.get('glmb_sampler')
+    glmb_gibbs_sweeps = params.get('glmb_gibbs_sweeps')
+    glmb_gibbs_burnin = params.get('glmb_gibbs_burnin')
 
     sensor_x_m = 0.0
     sensor_y_m = 0.0
@@ -643,31 +684,47 @@ def _build_tracker_cmd(data):
     if min_init_distance is not None:
         cmd.extend(['--min-init-distance', str(float(min_init_distance))])
 
-    if imm_cv_cv is not None:
-        cmd.extend(['--imm-cv-cv', str(float(imm_cv_cv))])
-    if imm_cv_bal is not None:
-        cmd.extend(['--imm-cv-bal', str(float(imm_cv_bal))])
-    if imm_cv_ct is not None:
-        cmd.extend(['--imm-cv-ct', str(float(imm_cv_ct))])
-    if imm_bal_cv is not None:
-        cmd.extend(['--imm-bal-cv', str(float(imm_bal_cv))])
+    if imm_ca_ca is not None:
+        cmd.extend(['--imm-ca-ca', str(float(imm_ca_ca))])
+    if imm_ca_bal is not None:
+        cmd.extend(['--imm-ca-bal', str(float(imm_ca_bal))])
+    if imm_ca_ct is not None:
+        cmd.extend(['--imm-ca-ct', str(float(imm_ca_ct))])
+    if imm_ca_sg is not None:
+        cmd.extend(['--imm-ca-sg', str(float(imm_ca_sg))])
+    if imm_bal_ca is not None:
+        cmd.extend(['--imm-bal-ca', str(float(imm_bal_ca))])
     if imm_bal_bal is not None:
         cmd.extend(['--imm-bal-bal', str(float(imm_bal_bal))])
     if imm_bal_ct is not None:
         cmd.extend(['--imm-bal-ct', str(float(imm_bal_ct))])
-    if imm_ct_cv is not None:
-        cmd.extend(['--imm-ct-cv', str(float(imm_ct_cv))])
+    if imm_bal_sg is not None:
+        cmd.extend(['--imm-bal-sg', str(float(imm_bal_sg))])
+    if imm_ct_ca is not None:
+        cmd.extend(['--imm-ct-ca', str(float(imm_ct_ca))])
     if imm_ct_bal is not None:
         cmd.extend(['--imm-ct-bal', str(float(imm_ct_bal))])
     if imm_ct_ct is not None:
         cmd.extend(['--imm-ct-ct', str(float(imm_ct_ct))])
+    if imm_ct_sg is not None:
+        cmd.extend(['--imm-ct-sg', str(float(imm_ct_sg))])
+    if imm_sg_ca is not None:
+        cmd.extend(['--imm-sg-ca', str(float(imm_sg_ca))])
+    if imm_sg_bal is not None:
+        cmd.extend(['--imm-sg-bal', str(float(imm_sg_bal))])
+    if imm_sg_ct is not None:
+        cmd.extend(['--imm-sg-ct', str(float(imm_sg_ct))])
+    if imm_sg_sg is not None:
+        cmd.extend(['--imm-sg-sg', str(float(imm_sg_sg))])
 
-    if imm_cv_noise is not None:
-        cmd.extend(['--imm-cv-noise', str(float(imm_cv_noise))])
+    if imm_ca_noise is not None:
+        cmd.extend(['--imm-ca-noise', str(float(imm_ca_noise))])
     if imm_bal_noise is not None:
         cmd.extend(['--imm-bal-noise', str(float(imm_bal_noise))])
     if imm_ct_noise is not None:
         cmd.extend(['--imm-ct-noise', str(float(imm_ct_noise))])
+    if imm_sg_noise is not None:
+        cmd.extend(['--imm-sg-noise', str(float(imm_sg_noise))])
 
     if num_runs > 1:
         cmd.extend(['--num-runs', str(num_runs)])
@@ -701,6 +758,68 @@ def _build_tracker_cmd(data):
     cmd.extend(['--elev-scan-max', str(elev_scan_max_rad)])
     cmd.extend(['--elev-bars-per-frame', str(elev_bars_per_frame)])
     cmd.extend(['--elev-cycle-steps', str(elev_cycle_steps)])
+
+    # データアソシエーション手法
+    if association_method and association_method != 'gnn':
+        cmd.extend(['--association', association_method])
+    if jpda_pd is not None:
+        cmd.extend(['--jpda-pd', str(float(jpda_pd))])
+    if jpda_clutter_density is not None:
+        cmd.extend(['--jpda-clutter-density', str(float(jpda_clutter_density))])
+    # PMBM パラメータ
+    if pmbm_pd is not None:
+        cmd.extend(['--pmbm-pd', str(float(pmbm_pd))])
+    if pmbm_gate is not None:
+        cmd.extend(['--pmbm-gate', str(float(pmbm_gate))])
+    if pmbm_clutter_density is not None:
+        cmd.extend(['--pmbm-clutter-density', str(float(pmbm_clutter_density))])
+    if pmbm_k_best is not None:
+        cmd.extend(['--pmbm-k-best', str(int(pmbm_k_best))])
+    if pmbm_survival is not None:
+        cmd.extend(['--pmbm-survival', str(float(pmbm_survival))])
+    if pmbm_init_existence is not None:
+        cmd.extend(['--pmbm-init-existence', str(float(pmbm_init_existence))])
+
+    # MHT parameters
+    if mht_pd is not None:
+        cmd.extend(['--mht-pd', str(float(mht_pd))])
+    if mht_gate is not None:
+        cmd.extend(['--mht-gate', str(float(mht_gate))])
+    if mht_clutter_density is not None:
+        cmd.extend(['--mht-clutter-density', str(float(mht_clutter_density))])
+    if mht_k_best is not None:
+        cmd.extend(['--mht-k-best', str(int(mht_k_best))])
+    if mht_max_hypotheses is not None:
+        cmd.extend(['--mht-max-hypotheses', str(int(mht_max_hypotheses))])
+    if mht_score_decay is not None:
+        cmd.extend(['--mht-score-decay', str(float(mht_score_decay))])
+    if mht_prune_ratio is not None:
+        cmd.extend(['--mht-prune-ratio', str(float(mht_prune_ratio))])
+    # GLMB parameters
+    if glmb_pd is not None:
+        cmd.extend(['--glmb-pd', str(float(glmb_pd))])
+    if glmb_gate is not None:
+        cmd.extend(['--glmb-gate', str(float(glmb_gate))])
+    if glmb_clutter_density is not None:
+        cmd.extend(['--glmb-clutter-density', str(float(glmb_clutter_density))])
+    if glmb_k_best is not None:
+        cmd.extend(['--glmb-k-best', str(int(glmb_k_best))])
+    if glmb_max_hypotheses is not None:
+        cmd.extend(['--glmb-max-hypotheses', str(int(glmb_max_hypotheses))])
+    if glmb_survival is not None:
+        cmd.extend(['--glmb-survival', str(float(glmb_survival))])
+    if glmb_birth_weight is not None:
+        cmd.extend(['--glmb-birth-weight', str(float(glmb_birth_weight))])
+    if glmb_score_decay is not None:
+        cmd.extend(['--glmb-score-decay', str(float(glmb_score_decay))])
+    if glmb_init_existence is not None:
+        cmd.extend(['--glmb-init-existence', str(float(glmb_init_existence))])
+    if glmb_sampler is not None and glmb_sampler in ('murty', 'gibbs'):
+        cmd.extend(['--glmb-sampler', str(glmb_sampler)])
+    if glmb_gibbs_sweeps is not None:
+        cmd.extend(['--glmb-gibbs-sweeps', str(int(glmb_gibbs_sweeps))])
+    if glmb_gibbs_burnin is not None:
+        cmd.extend(['--glmb-gibbs-burnin', str(int(glmb_gibbs_burnin))])
 
     return cmd, sensor_x_m, sensor_y_m
 
@@ -990,7 +1109,13 @@ def run_tracker():
     sensor_lon = params.get('sensor_lon')
     radar_min_range_m = float(params.get('radar_min_range', 0))
     radar_max_range_m = float(params.get('radar_max_range', 0))  # 0=auto
-    radar_fov_rad = float(params.get('radar_fov', 2 * 3.14159265))
+    azimuth_coverage_rad = float(params.get('azimuth_coverage', 2 * 3.14159265))
+    min_elevation_rad = float(params.get('min_elevation', -0.5236))  # -30 deg
+    max_elevation_rad = float(params.get('max_elevation', 1.5708))   # +90 deg
+    radar_fov_rad = float(params.get('radar_fov', 2 * 3.14159265))  # DEPRECATED
+    # Backward compatibility: map old radar_fov to azimuth_coverage
+    if 'azimuth_coverage' not in params and 'radar_fov' in params:
+        azimuth_coverage_rad = radar_fov_rad
 
     # Separation parameters
     enable_sep = bool(params.get('enable_separation', False))
@@ -1015,6 +1140,29 @@ def run_tracker():
     process_vel_noise = params.get('process_vel_noise')
     process_acc_noise = params.get('process_acc_noise')
     max_jump_velocity = params.get('max_jump_velocity')
+    min_init_distance = params.get('min_init_distance')
+
+    # UKF tuning parameters
+    ukf_alpha = params.get('ukf_alpha')
+    ukf_beta = params.get('ukf_beta')
+    ukf_kappa = params.get('ukf_kappa')
+    max_distance = params.get('max_distance')
+
+    # IMM transition probability matrix parameters
+    imm_ca_ca = params.get('imm_ca_ca')
+    imm_ca_bal = params.get('imm_ca_bal')
+    imm_ca_ct = params.get('imm_ca_ct')
+    imm_bal_ca = params.get('imm_bal_ca')
+    imm_bal_bal = params.get('imm_bal_bal')
+    imm_bal_ct = params.get('imm_bal_ct')
+    imm_ct_ca = params.get('imm_ct_ca')
+    imm_ct_bal = params.get('imm_ct_bal')
+    imm_ct_ct = params.get('imm_ct_ct')
+
+    # IMM process noise parameters
+    imm_ca_noise = params.get('imm_ca_noise')
+    imm_bal_noise = params.get('imm_bal_noise')
+    imm_ct_noise = params.get('imm_ct_noise')
 
     # Multi-run parameters
     num_runs = int(params.get('num_runs', 1))
@@ -1046,6 +1194,39 @@ def run_tracker():
     elev_scan_max_rad = math.radians(float(params.get('elev_scan_max', 20)))
     elev_bars_per_frame = int(params.get('elev_bars_per_frame', 3))
     elev_cycle_steps = int(params.get('elev_cycle_steps', 9))
+
+    # データアソシエーション手法 (GNN/JPDA/PMBM)
+    association_method = params.get('association_method', 'gnn')
+    jpda_pd = params.get('jpda_pd')
+    jpda_clutter_density = params.get('jpda_clutter_density')
+    pmbm_pd = params.get('pmbm_pd')
+    pmbm_gate = params.get('pmbm_gate')
+    pmbm_clutter_density = params.get('pmbm_clutter_density')
+    pmbm_k_best = params.get('pmbm_k_best')
+    pmbm_survival = params.get('pmbm_survival')
+    pmbm_init_existence = params.get('pmbm_init_existence')
+
+    # MHT parameters
+    mht_pd = params.get('mht_pd')
+    mht_gate = params.get('mht_gate')
+    mht_clutter_density = params.get('mht_clutter_density')
+    mht_k_best = params.get('mht_k_best')
+    mht_max_hypotheses = params.get('mht_max_hypotheses')
+    mht_score_decay = params.get('mht_score_decay')
+    mht_prune_ratio = params.get('mht_prune_ratio')
+    # GLMB parameters
+    glmb_pd = params.get('glmb_pd')
+    glmb_gate = params.get('glmb_gate')
+    glmb_clutter_density = params.get('glmb_clutter_density')
+    glmb_k_best = params.get('glmb_k_best')
+    glmb_max_hypotheses = params.get('glmb_max_hypotheses')
+    glmb_survival = params.get('glmb_survival')
+    glmb_birth_weight = params.get('glmb_birth_weight')
+    glmb_score_decay = params.get('glmb_score_decay')
+    glmb_init_existence = params.get('glmb_init_existence')
+    glmb_sampler = params.get('glmb_sampler')
+    glmb_gibbs_sweeps = params.get('glmb_gibbs_sweeps')
+    glmb_gibbs_burnin = params.get('glmb_gibbs_burnin')
 
     # Convert sensor lat/lon to meters (warhead impact = origin)
     sensor_x_m = 0.0
@@ -1160,6 +1341,44 @@ def run_tracker():
     if min_init_distance is not None:
         cmd.extend(['--min-init-distance', str(float(min_init_distance))])
 
+    # UKF tuning parameters
+    if ukf_alpha is not None:
+        cmd.extend(['--ukf-alpha', str(float(ukf_alpha))])
+    if ukf_beta is not None:
+        cmd.extend(['--ukf-beta', str(float(ukf_beta))])
+    if ukf_kappa is not None:
+        cmd.extend(['--ukf-kappa', str(float(ukf_kappa))])
+    if max_distance is not None:
+        cmd.extend(['--max-distance', str(float(max_distance))])
+
+    # IMM transition probability matrix
+    if imm_ca_ca is not None:
+        cmd.extend(['--imm-ca-ca', str(float(imm_ca_ca))])
+    if imm_ca_bal is not None:
+        cmd.extend(['--imm-ca-bal', str(float(imm_ca_bal))])
+    if imm_ca_ct is not None:
+        cmd.extend(['--imm-ca-ct', str(float(imm_ca_ct))])
+    if imm_bal_ca is not None:
+        cmd.extend(['--imm-bal-ca', str(float(imm_bal_ca))])
+    if imm_bal_bal is not None:
+        cmd.extend(['--imm-bal-bal', str(float(imm_bal_bal))])
+    if imm_bal_ct is not None:
+        cmd.extend(['--imm-bal-ct', str(float(imm_bal_ct))])
+    if imm_ct_ca is not None:
+        cmd.extend(['--imm-ct-ca', str(float(imm_ct_ca))])
+    if imm_ct_bal is not None:
+        cmd.extend(['--imm-ct-bal', str(float(imm_ct_bal))])
+    if imm_ct_ct is not None:
+        cmd.extend(['--imm-ct-ct', str(float(imm_ct_ct))])
+
+    # IMM process noise
+    if imm_ca_noise is not None:
+        cmd.extend(['--imm-ca-noise', str(float(imm_ca_noise))])
+    if imm_bal_noise is not None:
+        cmd.extend(['--imm-bal-noise', str(float(imm_bal_noise))])
+    if imm_ct_noise is not None:
+        cmd.extend(['--imm-ct-noise', str(float(imm_ct_noise))])
+
     # Multi-run parameters
     if num_runs > 1:
         cmd.extend(['--num-runs', str(num_runs)])
@@ -1195,6 +1414,68 @@ def run_tracker():
     cmd.extend(['--elev-scan-max', str(elev_scan_max_rad)])
     cmd.extend(['--elev-bars-per-frame', str(elev_bars_per_frame)])
     cmd.extend(['--elev-cycle-steps', str(elev_cycle_steps)])
+
+    # データアソシエーション手法
+    if association_method and association_method != 'gnn':
+        cmd.extend(['--association', association_method])
+    if jpda_pd is not None:
+        cmd.extend(['--jpda-pd', str(float(jpda_pd))])
+    if jpda_clutter_density is not None:
+        cmd.extend(['--jpda-clutter-density', str(float(jpda_clutter_density))])
+    # PMBM パラメータ
+    if pmbm_pd is not None:
+        cmd.extend(['--pmbm-pd', str(float(pmbm_pd))])
+    if pmbm_gate is not None:
+        cmd.extend(['--pmbm-gate', str(float(pmbm_gate))])
+    if pmbm_clutter_density is not None:
+        cmd.extend(['--pmbm-clutter-density', str(float(pmbm_clutter_density))])
+    if pmbm_k_best is not None:
+        cmd.extend(['--pmbm-k-best', str(int(pmbm_k_best))])
+    if pmbm_survival is not None:
+        cmd.extend(['--pmbm-survival', str(float(pmbm_survival))])
+    if pmbm_init_existence is not None:
+        cmd.extend(['--pmbm-init-existence', str(float(pmbm_init_existence))])
+
+    # MHT parameters
+    if mht_pd is not None:
+        cmd.extend(['--mht-pd', str(float(mht_pd))])
+    if mht_gate is not None:
+        cmd.extend(['--mht-gate', str(float(mht_gate))])
+    if mht_clutter_density is not None:
+        cmd.extend(['--mht-clutter-density', str(float(mht_clutter_density))])
+    if mht_k_best is not None:
+        cmd.extend(['--mht-k-best', str(int(mht_k_best))])
+    if mht_max_hypotheses is not None:
+        cmd.extend(['--mht-max-hypotheses', str(int(mht_max_hypotheses))])
+    if mht_score_decay is not None:
+        cmd.extend(['--mht-score-decay', str(float(mht_score_decay))])
+    if mht_prune_ratio is not None:
+        cmd.extend(['--mht-prune-ratio', str(float(mht_prune_ratio))])
+    # GLMB parameters
+    if glmb_pd is not None:
+        cmd.extend(['--glmb-pd', str(float(glmb_pd))])
+    if glmb_gate is not None:
+        cmd.extend(['--glmb-gate', str(float(glmb_gate))])
+    if glmb_clutter_density is not None:
+        cmd.extend(['--glmb-clutter-density', str(float(glmb_clutter_density))])
+    if glmb_k_best is not None:
+        cmd.extend(['--glmb-k-best', str(int(glmb_k_best))])
+    if glmb_max_hypotheses is not None:
+        cmd.extend(['--glmb-max-hypotheses', str(int(glmb_max_hypotheses))])
+    if glmb_survival is not None:
+        cmd.extend(['--glmb-survival', str(float(glmb_survival))])
+    if glmb_birth_weight is not None:
+        cmd.extend(['--glmb-birth-weight', str(float(glmb_birth_weight))])
+    if glmb_score_decay is not None:
+        cmd.extend(['--glmb-score-decay', str(float(glmb_score_decay))])
+    if glmb_init_existence is not None:
+        cmd.extend(['--glmb-init-existence', str(float(glmb_init_existence))])
+    if glmb_sampler is not None and glmb_sampler in ('murty', 'gibbs'):
+        cmd.extend(['--glmb-sampler', str(glmb_sampler)])
+    if glmb_gibbs_sweeps is not None:
+        cmd.extend(['--glmb-gibbs-sweeps', str(int(glmb_gibbs_sweeps))])
+    if glmb_gibbs_burnin is not None:
+        cmd.extend(['--glmb-gibbs-burnin', str(int(glmb_gibbs_burnin))])
 
     # Log the C++ command for debugging — write to file to avoid stdout buffering
     debug_log = PROJECT_ROOT / 'debug_run_tracker.log'

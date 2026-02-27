@@ -5,6 +5,8 @@ services:
       - "5000:5000"
     restart: unless-stopped
     working_dir: /app
+    volumes:
+      - ./run_history:/app/run_history
     deploy:
       resources:
         reservations:

@@ -318,118 +318,133 @@ std::vector<Measurement> RadarSimulator::generateClutter(double time) {
                        ? params_.search_max_range
                        : params_.max_range;
 
-    // 監視領域の面積（扇環形: sector annulus）
-    // 追尾ビームとサーチビームで距離範囲が異なる場合がある
-    float surveillance_area;
+    // ビーム種別ごとのインデックスを分類
+    std::vector<int> search_beam_indices;  // サーチビーム (beam_target_ranges == 0)
+    std::vector<int> track_beam_indices;   // 追尾ビーム (beam_target_ranges > 0)
+
+    // 監視領域の面積を計算
+    float search_surveillance_area = 0.0f;
+    float track_surveillance_area = 0.0f;
+
     if (!beam_directions_.empty()) {
-        // ビームステアリング時: 各ビームの面積を個別計算
-        surveillance_area = 0.0f;
         for (size_t b = 0; b < beam_directions_.size(); b++) {
-            float r_min, r_max;
-            // 追尾ビーム: 目標距離を中心とした限定範囲
-            if (params_.track_range_width > 0.0f &&
-                b < beam_target_ranges_.size() && beam_target_ranges_[b] > 0.0f) {
+            float btr = (b < beam_target_ranges_.size()) ? beam_target_ranges_[b] : 0.0f;
+            if (btr > 0.0f) {
+                // 追尾ビーム: 目標距離±track_range_width/2 の扇環形
+                track_beam_indices.push_back(static_cast<int>(b));
                 float half_w = params_.track_range_width / 2.0f;
-                r_min = std::max(beam_target_ranges_[b] - half_w, params_.min_range);
-                r_max = std::min(beam_target_ranges_[b] + half_w, params_.max_range);
-            } else {
-                // サーチビーム: フルレンジ
-                r_min = search_min;
-                r_max = search_max;
+                if (half_w > 0.0f) {
+                    float r_min_t = std::max(0.0f, btr - half_w);
+                    float r_max_t = btr + half_w;
+                    track_surveillance_area += 0.5f * params_.beam_width * (r_max_t * r_max_t - r_min_t * r_min_t);
+                }
+            } else if (btr == 0.0f) {
+                // サーチビーム: search_min ~ search_max の扇環形
+                search_beam_indices.push_back(static_cast<int>(b));
+                search_surveillance_area += 0.5f * params_.beam_width * (search_max * search_max - search_min * search_min);
             }
-            surveillance_area += 0.5f * params_.beam_width * (r_max * r_max - r_min * r_min);
         }
     } else {
-        surveillance_area = M_PI * (search_max * search_max - search_min * search_min);
+        search_surveillance_area = M_PI * (search_max * search_max - search_min * search_min);
     }
 
-    // クラッタ数の期待値
-    float lambda = params_.false_alarm_rate * surveillance_area;
+    // --- サーチビームのクラッタ ---
+    float search_lambda = params_.false_alarm_rate * search_surveillance_area;
+    int num_search_clutter = 0;
+    if (search_lambda > 0.0f) {
+        poisson_dist_ = std::poisson_distribution<int>(search_lambda);
+        num_search_clutter = poisson_dist_(rng_);
+    }
 
-    // ポアソン分布でクラッタ数を決定
-    poisson_dist_ = std::poisson_distribution<int>(lambda);
-    int num_clutter = poisson_dist_(rng_);
-
-    for (int i = 0; i < num_clutter; i++) {
+    for (int i = 0; i < num_search_clutter; i++) {
         Measurement meas;
+        float theta, clutter_el, r;
 
-        float theta;
-        float clutter_el;
-        float r;
+        if (!beam_directions_.empty() && !search_beam_indices.empty()) {
+            int si = static_cast<int>(uniform_dist_(rng_) * search_beam_indices.size());
+            if (si >= static_cast<int>(search_beam_indices.size()))
+                si = static_cast<int>(search_beam_indices.size()) - 1;
+            int beam_idx = search_beam_indices[si];
 
-        if (!beam_directions_.empty()) {
-            // ビーム内にクラッタを配置
-            int beam_idx = static_cast<int>(uniform_dist_(rng_) * beam_directions_.size());
-            if (beam_idx >= static_cast<int>(beam_directions_.size()))
-                beam_idx = static_cast<int>(beam_directions_.size()) - 1;
-
-            // ビームごとの距離範囲を決定
-            float r_min, r_max;
-            if (params_.track_range_width > 0.0f &&
-                beam_idx < static_cast<int>(beam_target_ranges_.size()) &&
-                beam_target_ranges_[beam_idx] > 0.0f) {
-                // 追尾ビーム: 目標距離±width/2 に制限
-                float half_w = params_.track_range_width / 2.0f;
-                r_min = std::max(beam_target_ranges_[beam_idx] - half_w, params_.min_range);
-                r_max = std::min(beam_target_ranges_[beam_idx] + half_w, params_.max_range);
-            } else {
-                // サーチビーム: フルレンジ
-                r_min = search_min;
-                r_max = search_max;
-            }
-
-            // 扇環形内で均一分布（r² 分布）
             float u = uniform_dist_(rng_);
-            float r_sq = r_min * r_min + (r_max * r_max - r_min * r_min) * u;
+            float r_sq = search_min * search_min + (search_max * search_max - search_min * search_min) * u;
             r = std::sqrt(r_sq);
 
-            float offset = (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
-            theta = beam_directions_[beam_idx] + offset;
-            // [-π, π] に正規化
+            theta = beam_directions_[beam_idx] + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
             while (theta > static_cast<float>(M_PI)) theta -= 2.0f * static_cast<float>(M_PI);
             while (theta < -static_cast<float>(M_PI)) theta += 2.0f * static_cast<float>(M_PI);
-            // ビーム仰角: beam_elevations_ が設定されていれば使用、なければ 0°
-            float beam_el = (beam_idx < static_cast<int>(beam_elevations_.size()))
-                            ? beam_elevations_[beam_idx]
-                            : 0.0f;
-            clutter_el = beam_el + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
 
-            // ビーム種別記録
-            int cbtype = 0;
-            if (beam_idx < static_cast<int>(beam_target_ranges_.size())
-                && beam_target_ranges_[beam_idx] > 0.0f) {
-                cbtype = 1;  // 追尾ビーム
-            }
-            clutter_beam_types_.push_back(cbtype);
+            float beam_el = (beam_idx < static_cast<int>(beam_elevations_.size()))
+                            ? beam_elevations_[beam_idx] : 0.0f;
+            clutter_el = beam_el + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
         } else {
-            // ビームステアリングなし: 方位覆域全体にクラッタ生成（antenna_boresight中心）
             float u = uniform_dist_(rng_);
             float r_sq = search_min * search_min + (search_max * search_max - search_min * search_min) * u;
             r = std::sqrt(r_sq);
             theta = params_.antenna_boresight + (uniform_dist_(rng_) - 0.5f) * params_.azimuth_coverage;
-            // [-π, π] に正規化
             while (theta > static_cast<float>(M_PI)) theta -= 2.0f * static_cast<float>(M_PI);
             while (theta < -static_cast<float>(M_PI)) theta += 2.0f * static_cast<float>(M_PI);
-            // ビームステアリングなし: 仰角0° ± beam_width/2 の範囲でクラッタ生成
-            clutter_el = 0.0f + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
-            clutter_beam_types_.push_back(0);  // サーチビーム
+            clutter_el = (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
         }
 
         meas.range = r;
         meas.azimuth = theta;
         meas.elevation = clutter_el;
-        meas.doppler = (uniform_dist_(rng_) - 0.5f) * 200.0f;  // -100~100 m/s
-
-        // クラッタは低SN比（0-15 dB程度）
+        meas.doppler = (uniform_dist_(rng_) - 0.5f) * 200.0f;
         meas.snr = uniform_dist_(rng_) * 15.0f;
-
-        // ノイズ付加
         addNoise(meas);
-
         meas.timestamp = time;
         meas.sensor_id = sensor_id_;
-
         clutter.push_back(meas);
+        clutter_beam_types_.push_back(0);  // サーチビーム
+    }
+
+    // --- 追尾ビームのクラッタ ---
+    float track_lambda = params_.false_alarm_rate * track_surveillance_area;
+    int num_track_clutter = 0;
+    if (track_lambda > 0.0f) {
+        poisson_dist_ = std::poisson_distribution<int>(track_lambda);
+        num_track_clutter = poisson_dist_(rng_);
+    }
+
+    for (int i = 0; i < num_track_clutter; i++) {
+        Measurement meas;
+
+        // 追尾ビームをランダム選択（面積比重み付き）
+        // 簡易: 均一選択（各追尾ビームの距離幅は同じ track_range_width）
+        int ti = static_cast<int>(uniform_dist_(rng_) * track_beam_indices.size());
+        if (ti >= static_cast<int>(track_beam_indices.size()))
+            ti = static_cast<int>(track_beam_indices.size()) - 1;
+        int beam_idx = track_beam_indices[ti];
+
+        float target_range = beam_target_ranges_[beam_idx];
+        float half_w = params_.track_range_width / 2.0f;
+        float r_min_t = std::max(0.0f, target_range - half_w);
+        float r_max_t = target_range + half_w;
+
+        // 扇環形内で均一分布（r² 分布）
+        float u = uniform_dist_(rng_);
+        float r_sq = r_min_t * r_min_t + (r_max_t * r_max_t - r_min_t * r_min_t) * u;
+        float r = std::sqrt(r_sq);
+
+        float theta = beam_directions_[beam_idx] + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
+        while (theta > static_cast<float>(M_PI)) theta -= 2.0f * static_cast<float>(M_PI);
+        while (theta < -static_cast<float>(M_PI)) theta += 2.0f * static_cast<float>(M_PI);
+
+        float beam_el = (beam_idx < static_cast<int>(beam_elevations_.size()))
+                        ? beam_elevations_[beam_idx] : 0.0f;
+        float clutter_el = beam_el + (uniform_dist_(rng_) - 0.5f) * params_.beam_width;
+
+        meas.range = r;
+        meas.azimuth = theta;
+        meas.elevation = clutter_el;
+        meas.doppler = (uniform_dist_(rng_) - 0.5f) * 200.0f;
+        meas.snr = uniform_dist_(rng_) * 15.0f;
+        addNoise(meas);
+        meas.timestamp = time;
+        meas.sensor_id = sensor_id_;
+        clutter.push_back(meas);
+        clutter_beam_types_.push_back(1);  // 追尾ビーム
     }
 
     return clutter;

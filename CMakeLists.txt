@@ -66,6 +66,10 @@ set(TRACKER_SOURCES
     src/tracker/multi_target_tracker.cpp
     src/tracker/track_manager.cpp
     src/tracker/data_association.cu
+    src/tracker/jpda_association.cpp
+    src/tracker/pmbm_association.cpp
+    src/tracker/mht_association.cpp
+    src/tracker/glmb_association.cpp
 )
 
 set(SIMULATION_SOURCES

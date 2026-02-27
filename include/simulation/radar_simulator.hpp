@@ -38,7 +38,6 @@ struct RadarParameters {
     float search_max_range;          // サーチ領域最大距離 [m] (0 = max_range と同じ)
     float track_range_width;         // 追尾ビーム距離幅 [m] (目標距離±width/2, 0 = 制限なし)
     float range_resolution;          // レンジ分解能 [m] (同一ビーム内でこの距離以内の目標は未分解)
-
     RadarParameters()
         : detection_probability(0.95f),
           false_alarm_rate(1e-8f),

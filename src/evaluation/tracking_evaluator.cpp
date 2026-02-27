@@ -452,6 +452,21 @@ void TrackingEvaluator::printSummary() const {
     std::cout << "  Partially Tracked (PT): " << quality_metrics.partially_tracked << std::endl;
     std::cout << "  Mostly Lost (ML): " << quality_metrics.mostly_lost << std::endl;
 
+    // Per-GT-target coverage details
+    if (!gt_target_stats_.empty()) {
+        std::cout << "\n[Per-Target Coverage]" << std::endl;
+        for (const auto& pair : gt_target_stats_) {
+            const auto& stats = pair.second;
+            if (stats.total_frames == 0) continue;
+            float ratio = static_cast<float>(stats.tracked_frames) / stats.total_frames;
+            const char* label = (ratio >= 0.8f) ? "MT" : ((ratio >= 0.2f) ? "PT" : "ML");
+            std::cout << "  GT " << pair.first
+                      << ": " << stats.tracked_frames << "/" << stats.total_frames
+                      << " = " << std::setprecision(1) << (ratio * 100.0f) << "% [" << label << "]"
+                      << std::endl;
+        }
+    }
+
     std::cout << "\n========================================" << std::endl;
 }
 

@@ -366,7 +366,7 @@ td code { font-size: 12px; }
     <li><strong>弾道ミサイル軌道生成</strong> &mdash; RK4積分による物理ベースの弾道モデル（重力、大気抗力、推進力）</li>
     <li><strong>HGV軌道生成</strong> &mdash; ブースト、プルアップ、滑空、スキップ、終末ダイブの各フェーズをシミュレーション</li>
     <li><strong>レーダーシミュレーション</strong> &mdash; ビームステアリング、検出確率、クラッタ生成、SNRベース検出</li>
-    <li><strong>IMM-UKF追尾</strong> &mdash; CV/弾道/旋回の3運動モデルを並行運用し、9次元状態ベクトルを推定</li>
+    <li><strong>IMM-UKF追尾</strong> &mdash; CA/弾道/旋回の3運動モデルを並行運用し、9次元状態ベクトルを推定</li>
     <li><strong>GPU加速</strong> &mdash; データアソシエーション（マハラノビス距離計算）とUKFのシグマポイント処理をCUDAで高速化</li>
     <li><strong>評価フレームワーク</strong> &mdash; RMSE、OSPA、Precision/Recall/F1、MT/PT/ML等の指標を自動算出</li>
     <li><strong>Web GUI</strong> &mdash; Flask + Leaflet + Plotly によるインタラクティブな操作・可視化インタフェース</li>
@@ -797,7 +797,7 @@ sudo docker compose up -d</code></pre>
 <ul>
     <li><strong>Measurements &amp; Tracks</strong> &mdash; 検出数・トラック数の推移</li>
     <li><strong>Beam Allocation</strong> &mdash; サーチビーム・トラックビームの配分推移</li>
-    <li><strong>Model Probabilities</strong> &mdash; IMMの各運動モデル（CV/Ballistic/CT）の確率推移</li>
+    <li><strong>Model Probabilities</strong> &mdash; IMMの各運動モデル（CA/Ballistic/CT）の確率推移</li>
     <li><strong>Detection Rate</strong> &mdash; フレーム単位の検出率</li>
 </ul>
 
@@ -1005,7 +1005,7 @@ fasttracker.exe --mode auto-adjust \
     <tr><td>vx, vy, vz</td><td>float</td><td>推定速度 [m/s]</td></tr>
     <tr><td>ax, ay, az</td><td>float</td><td>推定加速度 [m/s&sup2;]</td></tr>
     <tr><td>state</td><td>string</td><td>トラック状態 (TENTATIVE/CONFIRMED/LOST)</td></tr>
-    <tr><td>model_prob_cv</td><td>float</td><td>CVモデル確率</td></tr>
+    <tr><td>model_prob_ca</td><td>float</td><td>CAモデル確率</td></tr>
     <tr><td>model_prob_ballistic</td><td>float</td><td>弾道モデル確率</td></tr>
     <tr><td>model_prob_ct</td><td>float</td><td>旋回モデル確率</td></tr>
     <tr><td>misses</td><td>int</td><td>連続ミス数</td></tr>
@@ -1070,9 +1070,9 @@ Interacting Multiple Model (IMM) フィルタは3つの運動モデルを並行�
     <tr><th>ID</th><th>モデル名</th><th>用途</th><th>予測式</th></tr>
     <tr>
         <td>0</td>
-        <td><strong>CV</strong> (等速直線)</td>
-        <td>ミッドコース/巡航フェーズ</td>
-        <td>$ \mathbf{x}(t{+}\Delta t) = \mathbf{x} + \mathbf{v}\Delta t $ <br>$ \mathbf{v}(t{+}\Delta t) = \mathbf{v} $ <br>$ \mathbf{a}(t{+}\Delta t) = \mathbf{0} $</td>
+        <td><strong>CA</strong> (等加速度)</td>
+        <td>汎用持続加速（ブースト/グライド）</td>
+        <td>$ \mathbf{x}(t{+}\Delta t) = \mathbf{x} + \mathbf{v}\Delta t + \tfrac{1}{2}\mathbf{a}\Delta t^2 $ <br>$ \mathbf{v}(t{+}\Delta t) = \mathbf{v} + \mathbf{a}\Delta t $ <br>$ \mathbf{a}(t{+}\Delta t) = \mathbf{a} $</td>
     </tr>
     <tr>
         <td>1</td>
@@ -1084,7 +1084,7 @@ Interacting Multiple Model (IMM) フィルタは3つの運動モデルを並行�
         <td>2</td>
         <td><strong>CT</strong> (旋回)</td>
         <td>HGV機動</td>
-        <td>2D水平旋回 + 鉛直CV <br>旋回率: $ \omega = |\mathbf{a}| / |\mathbf{v}| $</td>
+        <td>2D水平旋回 + 鉛直CA <br>旋回率: $ \omega = |\mathbf{a}| / |\mathbf{v}| $</td>
     </tr>
 </table>
 

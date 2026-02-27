@@ -798,6 +798,40 @@ static float cli_process_pos = -1.0f;
 static float cli_process_vel = -1.0f;
 static float cli_process_acc = -1.0f;
 static float cli_detect_prob = -1.0f;
+// JPDA パラメータ
+static std::string cli_association_method = "gnn";
+static float cli_jpda_pd = -1.0f;
+static float cli_jpda_clutter_density = -1.0f;
+static float cli_jpda_gate = -1.0f;
+// PMBM パラメータ
+static float cli_pmbm_pd = -1.0f;
+static float cli_pmbm_gate = -1.0f;
+static float cli_pmbm_clutter_density = -1.0f;
+static int   cli_pmbm_k_best = -1;
+static float cli_pmbm_survival = -1.0f;
+static float cli_pmbm_init_existence = -1.0f;
+// MHT parameters
+static float cli_mht_pd = -1.0f;
+static float cli_mht_gate = -1.0f;
+static float cli_mht_clutter_density = -1.0f;
+static int   cli_mht_k_best = -1;
+static int   cli_mht_max_hypotheses = -1;
+static float cli_mht_score_decay = -1.0f;
+static float cli_mht_prune_ratio = -1.0f;
+static float cli_mht_switch_cost = -1.0f;
+// GLMB parameters
+static float cli_glmb_pd = -1.0f;
+static float cli_glmb_gate = -1.0f;
+static float cli_glmb_clutter_density = -1.0f;
+static int   cli_glmb_k_best = -1;
+static int   cli_glmb_max_hypotheses = -1;
+static float cli_glmb_survival = -1.0f;
+static float cli_glmb_birth_weight = -1.0f;
+static float cli_glmb_score_decay = -1.0f;
+static float cli_glmb_init_existence = -1.0f;
+static std::string cli_glmb_sampler = "";
+static int   cli_glmb_gibbs_sweeps = -1;
+static int   cli_glmb_gibbs_burnin = -1;
 // UKF パラメータ
 static float cli_ukf_alpha = -1.0f;
 static float cli_ukf_beta = -1.0f;
@@ -805,20 +839,28 @@ static float cli_ukf_kappa = -999.0f;  // kappaは負値も有効なので-999�
 static float cli_max_distance = -1.0f;
 static float cli_max_jump_velocity = -1.0f;
 static float cli_min_init_distance = -1.0f;
-// IMM 遷移確率行列
-static float cli_imm_cv_cv = -1.0f;
-static float cli_imm_cv_bal = -1.0f;
-static float cli_imm_cv_ct = -1.0f;
-static float cli_imm_bal_cv = -1.0f;
+// IMM 遷移確率行列 (4×4: CA, Ballistic, CT, SkipGlide)
+static float cli_imm_ca_ca = -1.0f;
+static float cli_imm_ca_bal = -1.0f;
+static float cli_imm_ca_ct = -1.0f;
+static float cli_imm_ca_sg = -1.0f;
+static float cli_imm_bal_ca = -1.0f;
 static float cli_imm_bal_bal = -1.0f;
 static float cli_imm_bal_ct = -1.0f;
-static float cli_imm_ct_cv = -1.0f;
+static float cli_imm_bal_sg = -1.0f;
+static float cli_imm_ct_ca = -1.0f;
 static float cli_imm_ct_bal = -1.0f;
 static float cli_imm_ct_ct = -1.0f;
+static float cli_imm_ct_sg = -1.0f;
+static float cli_imm_sg_ca = -1.0f;
+static float cli_imm_sg_bal = -1.0f;
+static float cli_imm_sg_ct = -1.0f;
+static float cli_imm_sg_sg = -1.0f;
 // IMM モデルノイズ倍率
-static float cli_imm_cv_noise = -1.0f;
+static float cli_imm_ca_noise = -1.0f;
 static float cli_imm_bal_noise = -1.0f;
 static float cli_imm_ct_noise = -1.0f;
+static float cli_imm_sg_noise = -1.0f;
 // センサーパラメータ
 static float cli_range_noise = -1.0f;
 static float cli_azimuth_noise = -1.0f;
@@ -1263,6 +1305,49 @@ static int runTrackerMode(
     if (cli_max_distance >= 0) assoc_params.max_distance = cli_max_distance;
     if (cli_max_jump_velocity >= 0) assoc_params.max_jump_velocity = cli_max_jump_velocity;
     if (cli_min_init_distance >= 0) assoc_params.min_init_distance = cli_min_init_distance;
+    // JPDA パラメータ上書き
+    if (cli_association_method == "jpda") {
+        assoc_params.association_method = AssociationMethod::JPDA;
+    } else if (cli_association_method == "pmbm") {
+        assoc_params.association_method = AssociationMethod::PMBM;
+    } else if (cli_association_method == "mht") {
+        assoc_params.association_method = AssociationMethod::MHT;
+    } else if (cli_association_method == "glmb") {
+        assoc_params.association_method = AssociationMethod::GLMB;
+    }
+    if (cli_jpda_pd >= 0) assoc_params.jpda_pd = cli_jpda_pd;
+    if (cli_jpda_clutter_density >= 0) assoc_params.jpda_clutter_density = cli_jpda_clutter_density;
+    if (cli_jpda_gate >= 0) assoc_params.jpda_gate = cli_jpda_gate;
+    // PMBM パラメータ上書き
+    if (cli_pmbm_pd >= 0) assoc_params.pmbm_pd = cli_pmbm_pd;
+    if (cli_pmbm_gate >= 0) assoc_params.pmbm_gate = cli_pmbm_gate;
+    if (cli_pmbm_clutter_density >= 0) assoc_params.pmbm_clutter_density = cli_pmbm_clutter_density;
+    if (cli_pmbm_k_best >= 0) assoc_params.pmbm_k_best = cli_pmbm_k_best;
+    if (cli_pmbm_survival >= 0) assoc_params.pmbm_survival_prob = cli_pmbm_survival;
+    if (cli_pmbm_init_existence >= 0) assoc_params.pmbm_initial_existence = cli_pmbm_init_existence;
+    // MHT parameters
+    if (cli_mht_pd >= 0) assoc_params.mht_pd = cli_mht_pd;
+    if (cli_mht_gate >= 0) assoc_params.mht_gate = cli_mht_gate;
+    if (cli_mht_clutter_density >= 0) assoc_params.mht_clutter_density = cli_mht_clutter_density;
+    if (cli_mht_k_best >= 0) assoc_params.mht_k_best = cli_mht_k_best;
+    if (cli_mht_max_hypotheses >= 0) assoc_params.mht_max_hypotheses = cli_mht_max_hypotheses;
+    if (cli_mht_score_decay >= 0) assoc_params.mht_score_decay = cli_mht_score_decay;
+    if (cli_mht_prune_ratio >= 0) assoc_params.mht_prune_ratio = cli_mht_prune_ratio;
+    if (cli_mht_switch_cost >= 0) assoc_params.mht_switch_cost = cli_mht_switch_cost;
+    // GLMB parameters
+    if (cli_glmb_pd >= 0) assoc_params.glmb_pd = cli_glmb_pd;
+    if (cli_glmb_gate >= 0) assoc_params.glmb_gate = cli_glmb_gate;
+    if (cli_glmb_clutter_density >= 0) assoc_params.glmb_clutter_density = cli_glmb_clutter_density;
+    if (cli_glmb_k_best >= 0) assoc_params.glmb_k_best = cli_glmb_k_best;
+    if (cli_glmb_max_hypotheses >= 0) assoc_params.glmb_max_hypotheses = cli_glmb_max_hypotheses;
+    if (cli_glmb_survival >= 0) assoc_params.glmb_survival_prob = cli_glmb_survival;
+    if (cli_glmb_birth_weight >= 0) assoc_params.glmb_birth_weight = cli_glmb_birth_weight;
+    if (cli_glmb_score_decay >= 0) assoc_params.glmb_score_decay = cli_glmb_score_decay;
+    if (cli_glmb_init_existence >= 0) assoc_params.glmb_initial_existence = cli_glmb_init_existence;
+    if (cli_glmb_sampler == "gibbs") assoc_params.glmb_sampler = GLMBSampler::GIBBS;
+    else if (cli_glmb_sampler == "murty") assoc_params.glmb_sampler = GLMBSampler::MURTY;
+    if (cli_glmb_gibbs_sweeps >= 0) assoc_params.glmb_gibbs_sweeps = cli_glmb_gibbs_sweeps;
+    if (cli_glmb_gibbs_burnin >= 0) assoc_params.glmb_gibbs_burnin = cli_glmb_gibbs_burnin;
     if (cli_process_pos >= 0) process_noise.position_noise = cli_process_pos;
     if (cli_process_vel >= 0) process_noise.velocity_noise = cli_process_vel;
     if (cli_process_acc >= 0) process_noise.accel_noise = cli_process_acc;
@@ -1347,6 +1432,41 @@ static int runTrackerMode(
     std::cout << "  min_snr: " << assoc_params.min_snr_for_init << std::endl;
     std::cout << "  max_jump_velocity: " << assoc_params.max_jump_velocity << " m/s" << std::endl;
     std::cout << "  min_init_distance: " << assoc_params.min_init_distance << " m" << std::endl;
+    std::cout << "  association: " << (assoc_params.association_method == AssociationMethod::GLMB ? "GLMB" :
+                                        assoc_params.association_method == AssociationMethod::MHT ? "MHT" :
+                                        assoc_params.association_method == AssociationMethod::PMBM ? "PMBM" :
+                                        assoc_params.association_method == AssociationMethod::JPDA ? "JPDA" : "GNN") << std::endl;
+    if (assoc_params.association_method == AssociationMethod::JPDA) {
+        std::cout << "  jpda_pd: " << assoc_params.jpda_pd << std::endl;
+        std::cout << "  jpda_clutter_density: " << assoc_params.jpda_clutter_density << std::endl;
+        std::cout << "  jpda_gate: " << assoc_params.jpda_gate << std::endl;
+    }
+    if (assoc_params.association_method == AssociationMethod::MHT) {
+        std::cout << "  mht_pd: " << assoc_params.mht_pd << std::endl;
+        std::cout << "  mht_gate: " << assoc_params.mht_gate << std::endl;
+        std::cout << "  mht_clutter_density: " << assoc_params.mht_clutter_density << std::endl;
+        std::cout << "  mht_k_best: " << assoc_params.mht_k_best << std::endl;
+        std::cout << "  mht_max_hypotheses: " << assoc_params.mht_max_hypotheses << std::endl;
+        std::cout << "  mht_score_decay: " << assoc_params.mht_score_decay << std::endl;
+        std::cout << "  mht_prune_ratio: " << assoc_params.mht_prune_ratio << std::endl;
+        std::cout << "  mht_switch_cost: " << assoc_params.mht_switch_cost << std::endl;
+    }
+    if (assoc_params.association_method == AssociationMethod::GLMB) {
+        std::cout << "  glmb_pd: " << assoc_params.glmb_pd << std::endl;
+        std::cout << "  glmb_gate: " << assoc_params.glmb_gate << std::endl;
+        std::cout << "  glmb_clutter_density: " << assoc_params.glmb_clutter_density << std::endl;
+        std::cout << "  glmb_k_best: " << assoc_params.glmb_k_best << std::endl;
+        std::cout << "  glmb_max_hypotheses: " << assoc_params.glmb_max_hypotheses << std::endl;
+        std::cout << "  glmb_survival_prob: " << assoc_params.glmb_survival_prob << std::endl;
+        std::cout << "  glmb_birth_weight: " << assoc_params.glmb_birth_weight << std::endl;
+        std::cout << "  glmb_score_decay: " << assoc_params.glmb_score_decay << std::endl;
+        std::cout << "  glmb_initial_existence: " << assoc_params.glmb_initial_existence << std::endl;
+        std::cout << "  glmb_sampler: " << (assoc_params.glmb_sampler == GLMBSampler::GIBBS ? "gibbs" : "murty") << std::endl;
+        if (assoc_params.glmb_sampler == GLMBSampler::GIBBS) {
+            std::cout << "  glmb_gibbs_sweeps: " << assoc_params.glmb_gibbs_sweeps << std::endl;
+            std::cout << "  glmb_gibbs_burnin: " << assoc_params.glmb_gibbs_burnin << std::endl;
+        }
+    }
     std::cout << "  process_pos_noise: " << process_noise.position_noise << std::endl;
     std::cout << "  process_vel_noise: " << process_noise.velocity_noise << std::endl;
     std::cout << "  process_acc_noise: " << process_noise.accel_noise << std::endl;
@@ -1379,26 +1499,33 @@ static int runTrackerMode(
         MultiTargetTracker tracker(max_tracks, ukf_params, assoc_params, process_noise, radar_params.meas_noise);
         tracker.setSensorPosition(sensor_x, sensor_y);
 
-        // IMM遷移確率行列の設定（CLI上書きがあれば適用）
+        // IMM遷移確率行列の設定（4×4: CLI上書きがあれば適用）
         std::vector<std::vector<float>> imm_matrix = {
-            {cli_imm_cv_cv >= 0 ? cli_imm_cv_cv : 0.80f,
-             cli_imm_cv_bal >= 0 ? cli_imm_cv_bal : 0.15f,
-             cli_imm_cv_ct >= 0 ? cli_imm_cv_ct : 0.05f},
-            {cli_imm_bal_cv >= 0 ? cli_imm_bal_cv : 0.10f,
-             cli_imm_bal_bal >= 0 ? cli_imm_bal_bal : 0.85f,
-             cli_imm_bal_ct >= 0 ? cli_imm_bal_ct : 0.05f},
-            {cli_imm_ct_cv >= 0 ? cli_imm_ct_cv : 0.05f,
-             cli_imm_ct_bal >= 0 ? cli_imm_ct_bal : 0.10f,
-             cli_imm_ct_ct >= 0 ? cli_imm_ct_ct : 0.85f}
+            {cli_imm_ca_ca >= 0 ? cli_imm_ca_ca : 0.75f,
+             cli_imm_ca_bal >= 0 ? cli_imm_ca_bal : 0.10f,
+             cli_imm_ca_ct >= 0 ? cli_imm_ca_ct : 0.05f,
+             cli_imm_ca_sg >= 0 ? cli_imm_ca_sg : 0.10f},
+            {cli_imm_bal_ca >= 0 ? cli_imm_bal_ca : 0.08f,
+             cli_imm_bal_bal >= 0 ? cli_imm_bal_bal : 0.72f,
+             cli_imm_bal_ct >= 0 ? cli_imm_bal_ct : 0.05f,
+             cli_imm_bal_sg >= 0 ? cli_imm_bal_sg : 0.15f},
+            {cli_imm_ct_ca >= 0 ? cli_imm_ct_ca : 0.05f,
+             cli_imm_ct_bal >= 0 ? cli_imm_ct_bal : 0.05f,
+             cli_imm_ct_ct >= 0 ? cli_imm_ct_ct : 0.80f,
+             cli_imm_ct_sg >= 0 ? cli_imm_ct_sg : 0.10f},
+            {cli_imm_sg_ca >= 0 ? cli_imm_sg_ca : 0.10f,
+             cli_imm_sg_bal >= 0 ? cli_imm_sg_bal : 0.15f,
+             cli_imm_sg_ct >= 0 ? cli_imm_sg_ct : 0.05f,
+             cli_imm_sg_sg >= 0 ? cli_imm_sg_sg : 0.70f}
         };
         tracker.setIMMTransitionMatrix(imm_matrix);
 
         // IMMモデルノイズ倍率の設定（CLI上書きがあれば適用）
-        // CT誤判定抑制のため、CTモデルのノイズを増加（より保守的な推定）
-        float cv_noise_mult = (cli_imm_cv_noise >= 0) ? cli_imm_cv_noise : 0.1f;
+        float ca_noise_mult = (cli_imm_ca_noise >= 0) ? cli_imm_ca_noise : 0.1f;
         float bal_noise_mult = (cli_imm_bal_noise >= 0) ? cli_imm_bal_noise : 0.3f;
         float ct_noise_mult = (cli_imm_ct_noise >= 0) ? cli_imm_ct_noise : 2.5f;
-        tracker.setIMMNoiseMultipliers(cv_noise_mult, bal_noise_mult, ct_noise_mult);
+        float sg_noise_mult = (cli_imm_sg_noise >= 0) ? cli_imm_sg_noise : 1.5f;
+        tracker.setIMMNoiseMultipliers(ca_noise_mult, bal_noise_mult, ct_noise_mult, sg_noise_mult);
 
         // Evaluator
         TrackingEvaluator evaluator(ospa_cutoff, 2);
@@ -1419,7 +1546,7 @@ static int runTrackerMode(
             out_file << "frame,time,num_tracks,num_confirmed,num_measurements,processing_time_ms,beam_track,beam_search,beam_demand" << std::endl;
 
             track_file.open("track_details.csv");
-            track_file << "frame,time,track_id,x,y,z,vx,vy,vz,ax,ay,az,state,model_prob_cv,model_prob_ballistic,model_prob_ct,misses,miss_reason" << std::endl;
+            track_file << "frame,time,track_id,x,y,z,vx,vy,vz,ax,ay,az,state,model_prob_ca,model_prob_ballistic,model_prob_ct,model_prob_sg,misses,miss_reason" << std::endl;
 
             ground_truth_file.open("ground_truth.csv");
             ground_truth_file << "frame,time,target_id,x,y,z,vx,vy,vz,ax,ay,az" << std::endl;
@@ -1479,9 +1606,53 @@ static int runTrackerMode(
                 };
 
                 // トラック選択: confirmed_onlyかall tracksか
+                // トラック選択: confirmed_onlyかall tracksか
+                // ブートストラップモード: CONFIRMED航跡がゼロの場合、TENTATIVE
+                // 航跡にビームを割当てて早期確認を促進する。
+                // 制約: (1) hits>=1, (2) サーチレンジ内, (3) 最大4航跡
+                // hits>=1で十分: サーチビーム検出はSNR閾値を超えた真の検出であり、
+                // クラッタ起源でもトラックビームで即座に棄却される。
                 auto beam_tracks = track_confirmed_only
                     ? tracker.getConfirmedTracks()
                     : tracker.getAllTracks();
+                // 拡張ブートストラップ: CONFIRMED航跡の有無に関わらず、
+                // 全CONFIRMEDから1km以上離れたTENTATIVEにもビーム割当。
+                // 分離後の新目標を迅速に獲得するために不可欠。
+                // CONFIRMED=0の場合は従来通り全TENTATIVEが対象。
+                if (track_confirmed_only) {
+                    auto all = tracker.getAllTracks();
+                    std::sort(all.begin(), all.end(),
+                        [](const Track& a, const Track& b) { return a.hits > b.hits; });
+                    int bootstrap_count = 0;
+                    float min_dist_from_confirmed_sq = 2000.0f * 2000.0f; // 2km
+                    for (const auto& t : all) {
+                        if (bootstrap_count >= 4) break;
+                        if (t.track_state != TrackState::TENTATIVE || t.hits < 1) continue;
+                        // サーチレンジ内チェック
+                        float bdx = t.state(0) - sensor_x;
+                        float bdy = t.state(1) - sensor_y;
+                        float bdz = t.state(2) - radar_params.sensor_z;
+                        float range_3d = std::sqrt(bdx*bdx + bdy*bdy + bdz*bdz);
+                        if (range_3d < search_min_range || range_3d > search_max_range) continue;
+                        // CONFIRMED航跡がある場合: 全CONFIRMEDから1km以上離れていること
+                        // CONFIRMED=0の場合: 条件なし（従来の挙動）
+                        if (!beam_tracks.empty()) {
+                            bool too_close = false;
+                            for (const auto& ct : beam_tracks) {
+                                float dx = t.state(0) - ct.state(0);
+                                float dy = t.state(1) - ct.state(1);
+                                float dz = t.state(2) - ct.state(2);
+                                if (dx*dx + dy*dy + dz*dz < min_dist_from_confirmed_sq) {
+                                    too_close = true;
+                                    break;
+                                }
+                            }
+                            if (too_close) continue;
+                        }
+                        beam_tracks.push_back(t);
+                        bootstrap_count++;
+                    }
+                }
 
                 // レーダー覆域内のトラックのみ抽出（ID追跡付き）
                 std::vector<float> track_azimuths;
@@ -1500,6 +1671,14 @@ static int runTrackerMode(
                     // トラックビームはレーダー覆域内なら割当可能（距離＋仰角のみチェック、方位角制限なし）
                     // サーチ領域はサーチビームの配置範囲を定義するのみ
                     if (isInRadarCov(az, el, range_3d)) {
+                        // ビーム剥奪: 連続ミスが多いCONFIRMED航跡は予測位置が
+                        // 大幅に発散している可能性が高い（HGV機動時の高度誤差等）。
+                        // 追尾ビームを無駄に消費するより、サーチビームに転用して
+                        // 目標再検出確率を向上させる。
+                        if (t.track_state == TrackState::CONFIRMED && t.misses >= 10) {
+                            track_miss_reason[t.id] = 3;  // beam_miss（FOV内だがビーム剥奪）
+                            continue;  // ビーム割当対象から除外→サーチビームに転用
+                        }
                         track_azimuths.push_back(az);
                         track_elevations.push_back(el);
                         track_ranges.push_back(range_3d);
@@ -1602,6 +1781,7 @@ static int runTrackerMode(
                 int beams_per_bar = std::max(1, search_count / num_elev_bars);
                 int remaining_beams = search_count;
 
+                // 仰角バー: 固定スキャンパターン
                 for (int bar = 0; bar < num_elev_bars && remaining_beams > 0; bar++) {
                     // このバーの仰角: サイクル位置に応じてオフセット
                     int elev_idx = (elev_cycle / num_elev_bars + bar) % total_elev_positions;
@@ -1696,9 +1876,10 @@ static int runTrackerMode(
                 for (const auto& track : confirmed_tracks) {
                     int state_value = 1;  // All are CONFIRMED
 
-                    float prob_cv = track.model_probs.size() >= 1 ? track.model_probs[0] : 0.333f;
-                    float prob_high = track.model_probs.size() >= 2 ? track.model_probs[1] : 0.333f;
-                    float prob_med = track.model_probs.size() >= 3 ? track.model_probs[2] : 0.333f;
+                    float prob_cv = track.model_probs.size() >= 1 ? track.model_probs[0] : 0.25f;
+                    float prob_high = track.model_probs.size() >= 2 ? track.model_probs[1] : 0.25f;
+                    float prob_med = track.model_probs.size() >= 3 ? track.model_probs[2] : 0.25f;
+                    float prob_sg = track.model_probs.size() >= 4 ? track.model_probs[3] : 0.25f;
 
                     // miss_reason: 0=探知, 1=覆域外, 2=ビームリソース不足, 3=ビーム照射未探知
                     int reason = 0;
@@ -1713,7 +1894,7 @@ static int runTrackerMode(
                               << track.state(3) << "," << track.state(4) << "," << track.state(5) << ","
                               << track.state(6) << "," << track.state(7) << "," << track.state(8) << ","
                               << state_value << ","
-                              << prob_cv << "," << prob_high << "," << prob_med << ","
+                              << prob_cv << "," << prob_high << "," << prob_med << "," << prob_sg << ","
                               << track.misses << "," << reason << std::endl;
                 }
 
@@ -1993,25 +2174,67 @@ int main(int argc, char** argv) {
         else if (arg == "--process-vel-noise" && i + 1 < argc) cli_process_vel = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--process-acc-noise" && i + 1 < argc) cli_process_acc = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--detect-prob" && i + 1 < argc) cli_detect_prob = static_cast<float>(std::atof(argv[++i]));
+        // JPDA パラメータ
+        else if (arg == "--association" && i + 1 < argc) cli_association_method = argv[++i];
+        else if (arg == "--jpda-pd" && i + 1 < argc) cli_jpda_pd = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--jpda-clutter-density" && i + 1 < argc) cli_jpda_clutter_density = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--jpda-gate" && i + 1 < argc) cli_jpda_gate = static_cast<float>(std::atof(argv[++i]));
+        // PMBM パラメータ
+        else if (arg == "--pmbm-pd" && i + 1 < argc) cli_pmbm_pd = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--pmbm-gate" && i + 1 < argc) cli_pmbm_gate = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--pmbm-clutter-density" && i + 1 < argc) cli_pmbm_clutter_density = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--pmbm-k-best" && i + 1 < argc) cli_pmbm_k_best = std::atoi(argv[++i]);
+        else if (arg == "--pmbm-survival" && i + 1 < argc) cli_pmbm_survival = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--pmbm-init-existence" && i + 1 < argc) cli_pmbm_init_existence = static_cast<float>(std::atof(argv[++i]));
+        // MHT パラメータ
+        else if (arg == "--mht-pd" && i + 1 < argc) cli_mht_pd = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--mht-gate" && i + 1 < argc) cli_mht_gate = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--mht-clutter-density" && i + 1 < argc) cli_mht_clutter_density = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--mht-k-best" && i + 1 < argc) cli_mht_k_best = std::atoi(argv[++i]);
+        else if (arg == "--mht-max-hypotheses" && i + 1 < argc) cli_mht_max_hypotheses = std::atoi(argv[++i]);
+        else if (arg == "--mht-score-decay" && i + 1 < argc) cli_mht_score_decay = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--mht-prune-ratio" && i + 1 < argc) cli_mht_prune_ratio = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--mht-switch-cost" && i + 1 < argc) cli_mht_switch_cost = static_cast<float>(std::atof(argv[++i]));
+        // GLMB パラメータ
+        else if (arg == "--glmb-pd" && i + 1 < argc) cli_glmb_pd = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--glmb-gate" && i + 1 < argc) cli_glmb_gate = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--glmb-clutter-density" && i + 1 < argc) cli_glmb_clutter_density = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--glmb-k-best" && i + 1 < argc) cli_glmb_k_best = std::atoi(argv[++i]);
+        else if (arg == "--glmb-max-hypotheses" && i + 1 < argc) cli_glmb_max_hypotheses = std::atoi(argv[++i]);
+        else if (arg == "--glmb-survival" && i + 1 < argc) cli_glmb_survival = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--glmb-birth-weight" && i + 1 < argc) cli_glmb_birth_weight = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--glmb-score-decay" && i + 1 < argc) cli_glmb_score_decay = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--glmb-init-existence" && i + 1 < argc) cli_glmb_init_existence = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--glmb-sampler" && i + 1 < argc) cli_glmb_sampler = argv[++i];
+        else if (arg == "--glmb-gibbs-sweeps" && i + 1 < argc) cli_glmb_gibbs_sweeps = std::atoi(argv[++i]);
+        else if (arg == "--glmb-gibbs-burnin" && i + 1 < argc) cli_glmb_gibbs_burnin = std::atoi(argv[++i]);
         // UKF パラメータ
         else if (arg == "--ukf-alpha" && i + 1 < argc) cli_ukf_alpha = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--ukf-beta" && i + 1 < argc) cli_ukf_beta = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--ukf-kappa" && i + 1 < argc) cli_ukf_kappa = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--max-distance" && i + 1 < argc) cli_max_distance = static_cast<float>(std::atof(argv[++i]));
-        // IMM 遷移確率
-        else if (arg == "--imm-cv-cv" && i + 1 < argc) cli_imm_cv_cv = static_cast<float>(std::atof(argv[++i]));
-        else if (arg == "--imm-cv-bal" && i + 1 < argc) cli_imm_cv_bal = static_cast<float>(std::atof(argv[++i]));
-        else if (arg == "--imm-cv-ct" && i + 1 < argc) cli_imm_cv_ct = static_cast<float>(std::atof(argv[++i]));
-        else if (arg == "--imm-bal-cv" && i + 1 < argc) cli_imm_bal_cv = static_cast<float>(std::atof(argv[++i]));
+        // IMM 遷移確率 (4×4: CA, Ballistic, CT, SkipGlide)
+        else if (arg == "--imm-ca-ca" && i + 1 < argc) cli_imm_ca_ca = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ca-bal" && i + 1 < argc) cli_imm_ca_bal = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ca-ct" && i + 1 < argc) cli_imm_ca_ct = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ca-sg" && i + 1 < argc) cli_imm_ca_sg = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-bal-ca" && i + 1 < argc) cli_imm_bal_ca = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--imm-bal-bal" && i + 1 < argc) cli_imm_bal_bal = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--imm-bal-ct" && i + 1 < argc) cli_imm_bal_ct = static_cast<float>(std::atof(argv[++i]));
-        else if (arg == "--imm-ct-cv" && i + 1 < argc) cli_imm_ct_cv = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-bal-sg" && i + 1 < argc) cli_imm_bal_sg = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ct-ca" && i + 1 < argc) cli_imm_ct_ca = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--imm-ct-bal" && i + 1 < argc) cli_imm_ct_bal = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--imm-ct-ct" && i + 1 < argc) cli_imm_ct_ct = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ct-sg" && i + 1 < argc) cli_imm_ct_sg = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-sg-ca" && i + 1 < argc) cli_imm_sg_ca = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-sg-bal" && i + 1 < argc) cli_imm_sg_bal = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-sg-ct" && i + 1 < argc) cli_imm_sg_ct = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-sg-sg" && i + 1 < argc) cli_imm_sg_sg = static_cast<float>(std::atof(argv[++i]));
         // IMM モデルノイズ倍率
-        else if (arg == "--imm-cv-noise" && i + 1 < argc) cli_imm_cv_noise = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-ca-noise" && i + 1 < argc) cli_imm_ca_noise = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--imm-bal-noise" && i + 1 < argc) cli_imm_bal_noise = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--imm-ct-noise" && i + 1 < argc) cli_imm_ct_noise = static_cast<float>(std::atof(argv[++i]));
+        else if (arg == "--imm-sg-noise" && i + 1 < argc) cli_imm_sg_noise = static_cast<float>(std::atof(argv[++i]));
         // センサーパラメータ
         else if (arg == "--range-noise" && i + 1 < argc) cli_range_noise = static_cast<float>(std::atof(argv[++i]));
         else if (arg == "--azimuth-noise" && i + 1 < argc) cli_azimuth_noise = static_cast<float>(std::atof(argv[++i]));

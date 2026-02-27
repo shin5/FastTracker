@@ -864,6 +864,109 @@
                                 <input type="number" id="time-step" value="0.5" min="0.1" max="2.0" step="0.1"> s
                             </div>
                             <div class="control-row">
+                                <label title="Data association algorithm. GNN: one-to-one optimal assignment (Hungarian). JPDA: weighted multi-measurement update (better for closely-spaced targets).">Association</label>
+                                <select id="association-method" class="form-select form-select-sm" onchange="toggleAssocParams()">
+                                    <option value="gnn" selected>GNN (Hungarian)</option>
+                                    <option value="jpda">JPDA</option>
+                                    <option value="mht">MHT</option>
+                                    <option value="pmbm">PMBM</option>
+                                    <option value="glmb">GLMB</option>
+                                </select>
+                            </div>
+                            <div id="jpda-params" style="display:none;">
+                                <div class="control-row">
+                                    <label title="Detection probability Pd for JPDA. Probability that a target generates a detection. 0.8 = typical.">JPDA Pd</label>
+                                    <input type="number" id="jpda-pd" value="0.8" min="0.1" max="1.0" step="0.05">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Clutter density lambda for JPDA. Expected clutter returns per unit measurement volume. Lower = trusts measurements more.">JPDA Clutter</label>
+                                    <input type="number" id="jpda-clutter-density" value="1e-6" step="1e-7">
+                                </div>
+                            </div>
+                            <div id="pmbm-params" style="display:none;">
+                                <div class="control-row">
+                                    <label title="Detection probability for PMBM. 0.85 = typical.">PMBM Pd</label>
+                                    <input type="number" id="pmbm-pd" value="0.85" min="0.1" max="1.0" step="0.05">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Number of top-K assignment hypotheses for Murty's algorithm. Higher = more accurate but slower.">PMBM K-best</label>
+                                    <input type="number" id="pmbm-k-best" value="5" min="1" max="50" step="1">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Clutter density for PMBM.">PMBM Clutter</label>
+                                    <input type="number" id="pmbm-clutter-density" value="1e-6" step="1e-7">
+                                </div>
+                            </div>
+                            <div id="mht-params" style="display:none;">
+                                <div class="control-row">
+                                    <label title="Detection probability for MHT">MHT Pd</label>
+                                    <input type="number" id="mht-pd" value="0.85" min="0.1" max="1.0" step="0.05">
+                                </div>
+                                <div class="control-row">
+                                    <label title="K-best assignments per frame (Murty's)">MHT K-best</label>
+                                    <input type="number" id="mht-k-best" value="5" min="1" max="50" step="1">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Maximum global hypotheses across frames">MHT Max Hyp</label>
+                                    <input type="number" id="mht-max-hypotheses" value="50" min="5" max="500" step="5">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Score decay per frame (0.9 = ~10 frame window)">MHT Decay</label>
+                                    <input type="number" id="mht-score-decay" value="0.9" min="0.5" max="0.99" step="0.01">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Clutter density for MHT">MHT Clutter</label>
+                                    <input type="number" id="mht-clutter-density" value="1e-6" step="1e-7">
+                                </div>
+                            </div>
+                            <div id="glmb-params" style="display:none;">
+                                <div class="control-row">
+                                    <label title="Detection probability for GLMB">GLMB Pd</label>
+                                    <input type="number" id="glmb-pd" value="0.85" min="0.1" max="1.0" step="0.05">
+                                </div>
+                                <div class="control-row">
+                                    <label title="K-best assignments per frame (Murty's)">GLMB K-best</label>
+                                    <input type="number" id="glmb-k-best" value="5" min="1" max="50" step="1">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Maximum global hypotheses across frames">GLMB Max Hyp</label>
+                                    <input type="number" id="glmb-max-hypotheses" value="50" min="5" max="500" step="5">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Score decay per frame (0.9 = ~10 frame window)">GLMB Decay</label>
+                                    <input type="number" id="glmb-score-decay" value="0.9" min="0.5" max="0.99" step="0.01">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Survival probability between frames">GLMB Survival</label>
+                                    <input type="number" id="glmb-survival" value="0.99" min="0.5" max="1.0" step="0.01">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Birth weight for new labels">GLMB Birth Wt</label>
+                                    <input type="number" id="glmb-birth-weight" value="0.01" min="0.001" max="0.5" step="0.005">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Clutter density for GLMB">GLMB Clutter</label>
+                                    <input type="number" id="glmb-clutter-density" value="1e-6" step="1e-7">
+                                </div>
+                                <div class="control-row">
+                                    <label title="Hypothesis generation: Murty's K-best (deterministic) or Gibbs sampler (stochastic, better scaling)">GLMB Sampler</label>
+                                    <select id="glmb-sampler" onchange="toggleGibbsParams()">
+                                        <option value="murty" selected>Murty's K-best</option>
+                                        <option value="gibbs">Gibbs Sampler</option>
+                                    </select>
+                                </div>
+                                <div id="gibbs-params" style="display:none;">
+                                    <div class="control-row">
+                                        <label title="Total number of Gibbs sampling sweeps">Gibbs Sweeps</label>
+                                        <input type="number" id="glmb-gibbs-sweeps" value="100" min="10" max="1000" step="10">
+                                    </div>
+                                    <div class="control-row">
+                                        <label title="Burn-in sweeps to discard before collecting samples">Gibbs Burn-in</label>
+                                        <input type="number" id="glmb-gibbs-burnin" value="10" min="0" max="100" step="5">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="control-row">
                                 <label title="Mahalanobis distance gate for data association. HGV: 50, Ballistic: 15. Higher = more tolerant to maneuvers.">Gate Threshold</label>
                                 <input type="number" id="gate-threshold" value="50" min="1" max="100" step="1">
                             </div>
@@ -948,50 +1051,80 @@
                         </div>
                     </div>
 
-                    <!-- IMM Transition Matrix -->
+                    <!-- IMM Transition Matrix (4x4) -->
                     <div class="section-header" style="margin-top: 12px;">IMM Transition Probabilities</div>
-                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">From → To: CV=Constant Velocity, Bal=Ballistic, CT=Coordinated Turn. Each row sums to 1.0.</div>
-                    <div class="param-grid" style="grid-template-columns: repeat(3, 1fr);">
+                    <div style="font-size: 10px; color: #888; margin-bottom: 4px;">From → To: CA=Constant Acceleration, Bal=Ballistic, CT=Coordinated Turn, SG=Skip/Glide. Each row sums to 1.0.</div>
+                    <div class="param-grid" style="grid-template-columns: repeat(4, 1fr);">
                         <div>
                             <div class="control-row">
-                                <label title="CV→CV: Probability of staying in Constant Velocity model">CV→CV</label>
-                                <input type="number" id="imm-cv-cv" value="0.80" min="0.01" max="0.99" step="0.01">
+                                <label title="CA→CA: Probability of staying in Constant Acceleration model">CA→CA</label>
+                                <input type="number" id="imm-ca-ca" value="0.75" min="0.01" max="0.99" step="0.01">
                             </div>
                             <div class="control-row">
-                                <label title="CV→Bal: Probability of transitioning from CV to Ballistic">CV→Bal</label>
-                                <input type="number" id="imm-cv-bal" value="0.15" min="0.01" max="0.99" step="0.01">
+                                <label title="CA→Bal: Probability of transitioning from CA to Ballistic">CA→Bal</label>
+                                <input type="number" id="imm-ca-bal" value="0.10" min="0.01" max="0.99" step="0.01">
                             </div>
                             <div class="control-row">
-                                <label title="CV→CT: Probability of transitioning from CV to Coordinated Turn">CV→CT</label>
-                                <input type="number" id="imm-cv-ct" value="0.05" min="0.01" max="0.99" step="0.01">
+                                <label title="CA→CT: Probability of transitioning from CA to Coordinated Turn">CA→CT</label>
+                                <input type="number" id="imm-ca-ct" value="0.05" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="CA→SG: Probability of transitioning from CA to Skip/Glide">CA→SG</label>
+                                <input type="number" id="imm-ca-sg" value="0.10" min="0.01" max="0.99" step="0.01">
                             </div>
                         </div>
                         <div>
                             <div class="control-row">
-                                <label title="Bal→CV: Probability of transitioning from Ballistic to CV">Bal→CV</label>
-                                <input type="number" id="imm-bal-cv" value="0.10" min="0.01" max="0.99" step="0.01">
+                                <label title="Bal→CA: Probability of transitioning from Ballistic to CA">Bal→CA</label>
+                                <input type="number" id="imm-bal-ca" value="0.08" min="0.01" max="0.99" step="0.01">
                             </div>
                             <div class="control-row">
                                 <label title="Bal→Bal: Probability of staying in Ballistic model">Bal→Bal</label>
-                                <input type="number" id="imm-bal-bal" value="0.85" min="0.01" max="0.99" step="0.01">
+                                <input type="number" id="imm-bal-bal" value="0.72" min="0.01" max="0.99" step="0.01">
                             </div>
                             <div class="control-row">
                                 <label title="Bal→CT: Probability of transitioning from Ballistic to Coordinated Turn">Bal→CT</label>
                                 <input type="number" id="imm-bal-ct" value="0.05" min="0.01" max="0.99" step="0.01">
                             </div>
+                            <div class="control-row">
+                                <label title="Bal→SG: Probability of transitioning from Ballistic to Skip/Glide">Bal→SG</label>
+                                <input type="number" id="imm-bal-sg" value="0.15" min="0.01" max="0.99" step="0.01">
+                            </div>
                         </div>
                         <div>
                             <div class="control-row">
-                                <label title="CT→CV: Probability of transitioning from Coordinated Turn to CV">CT→CV</label>
-                                <input type="number" id="imm-ct-cv" value="0.05" min="0.01" max="0.99" step="0.01">
+                                <label title="CT→CA: Probability of transitioning from Coordinated Turn to CA">CT→CA</label>
+                                <input type="number" id="imm-ct-ca" value="0.05" min="0.01" max="0.99" step="0.01">
                             </div>
                             <div class="control-row">
                                 <label title="CT→Bal: Probability of transitioning from Coordinated Turn to Ballistic">CT→Bal</label>
-                                <input type="number" id="imm-ct-bal" value="0.10" min="0.01" max="0.99" step="0.01">
+                                <input type="number" id="imm-ct-bal" value="0.05" min="0.01" max="0.99" step="0.01">
                             </div>
                             <div class="control-row">
                                 <label title="CT→CT: Probability of staying in Coordinated Turn model">CT→CT</label>
-                                <input type="number" id="imm-ct-ct" value="0.85" min="0.01" max="0.99" step="0.01">
+                                <input type="number" id="imm-ct-ct" value="0.80" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="CT→SG: Probability of transitioning from Coordinated Turn to Skip/Glide">CT→SG</label>
+                                <input type="number" id="imm-ct-sg" value="0.10" min="0.01" max="0.99" step="0.01">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="SG→CA: Probability of transitioning from Skip/Glide to CA">SG→CA</label>
+                                <input type="number" id="imm-sg-ca" value="0.10" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="SG→Bal: Probability of transitioning from Skip/Glide to Ballistic">SG→Bal</label>
+                                <input type="number" id="imm-sg-bal" value="0.15" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="SG→CT: Probability of transitioning from Skip/Glide to Coordinated Turn">SG→CT</label>
+                                <input type="number" id="imm-sg-ct" value="0.05" min="0.01" max="0.99" step="0.01">
+                            </div>
+                            <div class="control-row">
+                                <label title="SG→SG: Probability of staying in Skip/Glide model">SG→SG</label>
+                                <input type="number" id="imm-sg-sg" value="0.70" min="0.01" max="0.99" step="0.01">
                             </div>
                         </div>
                     </div>
@@ -999,23 +1132,29 @@
                     <!-- IMM Model Process Noise -->
                     <div class="section-header" style="margin-top: 12px;">IMM Model Process Noise Multipliers</div>
                     <div style="font-size: 10px; color: #888; margin-bottom: 4px;">Multipliers applied to base process noise for each model. Lower = model trusts physics more, higher = more adaptive.</div>
-                    <div class="param-grid">
+                    <div class="param-grid" style="grid-template-columns: repeat(4, 1fr);">
                         <div>
                             <div class="control-row">
-                                <label title="CV (Constant Velocity) process noise multiplier. Lower = assumes steady flight, higher = handles acceleration better.">CV Noise</label>
-                                <input type="number" id="imm-cv-noise" value="0.1" min="0.01" max="2.0" step="0.05">
+                                <label title="CA (Constant Acceleration) process noise multiplier. Lower = trusts constant acceleration more, higher = more adaptive.">CA Noise</label>
+                                <input type="number" id="imm-ca-noise" value="0.1" min="0.01" max="5.0" step="0.05">
                             </div>
                         </div>
                         <div>
                             <div class="control-row">
                                 <label title="Ballistic process noise multiplier. Physics model is accurate, so keep low. Higher = compensates for atmospheric variations.">Bal Noise</label>
-                                <input type="number" id="imm-bal-noise" value="0.3" min="0.01" max="2.0" step="0.05">
+                                <input type="number" id="imm-bal-noise" value="0.3" min="0.01" max="5.0" step="0.05">
                             </div>
                         </div>
                         <div>
                             <div class="control-row">
                                 <label title="CT (Coordinated Turn) process noise multiplier. Higher = tracks aggressive maneuvers better but may follow noise.">CT Noise</label>
-                                <input type="number" id="imm-ct-noise" value="1.0" min="0.01" max="2.0" step="0.05">
+                                <input type="number" id="imm-ct-noise" value="2.5" min="0.01" max="5.0" step="0.05">
+                            </div>
+                        </div>
+                        <div>
+                            <div class="control-row">
+                                <label title="SG (Skip/Glide) process noise multiplier. Balances between ballistic and maneuvering noise levels.">SG Noise</label>
+                                <input type="number" id="imm-sg-noise" value="1.5" min="0.01" max="5.0" step="0.05">
                             </div>
                         </div>
                     </div>
@@ -1251,6 +1390,22 @@ function updateSensorMarker() {
     }
 }
 
+function toggleJpdaParams() { toggleAssocParams(); }
+function toggleAssocParams() {
+    var method = document.getElementById('association-method').value;
+    document.getElementById('jpda-params').style.display = (method === 'jpda') ? 'block' : 'none';
+    document.getElementById('pmbm-params').style.display = (method === 'pmbm') ? 'block' : 'none';
+    document.getElementById('mht-params').style.display = (method === 'mht') ? 'block' : 'none';
+    document.getElementById('glmb-params').style.display = (method === 'glmb') ? 'block' : 'none';
+    if (method !== 'glmb') {
+        document.getElementById('gibbs-params').style.display = 'none';
+    }
+}
+function toggleGibbsParams() {
+    var sampler = document.getElementById('glmb-sampler').value;
+    document.getElementById('gibbs-params').style.display = (sampler === 'gibbs') ? 'block' : 'none';
+}
+
 function updateSensorCoverage() {
     // Remove old coverage
     if (sensorCoverageCircle) map.removeLayer(sensorCoverageCircle);
@@ -1333,12 +1488,14 @@ function updateSensorCoverage() {
 
     // Draw search coverage area
     if (searchSectorDeg > 0 || searchMinKm > 0 || (searchMaxKm > 0 && searchMaxKm < maxRangeKm)) {
+        const halfBwDeg = (parseFloat(document.getElementById('beam-width').value) || 3) / 2;
         const sMin = searchCenterDeg - searchSectorDeg / 2;
         const sMax = searchCenterDeg + searchSectorDeg / 2;
 
         // Use full FOV if no specific search sector is set
-        const azMin = searchSectorDeg > 0 ? sMin : (parseFloat(document.getElementById('antenna-bearing').value) || 0) - fovDeg / 2;
-        const azMax = searchSectorDeg > 0 ? sMax : (parseFloat(document.getElementById('antenna-bearing').value) || 0) + fovDeg / 2;
+        // Include ±beam_width/2 margin (beams at sector edges illuminate beyond the nominal boundary)
+        const azMin = searchSectorDeg > 0 ? sMin - halfBwDeg : (parseFloat(document.getElementById('antenna-bearing').value) || 0) - fovDeg / 2;
+        const azMax = searchSectorDeg > 0 ? sMax + halfBwDeg : (parseFloat(document.getElementById('antenna-bearing').value) || 0) + fovDeg / 2;
 
         // Create annulus (ring) or full wedge
         const numPoints = 60;
@@ -2452,6 +2609,28 @@ function _buildTrackerParams() {
         azimuth_noise: parseFloat(document.getElementById('azimuth-noise').value) * Math.PI / 180,
         elevation_noise: parseFloat(document.getElementById('elevation-noise').value) * Math.PI / 180,
         doppler_noise: parseFloat(document.getElementById('doppler-noise').value),
+        association_method: document.getElementById('association-method').value,
+        jpda_pd: document.getElementById('association-method').value === 'jpda' ? parseFloat(document.getElementById('jpda-pd').value) : null,
+        jpda_clutter_density: document.getElementById('association-method').value === 'jpda' ? parseFloat(document.getElementById('jpda-clutter-density').value) : null,
+        pmbm_pd: document.getElementById('association-method').value === 'pmbm' ? parseFloat(document.getElementById('pmbm-pd').value) : null,
+        pmbm_k_best: document.getElementById('association-method').value === 'pmbm' ? parseInt(document.getElementById('pmbm-k-best').value) : null,
+        pmbm_clutter_density: document.getElementById('association-method').value === 'pmbm' ? parseFloat(document.getElementById('pmbm-clutter-density').value) : null,
+        mht_pd: document.getElementById('association-method').value === 'mht' ? parseFloat(document.getElementById('mht-pd').value) : null,
+        mht_k_best: document.getElementById('association-method').value === 'mht' ? parseInt(document.getElementById('mht-k-best').value) : null,
+        mht_max_hypotheses: document.getElementById('association-method').value === 'mht' ? parseInt(document.getElementById('mht-max-hypotheses').value) : null,
+        mht_score_decay: document.getElementById('association-method').value === 'mht' ? parseFloat(document.getElementById('mht-score-decay').value) : null,
+        mht_clutter_density: document.getElementById('association-method').value === 'mht' ? parseFloat(document.getElementById('mht-clutter-density').value) : null,
+        glmb_pd: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-pd').value) : null,
+        glmb_k_best: document.getElementById('association-method').value === 'glmb' ? parseInt(document.getElementById('glmb-k-best').value) : null,
+        glmb_max_hypotheses: document.getElementById('association-method').value === 'glmb' ? parseInt(document.getElementById('glmb-max-hypotheses').value) : null,
+        glmb_score_decay: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-score-decay').value) : null,
+        glmb_clutter_density: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-clutter-density').value) : null,
+        glmb_survival: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-survival').value) : null,
+        glmb_birth_weight: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-birth-weight').value) : null,
+        glmb_init_existence: document.getElementById('association-method').value === 'glmb' ? 0.2 : null,
+        glmb_sampler: document.getElementById('association-method').value === 'glmb' ? document.getElementById('glmb-sampler').value : null,
+        glmb_gibbs_sweeps: document.getElementById('association-method').value === 'glmb' && document.getElementById('glmb-sampler').value === 'gibbs' ? parseInt(document.getElementById('glmb-gibbs-sweeps').value) : null,
+        glmb_gibbs_burnin: document.getElementById('association-method').value === 'glmb' && document.getElementById('glmb-sampler').value === 'gibbs' ? parseInt(document.getElementById('glmb-gibbs-burnin').value) : null,
         gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
         confirm_hits: parseInt(document.getElementById('confirm-hits').value),
         confirm_window: parseInt(document.getElementById('confirm-window').value),
@@ -2466,18 +2645,26 @@ function _buildTrackerParams() {
         max_distance: parseFloat(document.getElementById('max-distance').value),
         max_jump_velocity: parseFloat(document.getElementById('max-jump-velocity').value),
         min_init_distance: parseFloat(document.getElementById('min-init-distance').value),
-        imm_cv_cv: parseFloat(document.getElementById('imm-cv-cv').value),
-        imm_cv_bal: parseFloat(document.getElementById('imm-cv-bal').value),
-        imm_cv_ct: parseFloat(document.getElementById('imm-cv-ct').value),
-        imm_bal_cv: parseFloat(document.getElementById('imm-bal-cv').value),
+        imm_ca_ca: parseFloat(document.getElementById('imm-ca-ca').value),
+        imm_ca_bal: parseFloat(document.getElementById('imm-ca-bal').value),
+        imm_ca_ct: parseFloat(document.getElementById('imm-ca-ct').value),
+        imm_ca_sg: parseFloat(document.getElementById('imm-ca-sg').value),
+        imm_bal_ca: parseFloat(document.getElementById('imm-bal-ca').value),
         imm_bal_bal: parseFloat(document.getElementById('imm-bal-bal').value),
         imm_bal_ct: parseFloat(document.getElementById('imm-bal-ct').value),
-        imm_ct_cv: parseFloat(document.getElementById('imm-ct-cv').value),
+        imm_bal_sg: parseFloat(document.getElementById('imm-bal-sg').value),
+        imm_ct_ca: parseFloat(document.getElementById('imm-ct-ca').value),
         imm_ct_bal: parseFloat(document.getElementById('imm-ct-bal').value),
         imm_ct_ct: parseFloat(document.getElementById('imm-ct-ct').value),
-        imm_cv_noise: parseFloat(document.getElementById('imm-cv-noise').value),
+        imm_ct_sg: parseFloat(document.getElementById('imm-ct-sg').value),
+        imm_sg_ca: parseFloat(document.getElementById('imm-sg-ca').value),
+        imm_sg_bal: parseFloat(document.getElementById('imm-sg-bal').value),
+        imm_sg_ct: parseFloat(document.getElementById('imm-sg-ct').value),
+        imm_sg_sg: parseFloat(document.getElementById('imm-sg-sg').value),
+        imm_ca_noise: parseFloat(document.getElementById('imm-ca-noise').value),
         imm_bal_noise: parseFloat(document.getElementById('imm-bal-noise').value),
         imm_ct_noise: parseFloat(document.getElementById('imm-ct-noise').value),
+        imm_sg_noise: parseFloat(document.getElementById('imm-sg-noise').value),
         num_runs: parseInt(document.getElementById('num-runs').value),
         seed: parseInt(document.getElementById('random-seed').value),
     };
@@ -2827,7 +3014,7 @@ function draw3DWithTracks(data) {
             var covFull      = covAzSpanDeg >= 360;
             // UI bearing (0=North, CW) → math azimuth (0=East, CCW), same as Python backend
             var covAzCenRad  = (90 - covAzCenDeg) * Math.PI / 180;
-            var covHalfAzRad = (covAzSpanDeg / 2) * Math.PI / 180;
+            var covHalfAzRad = (covAzSpanDeg / 2) * Math.PI / 180 + (covFull ? 0 : covHalfBwRad);
             var covN         = 60;
             var covNpts      = covFull ? covN + 1 : covN;
 
@@ -3380,11 +3567,13 @@ function drawTimeline(data) {
         gtByFrame[f].push(r);
     });
 
-    // 各 track の全フレームで最近傍GTを集計し、多数決で割当
-    const trackToTarget = {};
+    // 各 track の全フレームで最近傍GTを集計（時間制約付き投票行列構築）
+    // 制約: トラック確認時刻より後に生まれたGTは投票候補から除外
+    const allVotes = {};  // tid -> {gtId -> voteCount}
     trackIds.forEach(tid => {
         const info = trackInfo[tid];
-        const votes = {};  // target_id → 投票数
+        const trackBirth = info.confirmTime !== null ? info.confirmTime : info.init;
+        allVotes[tid] = {};
 
         for (const row of info.rows) {
             const frameGt = gtByFrame[row.frame];
@@ -3392,21 +3581,46 @@ function drawTimeline(data) {
 
             let bestDist = Infinity, bestId = -1;
             for (const g of frameGt) {
+                const gtId = g.target_id !== undefined ? g.target_id : 0;
+                // 時間制約: このGTの誕生がトラック確認より後なら候補外
+                if (gtTargets[gtId] && gtTargets[gtId].birth > trackBirth) continue;
+
                 const dx = row.x - g.x, dy = row.y - g.y;
                 const dz = (row.z || 0) - (g.z || 0);
                 const d = dx * dx + dy * dy + dz * dz;
-                if (d < bestDist) { bestDist = d; bestId = g.target_id !== undefined ? g.target_id : 0; }
+                if (d < bestDist) { bestDist = d; bestId = gtId; }
             }
-            if (bestId >= 0) votes[bestId] = (votes[bestId] || 0) + 1;
+            if (bestId >= 0) allVotes[tid][bestId] = (allVotes[tid][bestId] || 0) + 1;
         }
-
-        // 最多投票のGT targetを選択
-        let maxVotes = 0, winId = -1;
-        for (const [id, cnt] of Object.entries(votes)) {
-            if (cnt > maxVotes) { maxVotes = cnt; winId = Number(id); }
-        }
-        if (winId >= 0) trackToTarget[tid] = winId;
     });
+
+    // 貪欲1対1マッチング: 各GTに最低1トラックを確保してから残りを割当
+    // (近接2目標に2トラックがある場合、両方が同一GTに集中するのを防止)
+    const triples = [];
+    for (const tid of trackIds) {
+        for (const [gtId, cnt] of Object.entries(allVotes[tid] || {})) {
+            triples.push({ tid, gtId: Number(gtId), votes: cnt });
+        }
+    }
+    triples.sort((a, b) => b.votes - a.votes);
+
+    // Pass 1: 1対1マッチング（各GT・各トラックとも最大1つずつ）
+    const trackToTarget = {};
+    const matchedTracks = new Set();
+    const matchedGts = new Set();
+    for (const { tid, gtId } of triples) {
+        if (matchedTracks.has(tid) || matchedGts.has(gtId)) continue;
+        trackToTarget[tid] = gtId;
+        matchedTracks.add(tid);
+        matchedGts.add(gtId);
+    }
+
+    // Pass 2: 未割当トラックを最多投票GTへ割当（複数トラック/GT許容）
+    for (const { tid, gtId } of triples) {
+        if (matchedTracks.has(tid)) continue;
+        trackToTarget[tid] = gtId;
+        matchedTracks.add(tid);
+    }
 
     // 4. 各 target に対する track リストを構築
     const targetTracks = {};
@@ -3840,17 +4054,18 @@ async function drawIMMChart(trackRows) {
     confirmedTracks.forEach(r => {
         const t = parseFloat(r.time);
         if (!timeMap[t]) {
-            timeMap[t] = { cv: [], ballistic: [], ct: [] };
+            timeMap[t] = { ca: [], ballistic: [], ct: [], sg: [] };
         }
-        timeMap[t].cv.push(parseFloat(r.model_prob_cv) || 0);
+        timeMap[t].ca.push(parseFloat(r.model_prob_ca) || 0);
         timeMap[t].ballistic.push(parseFloat(r.model_prob_ballistic) || 0);
         timeMap[t].ct.push(parseFloat(r.model_prob_ct) || 0);
+        timeMap[t].sg.push(parseFloat(r.model_prob_sg) || 0);
     });
 
     // Calculate average probabilities for each time
     const times = Object.keys(timeMap).map(parseFloat).sort((a,b) => a - b);
-    const avgCV = times.map(t => {
-        const vals = timeMap[t].cv;
+    const avgCA = times.map(t => {
+        const vals = timeMap[t].ca;
         return vals.reduce((a,b) => a + b, 0) / vals.length;
     });
     const avgBallistic = times.map(t => {
@@ -3859,6 +4074,10 @@ async function drawIMMChart(trackRows) {
     });
     const avgCT = times.map(t => {
         const vals = timeMap[t].ct;
+        return vals.reduce((a,b) => a + b, 0) / vals.length;
+    });
+    const avgSG = times.map(t => {
+        const vals = timeMap[t].sg;
         return vals.reduce((a,b) => a + b, 0) / vals.length;
     });
 
@@ -3876,8 +4095,8 @@ async function drawIMMChart(trackRows) {
 
     Plotly.newPlot('eval-chart-imm', [
         {
-            x: times, y: avgCV,
-            type: 'scatter', mode: 'lines', name: 'CV (Constant Velocity)',
+            x: times, y: avgCA,
+            type: 'scatter', mode: 'lines', name: 'CA (Constant Acceleration)',
             line: { color: '#00ff00', width: 2 },
             fill: 'tozeroy', fillcolor: 'rgba(0,255,0,0.2)',
         },
@@ -3892,6 +4111,12 @@ async function drawIMMChart(trackRows) {
             type: 'scatter', mode: 'lines', name: 'CT (Coordinated Turn)',
             line: { color: '#ff00ff', width: 2 },
             fill: 'tozeroy', fillcolor: 'rgba(255,0,255,0.2)',
+        },
+        {
+            x: times, y: avgSG,
+            type: 'scatter', mode: 'lines', name: 'SG (Skip/Glide)',
+            line: { color: '#00ffff', width: 2 },
+            fill: 'tozeroy', fillcolor: 'rgba(0,255,255,0.2)',
         },
     ], {
         ...darkLayout,
@@ -4265,6 +4490,27 @@ function saveStateToStorage() {
                 elev_cycle_steps: document.getElementById('elev-cycle-steps').value,
             },
             tracker: {
+                association_method: document.getElementById('association-method').value,
+                jpda_pd: document.getElementById('jpda-pd').value,
+                jpda_clutter_density: document.getElementById('jpda-clutter-density').value,
+                pmbm_pd: document.getElementById('pmbm-pd').value,
+                pmbm_k_best: document.getElementById('pmbm-k-best').value,
+                pmbm_clutter_density: document.getElementById('pmbm-clutter-density').value,
+                mht_pd: document.getElementById('mht-pd').value,
+                mht_k_best: document.getElementById('mht-k-best').value,
+                mht_max_hypotheses: document.getElementById('mht-max-hypotheses').value,
+                mht_score_decay: document.getElementById('mht-score-decay').value,
+                mht_clutter_density: document.getElementById('mht-clutter-density').value,
+                glmb_pd: document.getElementById('glmb-pd').value,
+                glmb_k_best: document.getElementById('glmb-k-best').value,
+                glmb_max_hypotheses: document.getElementById('glmb-max-hypotheses').value,
+                glmb_score_decay: document.getElementById('glmb-score-decay').value,
+                glmb_clutter_density: document.getElementById('glmb-clutter-density').value,
+                glmb_survival: document.getElementById('glmb-survival').value,
+                glmb_birth_weight: document.getElementById('glmb-birth-weight').value,
+                glmb_sampler: document.getElementById('glmb-sampler').value,
+                glmb_gibbs_sweeps: document.getElementById('glmb-gibbs-sweeps').value,
+                glmb_gibbs_burnin: document.getElementById('glmb-gibbs-burnin').value,
                 gate_threshold: document.getElementById('gate-threshold').value,
                 confirm_hits: document.getElementById('confirm-hits').value,
                 confirm_window: document.getElementById('confirm-window').value,
@@ -4411,6 +4657,27 @@ function restoreStateFromStorage() {
 
         // Tracker
         if (s.tracker) {
+            if (s.tracker.association_method != null) { document.getElementById('association-method').value = s.tracker.association_method; toggleAssocParams(); }
+            if (s.tracker.jpda_pd != null) document.getElementById('jpda-pd').value = s.tracker.jpda_pd;
+            if (s.tracker.jpda_clutter_density != null) document.getElementById('jpda-clutter-density').value = s.tracker.jpda_clutter_density;
+            if (s.tracker.pmbm_pd != null) document.getElementById('pmbm-pd').value = s.tracker.pmbm_pd;
+            if (s.tracker.pmbm_k_best != null) document.getElementById('pmbm-k-best').value = s.tracker.pmbm_k_best;
+            if (s.tracker.pmbm_clutter_density != null) document.getElementById('pmbm-clutter-density').value = s.tracker.pmbm_clutter_density;
+            if (s.tracker.mht_pd != null) document.getElementById('mht-pd').value = s.tracker.mht_pd;
+            if (s.tracker.mht_k_best != null) document.getElementById('mht-k-best').value = s.tracker.mht_k_best;
+            if (s.tracker.mht_max_hypotheses != null) document.getElementById('mht-max-hypotheses').value = s.tracker.mht_max_hypotheses;
+            if (s.tracker.mht_score_decay != null) document.getElementById('mht-score-decay').value = s.tracker.mht_score_decay;
+            if (s.tracker.mht_clutter_density != null) document.getElementById('mht-clutter-density').value = s.tracker.mht_clutter_density;
+            if (s.tracker.glmb_pd != null) document.getElementById('glmb-pd').value = s.tracker.glmb_pd;
+            if (s.tracker.glmb_k_best != null) document.getElementById('glmb-k-best').value = s.tracker.glmb_k_best;
+            if (s.tracker.glmb_max_hypotheses != null) document.getElementById('glmb-max-hypotheses').value = s.tracker.glmb_max_hypotheses;
+            if (s.tracker.glmb_score_decay != null) document.getElementById('glmb-score-decay').value = s.tracker.glmb_score_decay;
+            if (s.tracker.glmb_clutter_density != null) document.getElementById('glmb-clutter-density').value = s.tracker.glmb_clutter_density;
+            if (s.tracker.glmb_survival != null) document.getElementById('glmb-survival').value = s.tracker.glmb_survival;
+            if (s.tracker.glmb_birth_weight != null) document.getElementById('glmb-birth-weight').value = s.tracker.glmb_birth_weight;
+            if (s.tracker.glmb_sampler != null) { document.getElementById('glmb-sampler').value = s.tracker.glmb_sampler; toggleGibbsParams(); }
+            if (s.tracker.glmb_gibbs_sweeps != null) document.getElementById('glmb-gibbs-sweeps').value = s.tracker.glmb_gibbs_sweeps;
+            if (s.tracker.glmb_gibbs_burnin != null) document.getElementById('glmb-gibbs-burnin').value = s.tracker.glmb_gibbs_burnin;
             if (s.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = s.tracker.gate_threshold;
             if (s.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = s.tracker.confirm_hits;
             if (s.tracker.confirm_window != null) document.getElementById('confirm-window').value = s.tracker.confirm_window;
@@ -4519,6 +4786,27 @@ function getAllParametersAsObject() {
             elev_cycle_steps: document.getElementById('elev-cycle-steps').value,
         },
         tracker: {
+            association_method: document.getElementById('association-method').value,
+            jpda_pd: document.getElementById('jpda-pd').value,
+            jpda_clutter_density: document.getElementById('jpda-clutter-density').value,
+            pmbm_pd: document.getElementById('pmbm-pd').value,
+            pmbm_k_best: document.getElementById('pmbm-k-best').value,
+            pmbm_clutter_density: document.getElementById('pmbm-clutter-density').value,
+            mht_pd: document.getElementById('mht-pd').value,
+            mht_k_best: document.getElementById('mht-k-best').value,
+            mht_max_hypotheses: document.getElementById('mht-max-hypotheses').value,
+            mht_score_decay: document.getElementById('mht-score-decay').value,
+            mht_clutter_density: document.getElementById('mht-clutter-density').value,
+            glmb_pd: document.getElementById('glmb-pd').value,
+            glmb_k_best: document.getElementById('glmb-k-best').value,
+            glmb_max_hypotheses: document.getElementById('glmb-max-hypotheses').value,
+            glmb_score_decay: document.getElementById('glmb-score-decay').value,
+            glmb_clutter_density: document.getElementById('glmb-clutter-density').value,
+            glmb_survival: document.getElementById('glmb-survival').value,
+            glmb_birth_weight: document.getElementById('glmb-birth-weight').value,
+            glmb_sampler: document.getElementById('glmb-sampler').value,
+            glmb_gibbs_sweeps: document.getElementById('glmb-gibbs-sweeps').value,
+            glmb_gibbs_burnin: document.getElementById('glmb-gibbs-burnin').value,
             gate_threshold: document.getElementById('gate-threshold').value,
             confirm_hits: document.getElementById('confirm-hits').value,
             confirm_window: document.getElementById('confirm-window').value,
@@ -4700,6 +4988,27 @@ async function loadSimulationRun(runId) {
 
         // Tracker
         if (s.tracker) {
+            if (s.tracker.association_method != null) { document.getElementById('association-method').value = s.tracker.association_method; toggleAssocParams(); }
+            if (s.tracker.jpda_pd != null) document.getElementById('jpda-pd').value = s.tracker.jpda_pd;
+            if (s.tracker.jpda_clutter_density != null) document.getElementById('jpda-clutter-density').value = s.tracker.jpda_clutter_density;
+            if (s.tracker.pmbm_pd != null) document.getElementById('pmbm-pd').value = s.tracker.pmbm_pd;
+            if (s.tracker.pmbm_k_best != null) document.getElementById('pmbm-k-best').value = s.tracker.pmbm_k_best;
+            if (s.tracker.pmbm_clutter_density != null) document.getElementById('pmbm-clutter-density').value = s.tracker.pmbm_clutter_density;
+            if (s.tracker.mht_pd != null) document.getElementById('mht-pd').value = s.tracker.mht_pd;
+            if (s.tracker.mht_k_best != null) document.getElementById('mht-k-best').value = s.tracker.mht_k_best;
+            if (s.tracker.mht_max_hypotheses != null) document.getElementById('mht-max-hypotheses').value = s.tracker.mht_max_hypotheses;
+            if (s.tracker.mht_score_decay != null) document.getElementById('mht-score-decay').value = s.tracker.mht_score_decay;
+            if (s.tracker.mht_clutter_density != null) document.getElementById('mht-clutter-density').value = s.tracker.mht_clutter_density;
+            if (s.tracker.glmb_pd != null) document.getElementById('glmb-pd').value = s.tracker.glmb_pd;
+            if (s.tracker.glmb_k_best != null) document.getElementById('glmb-k-best').value = s.tracker.glmb_k_best;
+            if (s.tracker.glmb_max_hypotheses != null) document.getElementById('glmb-max-hypotheses').value = s.tracker.glmb_max_hypotheses;
+            if (s.tracker.glmb_score_decay != null) document.getElementById('glmb-score-decay').value = s.tracker.glmb_score_decay;
+            if (s.tracker.glmb_clutter_density != null) document.getElementById('glmb-clutter-density').value = s.tracker.glmb_clutter_density;
+            if (s.tracker.glmb_survival != null) document.getElementById('glmb-survival').value = s.tracker.glmb_survival;
+            if (s.tracker.glmb_birth_weight != null) document.getElementById('glmb-birth-weight').value = s.tracker.glmb_birth_weight;
+            if (s.tracker.glmb_sampler != null) { document.getElementById('glmb-sampler').value = s.tracker.glmb_sampler; toggleGibbsParams(); }
+            if (s.tracker.glmb_gibbs_sweeps != null) document.getElementById('glmb-gibbs-sweeps').value = s.tracker.glmb_gibbs_sweeps;
+            if (s.tracker.glmb_gibbs_burnin != null) document.getElementById('glmb-gibbs-burnin').value = s.tracker.glmb_gibbs_burnin;
             if (s.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = s.tracker.gate_threshold;
             if (s.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = s.tracker.confirm_hits;
             if (s.tracker.confirm_window != null) document.getElementById('confirm-window').value = s.tracker.confirm_window;
@@ -4907,6 +5216,28 @@ function saveScenario() {
             search_max_range_km: parseFloat(document.getElementById('search-max-range').value),
         },
         tracker: {
+            association_method: document.getElementById('association-method').value,
+            jpda_pd: document.getElementById('association-method').value === 'jpda' ? parseFloat(document.getElementById('jpda-pd').value) : null,
+            jpda_clutter_density: document.getElementById('association-method').value === 'jpda' ? parseFloat(document.getElementById('jpda-clutter-density').value) : null,
+            pmbm_pd: document.getElementById('association-method').value === 'pmbm' ? parseFloat(document.getElementById('pmbm-pd').value) : null,
+            pmbm_k_best: document.getElementById('association-method').value === 'pmbm' ? parseInt(document.getElementById('pmbm-k-best').value) : null,
+            pmbm_clutter_density: document.getElementById('association-method').value === 'pmbm' ? parseFloat(document.getElementById('pmbm-clutter-density').value) : null,
+            mht_pd: document.getElementById('association-method').value === 'mht' ? parseFloat(document.getElementById('mht-pd').value) : null,
+            mht_k_best: document.getElementById('association-method').value === 'mht' ? parseInt(document.getElementById('mht-k-best').value) : null,
+            mht_max_hypotheses: document.getElementById('association-method').value === 'mht' ? parseInt(document.getElementById('mht-max-hypotheses').value) : null,
+            mht_score_decay: document.getElementById('association-method').value === 'mht' ? parseFloat(document.getElementById('mht-score-decay').value) : null,
+            mht_clutter_density: document.getElementById('association-method').value === 'mht' ? parseFloat(document.getElementById('mht-clutter-density').value) : null,
+            glmb_pd: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-pd').value) : null,
+            glmb_k_best: document.getElementById('association-method').value === 'glmb' ? parseInt(document.getElementById('glmb-k-best').value) : null,
+            glmb_max_hypotheses: document.getElementById('association-method').value === 'glmb' ? parseInt(document.getElementById('glmb-max-hypotheses').value) : null,
+            glmb_score_decay: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-score-decay').value) : null,
+            glmb_clutter_density: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-clutter-density').value) : null,
+            glmb_survival: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-survival').value) : null,
+            glmb_birth_weight: document.getElementById('association-method').value === 'glmb' ? parseFloat(document.getElementById('glmb-birth-weight').value) : null,
+            glmb_init_existence: document.getElementById('association-method').value === 'glmb' ? 0.2 : null,
+            glmb_sampler: document.getElementById('association-method').value === 'glmb' ? document.getElementById('glmb-sampler').value : null,
+            glmb_gibbs_sweeps: document.getElementById('association-method').value === 'glmb' && document.getElementById('glmb-sampler').value === 'gibbs' ? parseInt(document.getElementById('glmb-gibbs-sweeps').value) : null,
+            glmb_gibbs_burnin: document.getElementById('association-method').value === 'glmb' && document.getElementById('glmb-sampler').value === 'gibbs' ? parseInt(document.getElementById('glmb-gibbs-burnin').value) : null,
             gate_threshold: parseFloat(document.getElementById('gate-threshold').value),
             confirm_hits: parseInt(document.getElementById('confirm-hits').value),
             confirm_window: parseInt(document.getElementById('confirm-window').value),
@@ -4998,7 +5329,28 @@ function loadScenario(event) {
 
             // Restore tracker params
             if (scenario.tracker) {
+                if (scenario.tracker.association_method != null) { document.getElementById('association-method').value = scenario.tracker.association_method; toggleAssocParams(); }
+                if (scenario.tracker.jpda_pd != null) document.getElementById('jpda-pd').value = scenario.tracker.jpda_pd;
+                if (scenario.tracker.jpda_clutter_density != null) document.getElementById('jpda-clutter-density').value = scenario.tracker.jpda_clutter_density;
                 if (scenario.tracker.gate_threshold != null) document.getElementById('gate-threshold').value = scenario.tracker.gate_threshold;
+                if (scenario.tracker.pmbm_pd != null) document.getElementById('pmbm-pd').value = scenario.tracker.pmbm_pd;
+                if (scenario.tracker.pmbm_k_best != null) document.getElementById('pmbm-k-best').value = scenario.tracker.pmbm_k_best;
+                if (scenario.tracker.pmbm_clutter_density != null) document.getElementById('pmbm-clutter-density').value = scenario.tracker.pmbm_clutter_density;
+                if (scenario.tracker.mht_pd != null) document.getElementById('mht-pd').value = scenario.tracker.mht_pd;
+                if (scenario.tracker.mht_k_best != null) document.getElementById('mht-k-best').value = scenario.tracker.mht_k_best;
+                if (scenario.tracker.mht_max_hypotheses != null) document.getElementById('mht-max-hypotheses').value = scenario.tracker.mht_max_hypotheses;
+                if (scenario.tracker.mht_score_decay != null) document.getElementById('mht-score-decay').value = scenario.tracker.mht_score_decay;
+                if (scenario.tracker.mht_clutter_density != null) document.getElementById('mht-clutter-density').value = scenario.tracker.mht_clutter_density;
+                if (scenario.tracker.glmb_pd != null) document.getElementById('glmb-pd').value = scenario.tracker.glmb_pd;
+                if (scenario.tracker.glmb_k_best != null) document.getElementById('glmb-k-best').value = scenario.tracker.glmb_k_best;
+                if (scenario.tracker.glmb_max_hypotheses != null) document.getElementById('glmb-max-hypotheses').value = scenario.tracker.glmb_max_hypotheses;
+                if (scenario.tracker.glmb_score_decay != null) document.getElementById('glmb-score-decay').value = scenario.tracker.glmb_score_decay;
+                if (scenario.tracker.glmb_clutter_density != null) document.getElementById('glmb-clutter-density').value = scenario.tracker.glmb_clutter_density;
+                if (scenario.tracker.glmb_survival != null) document.getElementById('glmb-survival').value = scenario.tracker.glmb_survival;
+                if (scenario.tracker.glmb_birth_weight != null) document.getElementById('glmb-birth-weight').value = scenario.tracker.glmb_birth_weight;
+                if (scenario.tracker.glmb_sampler != null) { document.getElementById('glmb-sampler').value = scenario.tracker.glmb_sampler; toggleGibbsParams(); }
+                if (scenario.tracker.glmb_gibbs_sweeps != null) document.getElementById('glmb-gibbs-sweeps').value = scenario.tracker.glmb_gibbs_sweeps;
+                if (scenario.tracker.glmb_gibbs_burnin != null) document.getElementById('glmb-gibbs-burnin').value = scenario.tracker.glmb_gibbs_burnin;
                 if (scenario.tracker.confirm_hits != null) document.getElementById('confirm-hits').value = scenario.tracker.confirm_hits;
                 if (scenario.tracker.confirm_window != null) document.getElementById('confirm-window').value = scenario.tracker.confirm_window;
                 if (scenario.tracker.delete_misses != null) document.getElementById('delete-misses').value = scenario.tracker.delete_misses;

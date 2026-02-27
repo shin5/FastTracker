@@ -11,10 +11,11 @@ namespace fasttracker {
 /**
  * @brief IMM（Interacting Multiple Model）フィルタ
  *
- * 3つの運動モデルを並行使用し、モデル確率を動的に更新
- *   Model 0: CV  （等速直線 — ミッドコース/巡航）
+ * 4つの運動モデルを並行使用し、モデル確率を動的に更新
+ *   Model 0: CA  （Singer加速度 τ=20s — 汎用持続加速：ブースト/グライド）
  *   Model 1: Ballistic（弾道 — 重力+大気抗力 RK4）
  *   Model 2: CT  （旋回 — HGV機動）
+ *   Model 3: SkipGlide（弾道+空力揚力 — HGVスキップ/グライド）
  */
 class IMMFilter {
 public:
@@ -70,18 +71,18 @@ public:
      * @param matrix 3x3遷移確率行列
      */
     void setTransitionMatrix(const std::vector<std::vector<float>>& matrix) {
-        if (matrix.size() >= 3 && matrix[0].size() >= 3) {
+        if (matrix.size() >= 4 && matrix[0].size() >= 4) {
             transition_matrix_ = matrix;
         }
     }
 
     /**
      * @brief モデル別プロセスノイズ倍率を設定
-     * @param cv_mult CV モデルのノイズ倍率 (デフォルト: 0.1)
+     * @param ca_mult CA (Singer) モデルのノイズ倍率 (デフォルト: 0.1)
      * @param bal_mult Ballistic モデルのノイズ倍率 (デフォルト: 0.3)
-     * @param ct_mult CT モデルのノイズ倍率 (デフォルト: 1.0)
+     * @param ct_mult CT モデルのノイズ倍率 (デフォルト: 2.5)
      */
-    void setModelNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult);
+    void setModelNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult, float sg_mult);
 
 private:
     int num_models_;
@@ -104,13 +105,14 @@ private:
 
     // predict()で保存されるモデル別予測状態
     // per_model_predictions_[target_idx][model_idx]
-    std::vector<std::array<StateVector, 3>> per_model_predictions_;
-    std::vector<std::array<StateCov, 3>> per_model_pred_covs_;
+    std::vector<std::array<StateVector, 4>> per_model_predictions_;
+    std::vector<std::array<StateCov, 4>> per_model_pred_covs_;
 
     // CPU版運動モデル予測
-    static StateVector predictCV_CPU(const StateVector& state, float dt);
+    static StateVector predictCA_CPU(const StateVector& state, float dt);
     static StateVector predictBallistic_CPU(const StateVector& state, float dt);
     static StateVector predictCT_CPU(const StateVector& state, float dt);
+    static StateVector predictSkipGlide_CPU(const StateVector& state, float dt);
 
     // 状態→観測への変換（CPU版、尤度計算用）
     static MeasVector stateToMeas_CPU(const StateVector& state,

@@ -15,31 +15,31 @@ __constant__ float EARTH_RADIUS = 6371000.0f;
 __constant__ float ATM_RHO0 = 1.225f;
 __constant__ float ATM_SCALE_HEIGHT = 7400.0f;
 __constant__ float BALLISTIC_BETA = 0.001f;  // Cd*A/(2*m) 代表値
+__constant__ float SKIP_BETA = 0.0001f;      // HGVグライド時の低抗力（弾道βの1/10）
+__constant__ float SKIP_GLIDE_RATIO = 3.0f;  // 揚力/抗力比（L/D）
 
 // ================================================================
-// 3つの運動モデル (__device__ 関数)
+// 4つの運動モデル (__device__ 関数)
 // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
 // ================================================================
 
-__device__ void predictCV(const float* sp, float* pred_sp, float dt) {
+__device__ void predictCA(const float* sp, float* pred_sp, float dt) {
     float x = sp[0], y = sp[1], z = sp[2];
     float vx = sp[3], vy = sp[4], vz = sp[5];
+    float ax = sp[6], ay = sp[7], az = sp[8];
+    float dt2 = 0.5f * dt * dt;
 
-    // 位置: 等速直線
-    pred_sp[0] = x + vx * dt;
-    pred_sp[1] = y + vy * dt;
-    pred_sp[2] = z + vz * dt;
-
-    // 速度: 一定
-    pred_sp[3] = vx;
-    pred_sp[4] = vy;
-    pred_sp[5] = vz;
-
-    // 加速度: 減衰 (τ=5s)
-    float decay = expf(-dt / 5.0f);
-    pred_sp[6] = sp[6] * decay;
-    pred_sp[7] = sp[7] * decay;
-    pred_sp[8] = sp[8] * decay;
+    // Singer加速度モデル（CA + 指数減衰 τ=20s）
+    pred_sp[0] = x + vx * dt + ax * dt2;
+    pred_sp[1] = y + vy * dt + ay * dt2;
+    pred_sp[2] = z + vz * dt + az * dt2;
+    pred_sp[3] = vx + ax * dt;
+    pred_sp[4] = vy + ay * dt;
+    pred_sp[5] = vz + az * dt;
+    float decay = expf(-dt / 20.0f);
+    pred_sp[6] = ax * decay;
+    pred_sp[7] = ay * decay;
+    pred_sp[8] = az * decay;
 }
 
 __device__ void predictBallistic(const float* sp, float* pred_sp, float dt) {
@@ -164,6 +164,142 @@ __device__ void predictCoordinatedTurn(const float* sp, float* pred_sp, float dt
     pred_sp[8] = az;
 }
 
+__device__ void predictSkipGlide(const float* sp, float* pred_sp, float dt) {
+    float x = sp[0], y = sp[1], z = sp[2];
+    float vx = sp[3], vy = sp[4], vz = sp[5];
+
+    // RK4積分用ヘルパー: 重力 + 抗力 + 空力揚力
+    // Stage 1
+    float alt1 = fmaxf(z, 0.0f);
+    float gr1 = EARTH_RADIUS / (EARTH_RADIUS + alt1);
+    float g1 = GRAVITY_G0 * gr1 * gr1;
+    float rho1 = ATM_RHO0 * expf(-alt1 / ATM_SCALE_HEIGHT);
+    float spd1 = sqrtf(vx*vx + vy*vy + vz*vz);
+    float df1 = SKIP_BETA * rho1 * spd1;
+    float drag_mag1 = df1 * spd1;
+    float lift_mag1 = SKIP_GLIDE_RATIO * drag_mag1;
+    float vxy_sq1 = vx*vx + vy*vy;
+    float vxy1 = sqrtf(vxy_sq1);
+    float lx1 = 0.0f, ly1 = 0.0f, lz1 = 0.0f;
+    if (spd1 > 1.0f && vxy1 > 1.0f) {
+        float inv1 = 1.0f / (spd1 * vxy1);
+        lx1 = lift_mag1 * (-vz * vx) * inv1;
+        ly1 = lift_mag1 * (-vz * vy) * inv1;
+        lz1 = lift_mag1 * vxy_sq1 * inv1;
+    }
+    float k1_vx = -df1*vx + lx1;
+    float k1_vy = -df1*vy + ly1;
+    float k1_vz = -g1 - df1*vz + lz1;
+    float k1_x = vx, k1_y = vy, k1_z = vz;
+
+    // Stage 2
+    float hdt = 0.5f * dt;
+    float vx2 = vx + hdt*k1_vx, vy2 = vy + hdt*k1_vy, vz2 = vz + hdt*k1_vz;
+    float z2 = z + hdt*k1_z;
+    float alt2 = fmaxf(z2, 0.0f);
+    float gr2 = EARTH_RADIUS / (EARTH_RADIUS + alt2);
+    float g2 = GRAVITY_G0 * gr2 * gr2;
+    float rho2 = ATM_RHO0 * expf(-alt2 / ATM_SCALE_HEIGHT);
+    float spd2 = sqrtf(vx2*vx2 + vy2*vy2 + vz2*vz2);
+    float df2 = SKIP_BETA * rho2 * spd2;
+    float drag_mag2 = df2 * spd2;
+    float lift_mag2 = SKIP_GLIDE_RATIO * drag_mag2;
+    float vxy_sq2 = vx2*vx2 + vy2*vy2;
+    float vxy2_val = sqrtf(vxy_sq2);
+    float lx2 = 0.0f, ly2 = 0.0f, lz2 = 0.0f;
+    if (spd2 > 1.0f && vxy2_val > 1.0f) {
+        float inv2 = 1.0f / (spd2 * vxy2_val);
+        lx2 = lift_mag2 * (-vz2 * vx2) * inv2;
+        ly2 = lift_mag2 * (-vz2 * vy2) * inv2;
+        lz2 = lift_mag2 * vxy_sq2 * inv2;
+    }
+    float k2_vx = -df2*vx2 + lx2;
+    float k2_vy = -df2*vy2 + ly2;
+    float k2_vz = -g2 - df2*vz2 + lz2;
+    float k2_x = vx2, k2_y = vy2, k2_z = vz2;
+
+    // Stage 3
+    float vx3 = vx + hdt*k2_vx, vy3 = vy + hdt*k2_vy, vz3 = vz + hdt*k2_vz;
+    float z3 = z + hdt*k2_z;
+    float alt3 = fmaxf(z3, 0.0f);
+    float gr3 = EARTH_RADIUS / (EARTH_RADIUS + alt3);
+    float g3 = GRAVITY_G0 * gr3 * gr3;
+    float rho3 = ATM_RHO0 * expf(-alt3 / ATM_SCALE_HEIGHT);
+    float spd3 = sqrtf(vx3*vx3 + vy3*vy3 + vz3*vz3);
+    float df3 = SKIP_BETA * rho3 * spd3;
+    float drag_mag3 = df3 * spd3;
+    float lift_mag3 = SKIP_GLIDE_RATIO * drag_mag3;
+    float vxy_sq3 = vx3*vx3 + vy3*vy3;
+    float vxy3_val = sqrtf(vxy_sq3);
+    float lx3 = 0.0f, ly3 = 0.0f, lz3 = 0.0f;
+    if (spd3 > 1.0f && vxy3_val > 1.0f) {
+        float inv3 = 1.0f / (spd3 * vxy3_val);
+        lx3 = lift_mag3 * (-vz3 * vx3) * inv3;
+        ly3 = lift_mag3 * (-vz3 * vy3) * inv3;
+        lz3 = lift_mag3 * vxy_sq3 * inv3;
+    }
+    float k3_vx = -df3*vx3 + lx3;
+    float k3_vy = -df3*vy3 + ly3;
+    float k3_vz = -g3 - df3*vz3 + lz3;
+    float k3_x = vx3, k3_y = vy3, k3_z = vz3;
+
+    // Stage 4
+    float vx4 = vx + dt*k3_vx, vy4 = vy + dt*k3_vy, vz4 = vz + dt*k3_vz;
+    float z4 = z + dt*k3_z;
+    float alt4 = fmaxf(z4, 0.0f);
+    float gr4 = EARTH_RADIUS / (EARTH_RADIUS + alt4);
+    float g4 = GRAVITY_G0 * gr4 * gr4;
+    float rho4 = ATM_RHO0 * expf(-alt4 / ATM_SCALE_HEIGHT);
+    float spd4 = sqrtf(vx4*vx4 + vy4*vy4 + vz4*vz4);
+    float df4 = SKIP_BETA * rho4 * spd4;
+    float drag_mag4 = df4 * spd4;
+    float lift_mag4 = SKIP_GLIDE_RATIO * drag_mag4;
+    float vxy_sq4 = vx4*vx4 + vy4*vy4;
+    float vxy4_val = sqrtf(vxy_sq4);
+    float lx4 = 0.0f, ly4 = 0.0f, lz4 = 0.0f;
+    if (spd4 > 1.0f && vxy4_val > 1.0f) {
+        float inv4 = 1.0f / (spd4 * vxy4_val);
+        lx4 = lift_mag4 * (-vz4 * vx4) * inv4;
+        ly4 = lift_mag4 * (-vz4 * vy4) * inv4;
+        lz4 = lift_mag4 * vxy_sq4 * inv4;
+    }
+    float k4_vx = -df4*vx4 + lx4;
+    float k4_vy = -df4*vy4 + ly4;
+    float k4_vz = -g4 - df4*vz4 + lz4;
+    float k4_x = vx4, k4_y = vy4, k4_z = vz4;
+
+    // RK4 結合
+    float dt6 = dt / 6.0f;
+    pred_sp[0] = x + dt6 * (k1_x + 2.0f*k2_x + 2.0f*k3_x + k4_x);
+    pred_sp[1] = y + dt6 * (k1_y + 2.0f*k2_y + 2.0f*k3_y + k4_y);
+    pred_sp[2] = z + dt6 * (k1_z + 2.0f*k2_z + 2.0f*k3_z + k4_z);
+    pred_sp[3] = vx + dt6 * (k1_vx + 2.0f*k2_vx + 2.0f*k3_vx + k4_vx);
+    pred_sp[4] = vy + dt6 * (k1_vy + 2.0f*k2_vy + 2.0f*k3_vy + k4_vy);
+    pred_sp[5] = vz + dt6 * (k1_vz + 2.0f*k2_vz + 2.0f*k3_vz + k4_vz);
+
+    // 加速度: 最終状態から物理加速度を計算
+    float alt_f = fmaxf(pred_sp[2], 0.0f);
+    float gr_f = EARTH_RADIUS / (EARTH_RADIUS + alt_f);
+    float g_f = GRAVITY_G0 * gr_f * gr_f;
+    float rho_f = ATM_RHO0 * expf(-alt_f / ATM_SCALE_HEIGHT);
+    float spd_f = sqrtf(pred_sp[3]*pred_sp[3] + pred_sp[4]*pred_sp[4] + pred_sp[5]*pred_sp[5]);
+    float df_f = SKIP_BETA * rho_f * spd_f;
+    float drag_mag_f = df_f * spd_f;
+    float lift_mag_f = SKIP_GLIDE_RATIO * drag_mag_f;
+    float vxy_sq_f = pred_sp[3]*pred_sp[3] + pred_sp[4]*pred_sp[4];
+    float vxy_f = sqrtf(vxy_sq_f);
+    float lx_f = 0.0f, ly_f = 0.0f, lz_f = 0.0f;
+    if (spd_f > 1.0f && vxy_f > 1.0f) {
+        float inv_f = 1.0f / (spd_f * vxy_f);
+        lx_f = lift_mag_f * (-pred_sp[5] * pred_sp[3]) * inv_f;
+        ly_f = lift_mag_f * (-pred_sp[5] * pred_sp[4]) * inv_f;
+        lz_f = lift_mag_f * vxy_sq_f * inv_f;
+    }
+    pred_sp[6] = -df_f * pred_sp[3] + lx_f;
+    pred_sp[7] = -df_f * pred_sp[4] + ly_f;
+    pred_sp[8] = -g_f - df_f * pred_sp[5] + lz_f;
+}
+
 // ================================================================
 // カーネル実装
 // ================================================================
@@ -224,10 +360,11 @@ __global__ void predictSigmaPoints(
     float* pred_sp = &predicted_sigma_points[tid * n];
 
     switch (model_id) {
-        case 0: predictCV(sp, pred_sp, dt); break;
+        case 0: predictCA(sp, pred_sp, dt); break;
         case 1: predictBallistic(sp, pred_sp, dt); break;
         case 2: predictCoordinatedTurn(sp, pred_sp, dt); break;
-        default: predictCV(sp, pred_sp, dt); break;
+        case 3: predictSkipGlide(sp, pred_sp, dt); break;
+        default: predictCA(sp, pred_sp, dt); break;
     }
 }
 
@@ -569,10 +706,11 @@ __global__ void fusedPredict(
         float* pred_sp = &s_pred_sigma_points[tid * n];
 
         switch (model_id) {
-            case 0: predictCV(sp, pred_sp, dt); break;
+            case 0: predictCA(sp, pred_sp, dt); break;
             case 1: predictBallistic(sp, pred_sp, dt); break;
             case 2: predictCoordinatedTurn(sp, pred_sp, dt); break;
-            default: predictCV(sp, pred_sp, dt); break;
+            case 3: predictSkipGlide(sp, pred_sp, dt); break;
+            default: predictCA(sp, pred_sp, dt); break;
         }
     }
     __syncthreads();

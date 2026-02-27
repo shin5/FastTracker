@@ -18,9 +18,10 @@ constexpr int STATE_DIM = 9;
 
 // 運動モデルID
 enum class MotionModelID : int {
-    CV = 0,                // 等速直線（ミッドコース/巡航）
+    CA = 0,                // 等加速度（汎用持続加速：ブースト/グライド）
     BALLISTIC = 1,         // 弾道（重力+大気抗力）
-    COORDINATED_TURN = 2   // 旋回（HGV機動）
+    COORDINATED_TURN = 2,  // 旋回（HGV機動）
+    SKIP_GLIDE = 3         // スキップ/グライド（弾道+空力揚力）
 };
 
 // 観測ベクトル次元 [range, azimuth, elevation, doppler]
@@ -89,14 +90,16 @@ struct Track {
     int misses;                 // 連続観測ミス数
     int age;                    // 生成からの総フレーム数（M-of-N確認用）
     double last_update_time;    // 最終更新時刻
+    float snr_sum;              // 累積SNR [dB]（確認品質チェック用）
+    float existence_prob;       // ベルヌーイ存在確率（PMBM用、GNN/JPDAでは未使用）
     std::vector<float> model_probs;  // IMMモデル確率（3モデル用）
 
     Track() : id(-1), hits(0), misses(0), age(0), last_update_time(0.0),
-              track_state(TrackState::TENTATIVE) {
+              snr_sum(0.0f), existence_prob(0.5f), track_state(TrackState::TENTATIVE) {
         state.setZero();
         covariance.setIdentity();
         // 均等な初期確率（モデルバイアスなし、データから学習）
-        model_probs = {0.333333f, 0.333333f, 0.333333f};  // CV, Ballistic, CT
+        model_probs = {0.25f, 0.25f, 0.25f, 0.25f};  // CA, Ballistic, CT, SkipGlide
     }
 };
 
@@ -112,6 +115,21 @@ struct UKFParams {
     }
 };
 
+// データアソシエーション手法
+enum class AssociationMethod {
+    GNN,    // Global Nearest Neighbor (Hungarian)
+    JPDA,   // Joint Probabilistic Data Association
+    MHT,    // Multiple Hypothesis Tracking
+    PMBM,   // Poisson Multi-Bernoulli Mixture
+    GLMB    // Generalized Labeled Multi-Bernoulli
+};
+
+// GLMBサンプラー手法
+enum class GLMBSampler {
+    MURTY,  // Murty's K-best (deterministic, O(n³K))
+    GIBBS   // Gibbs sampler (stochastic, O(n·m·sweeps))
+};
+
 // データアソシエーションパラメータ
 struct AssociationParams {
     float gate_threshold;       // ゲート閾値（Mahalanobis距離）
@@ -122,6 +140,48 @@ struct AssociationParams {
     float min_snr_for_init;     // トラック生成に必要な最小SNR [dB]
     float max_jump_velocity;    // 位置ジャンプ制限用の最大速度 [m/s] (0=無制限)
     float min_init_distance;    // 新規トラック生成時の既存航跡との最小距離 [m] (0=チェックなし)
+
+    AssociationMethod association_method = AssociationMethod::GNN;
+    float jpda_pd = 0.8f;              // JPDA検出確率 Pd
+    float jpda_clutter_density = 1e-6f; // JPDAクラッタ密度 λ
+    float jpda_gate = 15.0f;           // JPDAゲート閾値（正規化距離）
+
+    // PMBM パラメータ
+    float pmbm_pd = 0.85f;              // PMBM検出確率
+    float pmbm_gate = 50.0f;            // PMBMゲート閾値（正規化距離）
+    float pmbm_clutter_density = 1e-6f; // PMBMクラッタ密度
+    int   pmbm_k_best = 5;              // Murty's K-best仮説数
+    float pmbm_survival_prob = 0.99f;   // 生存確率
+    float pmbm_initial_existence = 0.2f;// 新規トラック初期存在確率
+    float pmbm_confirm_existence = 0.5f;// CONFIRMED遷移閾値
+    float pmbm_prune_existence = 0.01f; // 削除閾値
+
+    // MHT パラメータ
+    float mht_pd = 0.85f;              // MHT検出確率
+    float mht_gate = 50.0f;            // MHTゲート閾値（正規化距離）
+    float mht_clutter_density = 1e-6f; // MHTクラッタ密度
+    int   mht_k_best = 10;             // Murty's K-best仮説数（フレームあたり）
+    int   mht_max_hypotheses = 100;    // 最大グローバル仮説数 M
+    float mht_score_decay = 0.9f;      // フレーム間スコア減衰率
+    float mht_prune_ratio = 0.01f;     // プルーニング閾値比（ベスト比）
+    float mht_switch_cost = 0.0f;      // 割当切替コスト（0=無効, >0でposition-based consistency有効）
+
+    // GLMB パラメータ
+    float glmb_pd = 0.85f;              // GLMB検出確率
+    float glmb_gate = 50.0f;            // GLMBゲート閾値（正規化距離）
+    float glmb_clutter_density = 1e-6f; // GLMBクラッタ密度
+    int   glmb_k_best = 5;             // Murty's K-best仮説数（フレームあたり）
+    int   glmb_max_hypotheses = 50;    // 最大グローバル仮説数 M
+    float glmb_survival_prob = 0.99f;  // 生存確率 Ps
+    float glmb_birth_weight = 0.01f;   // 誕生強度（新ラベル重み）
+    float glmb_prune_weight = 1e-5f;   // 仮説プルーニング閾値
+    float glmb_initial_existence = 0.2f; // 新規トラック初期存在確率
+    float glmb_confirm_existence = 0.5f; // CONFIRMED遷移閾値
+    float glmb_prune_existence = 0.01f;  // 削除閾値
+    float glmb_score_decay = 0.9f;      // フレーム間スコア減衰率
+    GLMBSampler glmb_sampler = GLMBSampler::MURTY;  // サンプラー手法
+    int   glmb_gibbs_sweeps = 100;     // Gibbs: 総スイープ数
+    int   glmb_gibbs_burnin = 10;      // Gibbs: バーンイン期間
 
     AssociationParams()
         : gate_threshold(500.0f),

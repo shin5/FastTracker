@@ -10,6 +10,10 @@
 #include "ukf/imm_ukf.cuh"
 #include "tracker/track_manager.hpp"
 #include "tracker/data_association.cuh"
+#include "tracker/jpda_association.hpp"
+#include "tracker/pmbm_association.hpp"
+#include "tracker/mht_association.hpp"
+#include "tracker/glmb_association.hpp"
 
 namespace fasttracker {
 
@@ -89,6 +93,10 @@ public:
     void setSensorPosition(float x, float y, float z = 0.0f) {
         sensor_x_ = x; sensor_y_ = y; sensor_z_ = z;
         if (data_association_) data_association_->setSensorPosition(x, y, z);
+        if (jpda_association_) jpda_association_->setSensorPosition(x, y, z);
+        if (pmbm_association_) pmbm_association_->setSensorPosition(x, y, z);
+        if (mht_association_) mht_association_->setSensorPosition(x, y, z);
+        if (glmb_association_) glmb_association_->setSensorPosition(x, y, z);
         if (track_manager_) track_manager_->setSensorPosition(x, y, z);
     }
 
@@ -104,7 +112,7 @@ public:
      * @param bal_mult Ballistic モデルのノイズ倍率
      * @param ct_mult CT モデルのノイズ倍率
      */
-    void setIMMNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult);
+    void setIMMNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult, float sg_mult);
 
     /**
      * @brief パフォーマンス統計を取得
@@ -129,6 +137,10 @@ private:
     std::unique_ptr<IMMFilter> imm_cpu_;     // CPU版IMM
     std::unique_ptr<TrackManager> track_manager_;
     std::unique_ptr<DataAssociation> data_association_;
+    std::unique_ptr<JPDAAssociation> jpda_association_;
+    std::unique_ptr<PMBMAssociation> pmbm_association_;
+    std::unique_ptr<MHTAssociation> mht_association_;
+    std::unique_ptr<GLMBAssociation> glmb_association_;
 
     // UKF測定更新用デバイスメモリ（事前確保: ホットループ内cudaMalloc/cudaFreeを回避）
     // WSL2/WDDM環境では反復cudaMallocがGPUメモリ断片化を引き起こし、
@@ -177,6 +189,11 @@ private:
      * @brief 消失トラックを削除
      */
     void pruneTracks();
+
+    /**
+     * @brief 測定空間で収束したCONFIRMED航跡ペアを検出し低品質側を削除
+     */
+    void pruneConvergedTracks();
 };
 
 } // namespace fasttracker

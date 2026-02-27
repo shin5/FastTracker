@@ -67,7 +67,7 @@ private:
     StateCov* d_output_covs_;       // [num_targets]
 
     // CUDAストリーム（モデル並列化用）
-    cudaStream_t streams_[3];
+    cudaStream_t streams_[4];
 
     /**
      * @brief デバイスメモリ確保

@@ -14,6 +14,8 @@ static constexpr float CPU_EARTH_RADIUS = 6371000.0f;
 static constexpr float CPU_ATM_RHO0 = 1.225f;
 static constexpr float CPU_ATM_SCALE_HEIGHT = 7400.0f;
 static constexpr float CPU_BALLISTIC_BETA = 0.001f;
+static constexpr float CPU_SKIP_BETA = 0.0001f;       // HGVグライド時の低抗力（弾道βの1/10）
+static constexpr float CPU_SKIP_GLIDE_RATIO = 3.0f;   // 揚力/抗力比（L/D）
 
 IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& external_noise)
     : num_models_(num_models), max_targets_(max_targets),
@@ -22,11 +24,11 @@ IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& extern
     UKFParams ukf_params;
     MeasurementNoise meas_noise;
 
-    // Model 0 (CV): 安定飛翔 — 外部ノイズの10%
-    ProcessNoise noise_cv;
-    noise_cv.position_noise = external_noise.position_noise * 0.1f;
-    noise_cv.velocity_noise = external_noise.velocity_noise * 0.1f;
-    noise_cv.accel_noise = external_noise.accel_noise * 0.1f;
+    // Model 0 (CA/Singer τ=20s): 汎用持続加速 — 外部ノイズの10%
+    ProcessNoise noise_ca;
+    noise_ca.position_noise = external_noise.position_noise * 0.1f;
+    noise_ca.velocity_noise = external_noise.velocity_noise * 0.1f;
+    noise_ca.accel_noise = external_noise.accel_noise * 0.1f;
 
     // Model 1 (Ballistic): 物理モデルが正確なので低め — 外部ノイズの30%
     ProcessNoise noise_bal;
@@ -40,9 +42,16 @@ IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& extern
     noise_ct.velocity_noise = external_noise.velocity_noise * 1.0f;
     noise_ct.accel_noise = external_noise.accel_noise * 1.0f;
 
-    process_noises_.push_back(noise_cv);
+    // Model 3 (SkipGlide): 弾道+揚力 — 外部ノイズの150%
+    ProcessNoise noise_sg;
+    noise_sg.position_noise = external_noise.position_noise * 1.5f;
+    noise_sg.velocity_noise = external_noise.velocity_noise * 1.5f;
+    noise_sg.accel_noise = external_noise.accel_noise * 1.5f;
+
+    process_noises_.push_back(noise_ca);
     process_noises_.push_back(noise_bal);
     process_noises_.push_back(noise_ct);
+    process_noises_.push_back(noise_sg);
 
     // 各モデルのUKF生成
     for (int i = 0; i < num_models_; i++) {
@@ -52,15 +61,17 @@ IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& extern
         );
     }
 
-    // モデル遷移確率行列（対角成分を強化してモデル切り替えを抑制）
-    //        → CV    → Bal   → CT
-    // CV    [0.95   0.04    0.01]   自己遷移95%（モデル保持を強く優先）
-    // Bal   [0.05   0.94    0.01]   自己遷移94%
-    // CT    [0.02   0.03    0.95]   自己遷移95%（一度CTになったら維持）
+    // モデル遷移確率行列 (4×4)
+    //        → CA    → Bal   → CT    → SG
+    // CA    [0.75   0.10    0.05    0.10]  汎用加速 → SG遷移を許容
+    // Bal   [0.08   0.72    0.05    0.15]  弾道 → SG高め（スキップは弾道後に発生）
+    // CT    [0.05   0.05    0.80    0.10]  旋回 → SG遷移を許容
+    // SG    [0.10   0.15    0.05    0.70]  SG → BAL高め（スキップ後は弾道に戻る）
     transition_matrix_ = {
-        {0.95f, 0.04f, 0.01f},  // CVから
-        {0.05f, 0.94f, 0.01f},  // Ballisticから
-        {0.02f, 0.03f, 0.95f}   // CTから
+        {0.75f, 0.10f, 0.05f, 0.10f},  // CAから
+        {0.08f, 0.72f, 0.05f, 0.15f},  // Ballisticから
+        {0.05f, 0.05f, 0.80f, 0.10f},  // CTから
+        {0.10f, 0.15f, 0.05f, 0.70f}   // SkipGlideから
     };
 }
 
@@ -69,18 +80,20 @@ IMMFilter::IMMFilter(int num_models, int max_targets, const ProcessNoise& extern
 // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
 // ================================================================
 
-StateVector IMMFilter::predictCV_CPU(const StateVector& state, float dt) {
+StateVector IMMFilter::predictCA_CPU(const StateVector& state, float dt) {
     StateVector pred;
-    // 位置: 等速直線
-    pred(0) = state(0) + state(3) * dt;
-    pred(1) = state(1) + state(4) * dt;
-    pred(2) = state(2) + state(5) * dt;
-    // 速度: 一定
-    pred(3) = state(3);
-    pred(4) = state(4);
-    pred(5) = state(5);
-    // 加速度: 減衰 (τ=5s)
-    float decay = std::exp(-dt / 5.0f);
+    float dt2 = 0.5f * dt * dt;
+    // Singer加速度モデル（CA + 指数減衰 τ=20s）
+    // 位置: 等加速度（加速度を運動学に結合）
+    pred(0) = state(0) + state(3) * dt + state(6) * dt2;
+    pred(1) = state(1) + state(4) * dt + state(7) * dt2;
+    pred(2) = state(2) + state(5) * dt + state(8) * dt2;
+    // 速度: 加速度から更新
+    pred(3) = state(3) + state(6) * dt;
+    pred(4) = state(4) + state(7) * dt;
+    pred(5) = state(5) + state(8) * dt;
+    // 加速度: 指数減衰（τ=20s — 持続加速を保持しつつ誤推定を自然修正）
+    float decay = std::exp(-dt / 20.0f);
     pred(6) = state(6) * decay;
     pred(7) = state(7) * decay;
     pred(8) = state(8) * decay;
@@ -225,14 +238,102 @@ StateVector IMMFilter::predictCT_CPU(const StateVector& state, float dt) {
     return pred;
 }
 
+StateVector IMMFilter::predictSkipGlide_CPU(const StateVector& state, float dt) {
+    float x = state(0), y = state(1), z = state(2);
+    float vx = state(3), vy = state(4), vz = state(5);
+
+    // RK4積分: 弾道（重力+抗力）+ 空力揚力
+    // 揚力方向: 速度に垂直、垂直面内、上向き成分
+    auto computeAccel = [](float px, float py, float pz,
+                           float velx, float vely, float velz) {
+        float alt = std::max(pz, 0.0f);
+        float gr = CPU_EARTH_RADIUS / (CPU_EARTH_RADIUS + alt);
+        float g = CPU_GRAVITY_G0 * gr * gr;
+        float rho = CPU_ATM_RHO0 * std::exp(-alt / CPU_ATM_SCALE_HEIGHT);
+        float spd = std::sqrt(velx*velx + vely*vely + velz*velz);
+        float drag_factor = CPU_SKIP_BETA * rho * spd;
+
+        // 抗力加速度（速度反対方向）
+        float ax_d = -drag_factor * velx;
+        float ay_d = -drag_factor * vely;
+        float az_d = -drag_factor * velz;
+
+        // 揚力加速度: |a_lift| = L/D * |a_drag|
+        // 方向: 速度に垂直、垂直面内、上向き
+        // n̂ = [-vz*vx, -vz*vy, vx²+vy²] / (|V| * |v_horiz|)
+        float drag_mag = drag_factor * spd;  // |a_drag|
+        float lift_mag = CPU_SKIP_GLIDE_RATIO * drag_mag;
+
+        float vxy_sq = velx*velx + vely*vely;
+        float vxy = std::sqrt(vxy_sq);
+
+        float ax_l = 0.0f, ay_l = 0.0f, az_l = 0.0f;
+        if (spd > 1.0f && vxy > 1.0f) {
+            float inv_norm = 1.0f / (spd * vxy);
+            ax_l = lift_mag * (-velz * velx) * inv_norm;
+            ay_l = lift_mag * (-velz * vely) * inv_norm;
+            az_l = lift_mag * vxy_sq * inv_norm;
+        }
+
+        // 合計: 重力 + 抗力 + 揚力
+        float ax_total = ax_d + ax_l;
+        float ay_total = ay_d + ay_l;
+        float az_total = -g + az_d + az_l;
+        return std::array<float, 3>{ax_total, ay_total, az_total};
+    };
+
+    // RK4 Stage 1
+    auto [k1_ax, k1_ay, k1_az] = computeAccel(x, y, z, vx, vy, vz);
+    float k1_x = vx, k1_y = vy, k1_z = vz;
+    float k1_vx = k1_ax, k1_vy = k1_ay, k1_vz = k1_az;
+
+    // RK4 Stage 2
+    float hdt = 0.5f * dt;
+    float x2 = x + hdt*k1_x, y2 = y + hdt*k1_y, z2 = z + hdt*k1_z;
+    float vx2 = vx + hdt*k1_vx, vy2 = vy + hdt*k1_vy, vz2 = vz + hdt*k1_vz;
+    auto [k2_ax, k2_ay, k2_az] = computeAccel(x2, y2, z2, vx2, vy2, vz2);
+    float k2_x = vx2, k2_y = vy2, k2_z = vz2;
+    float k2_vx = k2_ax, k2_vy = k2_ay, k2_vz = k2_az;
+
+    // RK4 Stage 3
+    float x3 = x + hdt*k2_x, y3 = y + hdt*k2_y, z3 = z + hdt*k2_z;
+    float vx3 = vx + hdt*k2_vx, vy3 = vy + hdt*k2_vy, vz3 = vz + hdt*k2_vz;
+    auto [k3_ax, k3_ay, k3_az] = computeAccel(x3, y3, z3, vx3, vy3, vz3);
+    float k3_x = vx3, k3_y = vy3, k3_z = vz3;
+    float k3_vx = k3_ax, k3_vy = k3_ay, k3_vz = k3_az;
+
+    // RK4 Stage 4
+    float x4 = x + dt*k3_x, y4 = y + dt*k3_y, z4 = z + dt*k3_z;
+    float vx4 = vx + dt*k3_vx, vy4 = vy + dt*k3_vy, vz4 = vz + dt*k3_vz;
+    auto [k4_ax, k4_ay, k4_az] = computeAccel(x4, y4, z4, vx4, vy4, vz4);
+    float k4_x = vx4, k4_y = vy4, k4_z = vz4;
+    float k4_vx = k4_ax, k4_vy = k4_ay, k4_vz = k4_az;
+
+    // RK4 結合
+    float dt6 = dt / 6.0f;
+    StateVector pred;
+    pred(0) = x + dt6 * (k1_x + 2.0f*k2_x + 2.0f*k3_x + k4_x);
+    pred(1) = y + dt6 * (k1_y + 2.0f*k2_y + 2.0f*k3_y + k4_y);
+    pred(2) = z + dt6 * (k1_z + 2.0f*k2_z + 2.0f*k3_z + k4_z);
+    pred(3) = vx + dt6 * (k1_vx + 2.0f*k2_vx + 2.0f*k3_vx + k4_vx);
+    pred(4) = vy + dt6 * (k1_vy + 2.0f*k2_vy + 2.0f*k3_vy + k4_vy);
+    pred(5) = vz + dt6 * (k1_vz + 2.0f*k2_vz + 2.0f*k3_vz + k4_vz);
+
+    // 加速度: 最終状態から物理加速度を計算
+    auto [ax_f, ay_f, az_f] = computeAccel(pred(0), pred(1), pred(2),
+                                             pred(3), pred(4), pred(5));
+    pred(6) = ax_f;
+    pred(7) = ay_f;
+    pred(8) = az_f;
+    return pred;
+}
+
 StateCov IMMFilter::computeApproxF(float dt) {
-    // 簡易線形化ヤコビアン（等速直線ベース）
+    // 簡易線形化ヤコビアン（位置←速度のみ）
     // 状態: [x, y, z, vx, vy, vz, ax, ay, az]
     StateCov F = StateCov::Identity();
     // 位置 ← 速度
-    F(0, 3) = dt;
-    F(1, 4) = dt;
-    F(2, 5) = dt;
+    F(0, 3) = dt;  F(1, 4) = dt;  F(2, 5) = dt;
     return F;
 }
 
@@ -265,7 +366,7 @@ void IMMFilter::predict(
         // -------------------------------------------------------
         // 1. 予測モデル確率 c_j = Σ_k π(k→j) * μ_k
         // -------------------------------------------------------
-        float c[3] = {0.0f, 0.0f, 0.0f};
+        float c[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         for (int j = 0; j < num_models_; j++) {
             for (int k = 0; k < num_models_; k++) {
                 int k_idx = i * num_models_ + k;
@@ -277,7 +378,7 @@ void IMMFilter::predict(
         }
 
         // 正規化
-        float c_sum = c[0] + c[1] + c[2];
+        float c_sum = c[0] + c[1] + c[2] + c[3];
         for (int j = 0; j < num_models_; j++) {
             c[j] /= c_sum;
         }
@@ -285,18 +386,19 @@ void IMMFilter::predict(
         // -------------------------------------------------------
         // 2. 各モデルで状態予測
         // -------------------------------------------------------
-        StateVector x_pred[3];
-        x_pred[0] = predictCV_CPU(states[i], dt);
+        StateVector x_pred[4];
+        x_pred[0] = predictCA_CPU(states[i], dt);
         x_pred[1] = predictBallistic_CPU(states[i], dt);
         x_pred[2] = predictCT_CPU(states[i], dt);
+        x_pred[3] = predictSkipGlide_CPU(states[i], dt);
 
         // モデル別予測を保存
-        per_model_predictions_[i] = {x_pred[0], x_pred[1], x_pred[2]};
+        per_model_predictions_[i] = {x_pred[0], x_pred[1], x_pred[2], x_pred[3]};
 
         // -------------------------------------------------------
         // 3. 各モデルの予測共分散 (線形近似 + モデル別Q)
         // -------------------------------------------------------
-        StateCov P_pred[3];
+        StateCov P_pred[4];
         StateCov P_base = F * covariances[i] * F.transpose();
 
         for (int j = 0; j < num_models_; j++) {
@@ -319,7 +421,7 @@ void IMMFilter::predict(
         }
 
         // モデル別予測共分散を保存
-        per_model_pred_covs_[i] = {P_pred[0], P_pred[1], P_pred[2]};
+        per_model_pred_covs_[i] = {P_pred[0], P_pred[1], P_pred[2], P_pred[3]};
 
         // -------------------------------------------------------
         // 4. 重み付き統合
@@ -422,7 +524,7 @@ void IMMFilter::updateModelProbabilities(
         z_actual(3) = measurements[k].doppler;
 
         // 各モデルの尤度を計算
-        float log_likelihoods[3];
+        float log_likelihoods[4];
         float max_log_lik = -1e30f;
 
         for (int j = 0; j < num_models_; j++) {
@@ -469,7 +571,7 @@ void IMMFilter::updateModelProbabilities(
         // ベイズ更新: μ_j = c_j * L_j / Σ c_k * L_k
         // 数値安定性のため log空間で正規化
         float weighted_sum = 0.0f;
-        float weighted[3];
+        float weighted[4];
         for (int j = 0; j < num_models_; j++) {
             float c_j = model_probs[prob_base + j];
             // exp(log_lik - max_log_lik) で数値安定化
@@ -484,7 +586,7 @@ void IMMFilter::updateModelProbabilities(
         // 自然なベイズ推論により、正しいモデルが選択される
         if (weighted_sum > 1e-30f) {
             // ベイズ更新による新しい確率を計算
-            float bayesian_probs[3];
+            float bayesian_probs[4];
             for (int j = 0; j < num_models_; j++) {
                 bayesian_probs[j] = weighted[j] / weighted_sum;
             }
@@ -493,7 +595,7 @@ void IMMFilter::updateModelProbabilities(
             // α = 0.7: ベイズ更新70% + 前回確率30%（実機動への素早い応答を許容）
             const float SMOOTHING_ALPHA = 0.7f;
 
-            float smoothed_probs[3];
+            float smoothed_probs[4];
             for (int j = 0; j < num_models_; j++) {
                 float old_prob = model_probs[prob_base + j];
                 smoothed_probs[j] = SMOOTHING_ALPHA * bayesian_probs[j] +
@@ -501,7 +603,7 @@ void IMMFilter::updateModelProbabilities(
             }
 
             // 再正規化（丸め誤差対策 + 制約による総和ずれ修正）
-            float sum = smoothed_probs[0] + smoothed_probs[1] + smoothed_probs[2];
+            float sum = smoothed_probs[0] + smoothed_probs[1] + smoothed_probs[2] + smoothed_probs[3];
             if (sum > 1e-6f) {
                 for (int j = 0; j < num_models_; j++) {
                     model_probs[prob_base + j] = smoothed_probs[j] / sum;
@@ -511,13 +613,13 @@ void IMMFilter::updateModelProbabilities(
     }
 }
 
-void IMMFilter::setModelNoiseMultipliers(float cv_mult, float bal_mult, float ct_mult) {
+void IMMFilter::setModelNoiseMultipliers(float ca_mult, float bal_mult, float ct_mult, float sg_mult) {
     // Update process noises for each model
-    if (process_noises_.size() >= 3) {
-        // Model 0 (CV)
-        process_noises_[0].position_noise = base_process_noise_.position_noise * cv_mult;
-        process_noises_[0].velocity_noise = base_process_noise_.velocity_noise * cv_mult;
-        process_noises_[0].accel_noise = base_process_noise_.accel_noise * cv_mult;
+    if (process_noises_.size() >= 4) {
+        // Model 0 (CA/Singer)
+        process_noises_[0].position_noise = base_process_noise_.position_noise * ca_mult;
+        process_noises_[0].velocity_noise = base_process_noise_.velocity_noise * ca_mult;
+        process_noises_[0].accel_noise = base_process_noise_.accel_noise * ca_mult;
 
         // Model 1 (Ballistic)
         process_noises_[1].position_noise = base_process_noise_.position_noise * bal_mult;
@@ -529,10 +631,10 @@ void IMMFilter::setModelNoiseMultipliers(float cv_mult, float bal_mult, float ct
         process_noises_[2].velocity_noise = base_process_noise_.velocity_noise * ct_mult;
         process_noises_[2].accel_noise = base_process_noise_.accel_noise * ct_mult;
 
-        // Update UKFs with new process noise
-        // Note: UKFs are already created, so we need to update their Q matrices
-        // This is a limitation - ideally UKF should have a setProcessNoise method
-        // For now, the noise will take effect on the next predict() call
+        // Model 3 (SkipGlide)
+        process_noises_[3].position_noise = base_process_noise_.position_noise * sg_mult;
+        process_noises_[3].velocity_noise = base_process_noise_.velocity_noise * sg_mult;
+        process_noises_[3].accel_noise = base_process_noise_.accel_noise * sg_mult;
     }
 }
 

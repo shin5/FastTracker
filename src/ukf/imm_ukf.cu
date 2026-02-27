@@ -105,7 +105,7 @@ __global__ void updateModelProbabilitiesKernel(
     if (target_idx >= num_targets) return;
 
     // 古い確率を保存（平滑化用）
-    float old_probs[3];
+    float old_probs[4];
     for (int i = 0; i < num_models; i++) {
         old_probs[i] = d_posterior_probs[target_idx * num_models + i];
     }
@@ -119,7 +119,7 @@ __global__ void updateModelProbabilitiesKernel(
     }
 
     // ベイズ確率を計算
-    float bayesian_probs[3];
+    float bayesian_probs[4];
     for (int i = 0; i < num_models; i++) {
         float prior = d_prior_probs[target_idx * num_models + i];
         float likelihood = d_likelihoods[target_idx * num_models + i];
@@ -131,14 +131,14 @@ __global__ void updateModelProbabilitiesKernel(
     // α = 0.7: ベイズ更新70% + 履歴30%（実機動への素早い応答を許容）
     const float SMOOTHING_ALPHA = 0.7f;
 
-    float smoothed_probs[3];
+    float smoothed_probs[4];
     for (int i = 0; i < num_models; i++) {
         smoothed_probs[i] = SMOOTHING_ALPHA * bayesian_probs[i] +
                            (1.0f - SMOOTHING_ALPHA) * old_probs[i];
     }
 
     // 再正規化
-    float sum = smoothed_probs[0] + smoothed_probs[1] + smoothed_probs[2];
+    float sum = smoothed_probs[0] + smoothed_probs[1] + smoothed_probs[2] + smoothed_probs[3];
     if (sum > 1e-6f) {
         for (int i = 0; i < num_models; i++) {
             d_posterior_probs[target_idx * num_models + i] = smoothed_probs[i] / sum;
@@ -224,7 +224,7 @@ IMMFilterGPU::IMMFilterGPU(int num_models, int max_targets)
     // デフォルトの外部ノイズ基準値
     ProcessNoise ext_noise;  // デフォルト値を使用
 
-    // Model 0 (CV): 安定飛翔 — 外部ノイズの10%
+    // Model 0 (CA/Singer τ=20s): 汎用持続加速 — 外部ノイズの10%
     ProcessNoise noise1;
     noise1.position_noise = ext_noise.position_noise * 0.1f;
     noise1.velocity_noise = ext_noise.velocity_noise * 0.1f;
@@ -242,9 +242,16 @@ IMMFilterGPU::IMMFilterGPU(int num_models, int max_targets)
     noise3.velocity_noise = ext_noise.velocity_noise * 1.0f;
     noise3.accel_noise = ext_noise.accel_noise * 1.0f;
 
+    // Model 3 (SkipGlide): 弾道+揚力 — 外部ノイズの150%
+    ProcessNoise noise4;
+    noise4.position_noise = ext_noise.position_noise * 1.5f;
+    noise4.velocity_noise = ext_noise.velocity_noise * 1.5f;
+    noise4.accel_noise = ext_noise.accel_noise * 1.5f;
+
     process_noises_.push_back(noise1);
     process_noises_.push_back(noise2);
     process_noises_.push_back(noise3);
+    process_noises_.push_back(noise4);
 
     // 各モデルのUKF生成（GPU版）
     for (int i = 0; i < num_models_; i++) {
@@ -254,15 +261,17 @@ IMMFilterGPU::IMMFilterGPU(int num_models, int max_targets)
         );
     }
 
-    // モデル遷移確率行列（CPU版と同一）
-    //        → CV    → Bal   → CT
-    // CV    [0.80   0.15    0.05]
-    // Bal   [0.10   0.85    0.05]
-    // CT    [0.05   0.10    0.85]
+    // モデル遷移確率行列（CPU版と同一、4×4）
+    //        → CA    → Bal   → CT    → SG
+    // CA    [0.75   0.10    0.05    0.10]  汎用加速 → SG遷移を許容
+    // Bal   [0.08   0.72    0.05    0.15]  弾道 → SG高め（スキップは弾道後に発生）
+    // CT    [0.05   0.05    0.80    0.10]  旋回 → SG遷移を許容
+    // SG    [0.10   0.15    0.05    0.70]  SG → BAL高め（スキップ後は弾道に戻る）
     h_transition_matrix_ = {
-        {0.80f, 0.15f, 0.05f},  // CVから
-        {0.10f, 0.85f, 0.05f},  // Ballisticから
-        {0.05f, 0.10f, 0.85f}   // CTから
+        {0.75f, 0.10f, 0.05f, 0.10f},  // CAから
+        {0.08f, 0.72f, 0.05f, 0.15f},  // Ballisticから
+        {0.05f, 0.05f, 0.80f, 0.10f},  // CTから
+        {0.10f, 0.15f, 0.05f, 0.70f}   // SkipGlideから
     };
 
     // CUDAストリーム作成（モデル並列化用）
